@@ -134,8 +134,9 @@ private:
     void BindWrappedVolume(IDirect3DDevice9* dev, DWORD stage, IDirect3DVolumeTexture9* volume);
     FogParams DrawableFog(IDirect3DDevice9* dev, const FogParams& fog);
     void BindSunShadows(IDirect3DDevice9* dev, const FrameInputs& in, const WorldShadowInputs& shadows,
-                        const float* control);
-    bool UpdateTerrainShadows(IDirect3DDevice9* dev, const FrameInputs& in, const Config& cfg);
+                        const float* shadowToLight, const float* control);
+    bool UpdateTerrainShadows(IDirect3DDevice9* dev, const FrameInputs& in, const float* shadowToLight,
+                              const Config& cfg);
     void BindTerrainShadows(IDirect3DDevice9* dev, bool active);
     void UploadLayerNoise(IDirect3DDevice9* dev, const FogParams& fog, const float* camera, long long now);
     bool RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDirect3DSurface9* target,

@@ -140,6 +140,13 @@ conservatively cover the hidden space behind them. So a nearer tree or character
 mountain; sky rays keep a finite occluder thickness. The character map then darkens what it covers. Without the client's
 maps (`WorldShadows=0`, its shadows off, or an unrecognised image) the trace covers everything.
 
+The trace, the native maps and the terrain shadows share one direction: the client's shadow light at `0x00D43180`, the
+direction its own shadow maps are cast along. It is used whenever that vector is finite and of length 0.7 to 1.2, whether
+or not the maps are acquired. Before, the trace used it only with the maps and the sun or moon body otherwise, so the
+shadows switched direction when the maps came and went. The owner's log from 2026-10-19 shows the switch: at 22:31:38 the
+maps appeared with the light `(0.405 0.405 0.820)` while the moon's `toLight` was `(0.70 0.70 0.13)`, about 50° apart. The
+fog's glow and direct light still come from the sun or moon in the sky.
+
 **Terrain shadows.** With `LightShafts=1` the terrain blocks the sun or moon from its heights, not from the image. So a hill
 or cliff outside the view or behind the camera still shades the fog. The renderer tracks the loaded terrain chunks (see
 Terrain heights) in a window of 64×64 chunks, 512×512 outer vertices 4.17 yd apart, about 2133 yd across, centred on the

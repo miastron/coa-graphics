@@ -1860,6 +1860,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "water_mask_packing_checks.h"
 #include "terrain_shadow_reference.h"
 #include "terrain_shadow_checks.h"
+#include "shadow_light_checks.h"
 #include "water_contact_checks.h"
 #include "water_ripple_checks.h"
 #include "water_checks.h"
@@ -1941,6 +1942,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     classic_phase::CheckClassicPhase();
     transparent_fog_checks::CheckStockFogFit(classic);
     terrain_shadow_checks::CheckTerrainShadows();
+    shadow_light_checks::CheckShadowDirection();
     resource_retry::CheckRetryGate();
 
     CreateDirectoryW(outDir.c_str(), nullptr);

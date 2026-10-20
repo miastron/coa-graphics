@@ -3,7 +3,9 @@
 #include "client_memory.h"
 #include "engine.h"
 #include "log.h"
+#include "shadow_light.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iterator>
@@ -121,19 +123,10 @@ bool AcquireWorldShadowsUnsafe(IDirect3DDevice9* device, WorldShadowInputs& out)
     out.hardwareComparison = hardware != 0;
     out.count = quality > 2 ? kWorldShadowMapCount : 1;
     ReadFloats(kShadowViewMatrices, &out.viewToShadow[0][0], std::size(out.viewToShadow[0]) * out.count);
-    ReadFloats(kShadowLightDirection, out.toLight, std::size(out.toLight));
-    float lightLengthSquared = 0.0f;
-    for (float component : out.toLight)
-    {
-        if (!std::isfinite(component))
-            return false;
-        lightLengthSquared += component * component;
-    }
-    if (!(lightLengthSquared > 0.5f && lightLengthSquared < 1.5f))
+    float clientVector[3];
+    engine::ReadClientShadowVector(clientVector);
+    if (!ShadowLightFromClientVector(clientVector, out.toLight))
         return false;
-    const float inverseLightLength = -1.0f / std::sqrt(lightLengthSquared);
-    for (float& component : out.toLight)
-        component *= inverseLightLength;
     for (int i = 0; i < out.count; ++i)
     {
         if (!FiniteMatrix(out.viewToShadow[i]))
@@ -164,6 +157,24 @@ bool TryAcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out)
         return false;
     }
 }
+
+bool ReadClientShadowVectorUnsafe(float* out)
+{
+    ReadFloats(kShadowLightDirection, out, 3);
+    return true;
+}
+
+bool TryReadClientShadowVector(float* out)
+{
+    __try
+    {
+        return ReadClientShadowVectorUnsafe(out);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
 }
 
 namespace engine
@@ -188,6 +199,12 @@ bool AcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out)
         lastLoggedMode = mode;
     }
     return acquired;
+}
+
+void ReadClientShadowVector(float* out)
+{
+    if (!TryReadClientShadowVector(out))
+        std::fill_n(out, 3, 0.0f);
 }
 
 void ReleaseWorldShadows(WorldShadowInputs& in)

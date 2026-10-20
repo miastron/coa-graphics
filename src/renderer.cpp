@@ -2,6 +2,7 @@
 
 #include "engine_shadows.h"
 #include "engine_terrain.h"
+#include "shadow_light.h"
 #include "fog_data.h"
 #include "fog_model.h"
 #include "fullscreen_triangle.h"
@@ -1123,10 +1124,10 @@ void Renderer::BindWrappedVolume(IDirect3DDevice9* dev, DWORD stage, IDirect3DVo
 }
 
 void Renderer::BindSunShadows(IDirect3DDevice9* dev, const FrameInputs& in, const WorldShadowInputs& shadows,
-                              const float* control)
+                              const float* shadowToLight, const float* control)
 {
     float toShadowLightInView[3];
-    TransformDirection(shadows.count > 0 ? shadows.toLight : in.toLight, in.cameraRelativeView, toShadowLightInView);
+    TransformDirection(shadowToLight, in.cameraRelativeView, toShadowLightInView);
     Normalize3(toShadowLightInView);
     const Float4 light = {toShadowLightInView[0], toShadowLightInView[1], toShadowLightInView[2], 0.0f};
     dev->SetPixelShaderConstantF(kSunShadowRegister, control, 1);
@@ -1136,13 +1137,14 @@ void Renderer::BindSunShadows(IDirect3DDevice9* dev, const FrameInputs& in, cons
         BindTexture(dev, kFirstWorldShadowStage + i, shadows.textures[i], shadows.hardwareComparison);
 }
 
-bool Renderer::UpdateTerrainShadows(IDirect3DDevice9* dev, const FrameInputs& in, const Config& cfg)
+bool Renderer::UpdateTerrainShadows(IDirect3DDevice9* dev, const FrameInputs& in, const float* shadowToLight,
+                                    const Config& cfg)
 {
     static const bool supported = engine::TerrainContractSupported();
     if (!cfg.lightShafts || !supported)
         return false;
     const int loadedBefore = m_terrainShadows.Window().LoadedChunks();
-    const bool active = m_terrainShadows.Update(dev, in.camPos, in.mapId, in.toLight, engine::ClientTerrain(),
+    const bool active = m_terrainShadows.Update(dev, in.camPos, in.mapId, shadowToLight, engine::ClientTerrain(),
                                                 TickSeconds(Ticks()));
     const int loaded = m_terrainShadows.Window().LoadedChunks();
     if ((loadedBefore == 0) != (loaded == 0))
@@ -1540,11 +1542,16 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     TransformDirection(in.toLight, in.cameraRelativeView, toLightInView);
     Normalize3(toLightInView);
 
+    float clientShadowVector[3];
+    engine::ReadClientShadowVector(clientShadowVector);
+    float shadowToLight[3];
+    ShadowDirection(clientShadowVector, in.toLight, shadowToLight);
+
     ScopedWorldShadows worldShadows;
     if (cfg.lightShafts && cfg.worldShadows)
         engine::AcquireWorldShadows(dev, worldShadows.inputs);
     const WorldShadowInputs& shadows = worldShadows.inputs;
-    const bool terrainShadows = UpdateTerrainShadows(dev, in, cfg);
+    const bool terrainShadows = UpdateTerrainShadows(dev, in, shadowToLight, cfg);
     const int shadowMode = shadows.count | (shadows.hardwareComparison ? kHardwareShadowModeBit : 0);
 
     float common[9][4] = {
@@ -1627,7 +1634,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     dev->SetPixelShaderConstantF(12, &fog.layers[0].start, 6 * kFogLayers);
     const Float4 sunShadow = {cfg.lightShafts ? 1.0f : 0.0f, shadows.hardwareComparison ? 1.0f : 0.0f,
                               shadows.count > 1 ? 1.0f : 0.0f, shadows.count > 0 ? 1.0f : 0.0f};
-    BindSunShadows(dev, in, shadows, &sunShadow.x);
+    BindSunShadows(dev, in, shadows, shadowToLight, &sunShadow.x);
     BindTerrainShadows(dev, terrainShadows);
     uint32_t pointLightCount = cfg.localLights ? std::min(in.localLights.pointLightCount, kMaxLocalPointLights) : 0;
     Float4 localConstants[32] = {};
