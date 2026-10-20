@@ -757,6 +757,16 @@ bool CameraInLiquid()
     return Read<uint32_t>(kCameraInLiquid) != 0;
 }
 
+void ReadCameraPosition(float out[3])
+{
+    ReadFloats(kCameraPosition, out, 3);
+}
+
+int ReadCurrentMap()
+{
+    return Read<int32_t>(kCurrentMap);
+}
+
 ScreenEffects ReadScreenEffects()
 {
     ScreenEffects effects;

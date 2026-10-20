@@ -15,6 +15,7 @@ bool InstallEngineHooks();
 void EnableForeverLookOnHookedClient();
 bool InstallTransparentFogHooks();
 bool InstallSpellLightHooks();
+bool InstallTreeWindHooks();
 
 void InstallFarClipHooks();
 
@@ -48,6 +49,7 @@ extern "C" void __cdecl vf_on_water_pass_end();
 extern "C" void __cdecl vf_on_single_particle_render(uintptr_t emitter, uintptr_t sceneRender);
 extern "C" void __cdecl vf_on_batched_particle_render(uintptr_t emitter, uintptr_t callerFrame);
 extern "C" void __cdecl vf_on_mesh_batch_drawn(uintptr_t sceneRender);
+extern "C" void __cdecl vf_on_model_animate(void* instance);
 
 void RecordHookedFogFrame(bool rendered, bool cameraUnderLiquid, const char* skip);
 void UseTestWorldClient(const FrameInputs& in, bool glowScreenEffectRuns);
@@ -65,6 +67,8 @@ unsigned TestWaterContactReads();
 void RefuseTestWaterContacts(bool refused);
 const void* RetargetWaterPassThunk(uintptr_t target);
 const void* RetargetMeshBatchDrawThunk(uintptr_t target);
+void RetargetModelAnimateThunks(uintptr_t full, uintptr_t simple, const float* camera, const void*& fullThunk,
+                                const void*& simpleThunk);
 void RetargetParticleRenderThunks(uintptr_t target, uintptr_t worldSceneSlot, const void*& single,
                                   const void*& batched);
 void ReuseWaterPassBeginArgumentSlot(bool reuse);

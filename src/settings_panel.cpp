@@ -375,6 +375,72 @@ bool DrawWater(Config& c)
     return changed;
 }
 
+bool DrawWindWave(Config& c, bool tree)
+{
+    float& direction = tree ? c.treeWindDirection : c.bushWindDirection;
+    float& speed = tree ? c.treeWindSpeed : c.bushWindSpeed;
+    float& amplitude = tree ? c.treeWindAmplitude : c.bushWindAmplitude;
+    float& wavelength = tree ? c.treeWindWavelength : c.bushWindWavelength;
+    float& lean = tree ? c.treeWindLean : c.bushWindLean;
+    float& crossAmplitude = tree ? c.treeWindCrossAmplitude : c.bushWindCrossAmplitude;
+    float& crossWavelength = tree ? c.treeWindCrossWavelength : c.bushWindCrossWavelength;
+    float& crossAngle = tree ? c.treeWindCrossAngle : c.bushWindCrossAngle;
+    float& variance = tree ? c.treeWindVariance : c.bushWindVariance;
+    float& gust = tree ? c.treeWindGust : c.bushWindGust;
+    float& distanceFade = tree ? c.treeWindDistanceFade : c.bushWindDistanceFade;
+    bool changed = Slider("Direction", direction, 0.0f, 360.0f, "%.0f", "Wind heading in the world plane, degrees");
+    changed |= Slider("Speed", speed, 0.0f, 12.0f, "%.2f", "How fast the waves travel, yards per second");
+    changed |= Slider("Amplitude", amplitude, 0.0f, 6.0f, "%.2f", "Tilt of the primary wave at the crown, degrees");
+    changed |= Slider("Wavelength", wavelength, 2.0f, 80.0f, "%.1f", "Length of the primary wave, yards");
+    changed |= Slider("Lean", lean, 0.0f, 4.0f, "%.2f", "Constant downwind lean, degrees");
+    changed |= Slider("Cross amplitude", crossAmplitude, 0.0f, 3.0f, "%.2f", "Tilt of the secondary swell, degrees");
+    changed |= Slider("Cross wavelength", crossWavelength, 2.0f, 40.0f, "%.1f", "Length of the secondary swell, yards");
+    changed |= Slider("Cross angle", crossAngle, 0.0f, 180.0f, "%.0f",
+                      "Heading of the secondary swell relative to the primary wave, degrees");
+    changed |= Slider("Variance", variance, 0.0f, 1.0f, "%.2f", "Spread of the sway between neighbours, 0 = uniform");
+    changed |= Slider("Gust", gust, 0.0f, 1.0f, "%.2f", "Depth of the slow gust modulation, 0 = none");
+    changed |= Slider("Distance fade", distanceFade, 0.0f, 0.05f, "%.3f",
+                      "Sway attenuation per yard of distance, 0 = none");
+    return changed;
+}
+
+bool DrawTreeWind(Config& c)
+{
+    const Section section("Tree wind");
+    if (!section)
+        return false;
+    bool changed = Toggle("Trees sway", c.treeWind,
+                          "Tilt placed trees with travelling waves of wind; takes effect on the next frame");
+    changed |= DrawWindWave(c, true);
+    changed |= Toggle("Placed doodads only", c.treeDoodadsOnly, "Only map-placed models, never units or spell effects");
+    changed |= Toggle("Match foliage names", c.treeMatchNames, "The model name must contain a live-tree word");
+    changed |= Toggle("Match tall models", c.treeMatchTallThin,
+                      "The model's bounds must be tall and narrow; every enabled test must pass");
+    changed |= Toggle("Skip dead trees", c.treeSkipDead, "Leave dead, bare, burnt and felled models still");
+    changed |= Slider("Min height", c.treeMinHeight, 0.0f, 40.0f, "%.1f", "Tall-model test: least height, yards");
+    changed |= Slider("Min aspect", c.treeMinAspect, 0.5f, 6.0f, "%.2f", "Tall-model test: height over width");
+    changed |= Slider("Max height", c.treeMaxHeight, 0.0f, 300.0f, "%.0f",
+                      "Trees taller than this stay still, yards, 0 = no limit");
+    changed |= Slider("Max distance", c.treeMaxDistance, 0.0f, 500.0f, "%.0f",
+                      "Trees farther than this stay still, yards, 0 = no limit");
+    return changed;
+}
+
+bool DrawBushWind(Config& c)
+{
+    const Section section("Bush wind");
+    if (!section)
+        return false;
+    bool changed = Toggle("Bushes sway", c.bushWind,
+                          "Tilt placed bushes and ferns with their own wind; matched by name only");
+    changed |= DrawWindWave(c, false);
+    changed |= Toggle("Placed doodads only", c.bushDoodadsOnly, "Only map-placed models, never units or spell effects");
+    changed |= Toggle("Skip dead bushes", c.bushSkipDead, "Leave dead and bare bushes still");
+    changed |= Slider("Max distance", c.bushMaxDistance, 0.0f, 500.0f, "%.0f",
+                      "Bushes farther than this stay still, yards, 0 = no limit");
+    return changed;
+}
+
 bool DrawDebug(Config& c)
 {
     const Section section("Debug");
@@ -426,6 +492,8 @@ bool SettingsPanel::DrawSettings(Config& edited, const FogFrameStatus& fogStatus
     changed |= DrawWorld(edited);
     changed |= DrawAntialiasing(edited);
     changed |= DrawWater(edited);
+    changed |= DrawTreeWind(edited);
+    changed |= DrawBushWind(edited);
     changed |= DrawDebug(edited);
     ImGui::PopItemWidth();
     ImGui::EndChild();

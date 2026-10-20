@@ -121,6 +121,47 @@ const BoolSetting kWaterBoolSettings[] = {
     {"WaterClientSplashes", &Config::waterClientSplashes},
 };
 
+const FloatSetting kTreeWindFloatSettings[] = {
+    {"TreeWindDirection", &Config::treeWindDirection, 0.0f, 360.0f},
+    {"TreeWindSpeed", &Config::treeWindSpeed, 0.0f, 12.0f},
+    {"TreeWindAmplitude", &Config::treeWindAmplitude, 0.0f, 6.0f},
+    {"TreeWindWavelength", &Config::treeWindWavelength, 2.0f, 80.0f},
+    {"TreeWindCrossAmplitude", &Config::treeWindCrossAmplitude, 0.0f, 3.0f},
+    {"TreeWindCrossWavelength", &Config::treeWindCrossWavelength, 2.0f, 40.0f},
+    {"TreeWindCrossAngle", &Config::treeWindCrossAngle, 0.0f, 180.0f},
+    {"TreeWindLean", &Config::treeWindLean, 0.0f, 4.0f},
+    {"TreeWindVariance", &Config::treeWindVariance, 0.0f, 1.0f},
+    {"TreeWindGust", &Config::treeWindGust, 0.0f, 1.0f},
+    {"TreeWindDistanceFade", &Config::treeWindDistanceFade, 0.0f, 0.05f},
+    {"TreeMinHeight", &Config::treeMinHeight, 0.0f, 40.0f},
+    {"TreeMinAspect", &Config::treeMinAspect, 0.5f, 6.0f},
+    {"TreeMaxHeight", &Config::treeMaxHeight, 0.0f, 300.0f},
+    {"TreeMaxDistance", &Config::treeMaxDistance, 0.0f, 500.0f},
+    {"BushWindDirection", &Config::bushWindDirection, 0.0f, 360.0f},
+    {"BushWindSpeed", &Config::bushWindSpeed, 0.0f, 12.0f},
+    {"BushWindAmplitude", &Config::bushWindAmplitude, 0.0f, 6.0f},
+    {"BushWindWavelength", &Config::bushWindWavelength, 2.0f, 80.0f},
+    {"BushWindCrossAmplitude", &Config::bushWindCrossAmplitude, 0.0f, 3.0f},
+    {"BushWindCrossWavelength", &Config::bushWindCrossWavelength, 2.0f, 40.0f},
+    {"BushWindCrossAngle", &Config::bushWindCrossAngle, 0.0f, 180.0f},
+    {"BushWindLean", &Config::bushWindLean, 0.0f, 4.0f},
+    {"BushWindVariance", &Config::bushWindVariance, 0.0f, 1.0f},
+    {"BushWindGust", &Config::bushWindGust, 0.0f, 1.0f},
+    {"BushWindDistanceFade", &Config::bushWindDistanceFade, 0.0f, 0.05f},
+    {"BushMaxDistance", &Config::bushMaxDistance, 0.0f, 500.0f},
+};
+
+const BoolSetting kTreeWindBoolSettings[] = {
+    {"TreeWind", &Config::treeWind},
+    {"TreeDoodadsOnly", &Config::treeDoodadsOnly},
+    {"TreeMatchNames", &Config::treeMatchNames},
+    {"TreeMatchTallThin", &Config::treeMatchTallThin},
+    {"TreeSkipDead", &Config::treeSkipDead},
+    {"BushWind", &Config::bushWind},
+    {"BushDoodadsOnly", &Config::bushDoodadsOnly},
+    {"BushSkipDead", &Config::bushSkipDead},
+};
+
 template <typename Visit>
 void ForEachIntSetting(Visit visit)
 {
@@ -145,6 +186,8 @@ void ForEachFloatSetting(Visit visit)
         visit(s);
     for (const FloatSetting& s : kWaterFloatSettings)
         visit(s);
+    for (const FloatSetting& s : kTreeWindFloatSettings)
+        visit(s);
 }
 
 template <typename Visit>
@@ -155,6 +198,8 @@ void ForEachBoolSetting(Visit visit)
     for (const BoolSetting& s : kImageBoolSettings)
         visit(s);
     for (const BoolSetting& s : kWaterBoolSettings)
+        visit(s);
+    for (const BoolSetting& s : kTreeWindBoolSettings)
         visit(s);
 }
 
@@ -370,7 +415,8 @@ bool SameLiveSettings(const Config& a, const Config& b)
            SameValues(kImageIntSettings, a, b) && SameValues(kImageFloatSettings, a, b) &&
            SameValues(kImageBoolSettings, a, b) &&
            SameValues(kWaterIntSettings, a, b) && SameValues(kWaterFloatSettings, a, b) &&
-           SameValues(kWaterBoolSettings, a, b);
+           SameValues(kWaterBoolSettings, a, b) && SameValues(kTreeWindFloatSettings, a, b) &&
+           SameValues(kTreeWindBoolSettings, a, b);
 }
 
 std::string SettingChanges(const Config& before, const Config& after)

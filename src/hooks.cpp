@@ -11,6 +11,7 @@
 #include "spell_lights.h"
 #include "texture_tint.h"
 #include "transparent_fog.h"
+#include "tree_wind.h"
 #include "water_classify.h"
 #include "water_renderer.h"
 #include "status_log.h"
@@ -66,6 +67,13 @@ uintptr_t g_particleRenderTarget = engine::kParticleEmitterRender;
 uintptr_t g_meshBatchDrawTarget = engine::kM2BatchDraw;
 uintptr_t g_worldSceneSlot = engine::kWorldM2Scene;
 bool g_spellLightHooksInstalled = false;
+uintptr_t g_modelAnimateFullTarget = engine::kModelAnimateFull;
+uintptr_t g_modelAnimateSimpleTarget = engine::kModelAnimateSimple;
+bool g_treeWindHooksInstalled = false;
+bool g_treeWindFailed = false;
+int g_treeWindMap = -1;
+const float* g_testTreeWindCamera = nullptr;
+Config g_treeWindConfigured;
 int g_spellLightsObserved = 0;
 
 uintptr_t g_m2BatchFogTarget = engine::kM2BatchFogTarget;
@@ -332,9 +340,28 @@ void PublishSpellLights()
     g_spellLightsObserved = observed ? 1 : 0;
 }
 
+void ConfigureTreeWind()
+{
+    if (!g_treeWindHooksInstalled)
+        return;
+    const Config& cfg = GlobalConfig().Get();
+    if (!SameLiveSettings(cfg, g_treeWindConfigured))
+    {
+        g_treeWindConfigured = cfg;
+        GlobalTreeWind().Configure(TreeWindSettingsFrom(cfg));
+    }
+    const int map = engine::ReadCurrentMap();
+    if (map != g_treeWindMap)
+    {
+        g_treeWindMap = map;
+        GlobalTreeWind().Clear();
+    }
+}
+
 void OnFrameBegin()
 {
     PublishSpellLights();
+    ConfigureTreeWind();
     g_renderedThisFrame = false;
     ResetTransparentFogFrame();
     if (FogDrawsInPlaceOfStockFog())
@@ -1203,6 +1230,27 @@ extern "C" void __cdecl vf_on_mesh_batch_drawn(uintptr_t sceneRender)
     engine::ObserveMeshBatchDraw(GlobalSpellLights(), sceneRender, g_worldSceneSlot);
 }
 
+extern "C" void __cdecl vf_on_model_animate(void* instance)
+{
+    if (g_treeWindFailed)
+        return;
+    __try
+    {
+        float camera[3];
+        if (g_testTreeWindCamera)
+            std::memcpy(camera, g_testTreeWindCamera, sizeof(camera));
+        else
+            engine::ReadCameraPosition(camera);
+        GlobalTreeWind().Sway(instance, camera, GetTickCount());
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_treeWindFailed = true;
+        VF_LOG_ERROR("exception 0x%08X in the tree wind hook; trees and bushes stop swaying for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+    }
+}
+
 extern "C" void __cdecl vf_on_liquid_begin()
 {
     __try
@@ -1418,6 +1466,42 @@ __declspec(naked) static void MeshBatchDrawThunk()
     drawn:
         ret
     }
+}
+
+__declspec(naked) static void ModelAnimateFullThunk()
+{
+    __asm {
+        push ecx
+        push ecx
+        call vf_on_model_animate
+        add esp, 4
+        pop ecx
+        jmp dword ptr [g_modelAnimateFullTarget]
+    }
+}
+
+__declspec(naked) static void ModelAnimateSimpleThunk()
+{
+    __asm {
+        push ecx
+        push ecx
+        call vf_on_model_animate
+        add esp, 4
+        pop ecx
+        jmp dword ptr [g_modelAnimateSimpleTarget]
+    }
+}
+
+void RetargetModelAnimateThunks(uintptr_t full, uintptr_t simple, const float* camera, const void*& fullThunk,
+                                const void*& simpleThunk)
+{
+    g_modelAnimateFullTarget = full;
+    g_modelAnimateSimpleTarget = simple;
+    g_testTreeWindCamera = camera;
+    g_treeWindFailed = false;
+    GlobalTreeWind().Configure(TreeWindSettingsFrom(GlobalConfig().Get()));
+    fullThunk = reinterpret_cast<const void*>(&ModelAnimateFullThunk);
+    simpleThunk = reinterpret_cast<const void*>(&ModelAnimateSimpleThunk);
 }
 
 const void* RetargetMeshBatchDrawThunk(uintptr_t target)
@@ -1694,6 +1778,26 @@ bool InstallTransparentFogHooks()
     VF_LOG_INFO("transparent fog hooks installed: M2 batch fog 0x%08X, glare pass 0x%08X (TransparentFog=%d)",
                 static_cast<unsigned>(engine::kM2BatchFogSite), static_cast<unsigned>(engine::kGlarePassSite),
                 GlobalConfig().Get().transparentFog ? 1 : 0);
+    return true;
+}
+
+bool InstallTreeWindHooks()
+{
+    CallSite sites[sizeof(engine::kModelAnimateFullSites) / sizeof(uintptr_t) +
+                   sizeof(engine::kModelAnimateSimpleSites) / sizeof(uintptr_t)];
+    size_t count = 0;
+    for (uintptr_t site : engine::kModelAnimateFullSites)
+        sites[count++] = {site, engine::kModelAnimateFull, reinterpret_cast<const void*>(&ModelAnimateFullThunk)};
+    for (uintptr_t site : engine::kModelAnimateSimpleSites)
+        sites[count++] = {site, engine::kModelAnimateSimple, reinterpret_cast<const void*>(&ModelAnimateSimpleThunk)};
+    if (!engine::TreeWindCodeMatches(ClientCodeView()))
+        return false;
+    if (!SitesHoldTheClientCalls(sites, "tree wind") || !PatchCallSites(sites))
+        return false;
+    g_treeWindHooksInstalled = true;
+    VF_LOG_INFO("tree wind hooks installed at %u model animate call sites (TreeWind=%d, BushWind=%d)",
+                static_cast<unsigned>(count), GlobalConfig().Get().treeWind ? 1 : 0,
+                GlobalConfig().Get().bushWind ? 1 : 0);
     return true;
 }
 

@@ -445,6 +445,39 @@ The water is tuned by eye against this mapping, not matched to Forever captures.
 - **Overlay.** When a fog device is created, the device window's procedure is chained so the settings window sees input
   first, and the wrapper's `Present` draws the window over the finished frame.
 
+## Tree and bush wind
+
+The client has no ambient wind. CoAGraphics tilts placed trees and bushes with two travelling sine waves, a constant
+lean and a slow gust, on the CPU: no shaders and no Direct3D state are involved. The port of WarcraftXL's Treewind
+runs inside this DLL, so `WarcraftXL.dll` and its Treewind extension are not needed, and must not be loaded at the same
+time, since both would tilt the same placements.
+
+- **Where it hooks.** The client builds a model's bone palette in `CM2Model::AnimateMT` (`0x0082F0F0`) and
+  `CM2Model::AnimateMTSimple` (`0x0082E140`), both thiscall with five stack arguments and `ret 0x14`. The 14 `E8` call
+  sites below are retargeted to a thunk that tilts the instance's placement matrix and then jumps to the original with
+  the registers and stack untouched. A scan of the 12340 image finds no other reference to either function, so no
+  caller escapes. Full: `0x81CEFA`, `0x821B4E`, `0x821BD8`, `0x82E6FD`, `0x830D8A`, `0x830E4C`, `0x830F27`. Simple:
+  `0x81CECF`, `0x821B21`, `0x821BAD`, `0x82E680`, `0x82E6E2`, `0x830E1F`, `0x830F20`. Each site is checked to be a
+  call to its function before any is patched, and the entry and `ret 0x14` bytes of both functions are guarded.
+- **Disassembly evidence** (clean 12340 image, timestamp `0x4C2452FE`): `AnimateMT` begins
+  `55 8B EC 81 EC 9C 01 00 00 56 8B F1 8B 46 10 A8` and returns at `0x830968` with `C2 14 00`; `AnimateMTSimple` begins
+  `55 8B EC 83 EC 50 56 8B F1 8B 46 10 A8 01 0F 84` and returns at `0x82E545` with `C2 14 00`. Both read the model at
+  `[this+0x2C]` and the placement at `[this+0xB4]`.
+- **Model fields**, from the wowdecomp layouts: `CM2Model` flags at `+0x04` (bit `0x20` is set by
+  `CMapDoodadDef::CreateModel`, so it marks a map-placed doodad), shared model at `+0x2C`, placement at `+0xB4` (three
+  basis rows, translation in row 3); `CM2Shared` file name buffer at `+0x3C`, the pointer to the name without its
+  directory at `+0x140` (read only when it points into that buffer), loaded data at `+0x150`, bounding box at `+0x154`.
+- **What sways.** A map-placed doodad whose name contains a live-tree word (tree, pine, oak, palm ...) and not a dead
+  one (dead, stump, log, charred ...), optionally also tall and narrow, not taller than `TreeMaxHeight` and within
+  `TreeMaxDistance` of the camera. Bushes, ferns and hedges match by name alone and have their own wind.
+- **Pristine placements.** The engine never rewrites a doodad's placement, so the unswayed matrix is remembered per
+  instance (a fixed table of 8192 entries, probed 32 deep) and the tilt is rebuilt from it each frame. An entry not
+  touched for two seconds belongs to a retired instance and is reused. The table is cleared when the map changes.
+- **Settings.** `TreeWind*`, `Tree*`, `BushWind*` and `Bush*` in `CoAGraphics.ini` and the Tree wind and Bush wind
+  sections of the settings window; changes apply on the next frame.
+- **Checks.** The harness checks the matrix at zero strength, translation and scale after the tilt, each gate, the cache
+  and its eviction, the guards, the shipped defaults and the thunks. That does not establish in-game behaviour.
+
 ## Engine inputs
 
 All addresses are static in the 12340 image (base `0x400000`, timestamp `0x4C2452FE`, both checked at start-up);
@@ -999,6 +1032,11 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `WaterRipples` | 0.5 | Wakes of units in the water, 0..2; 0 = no unit reads and no ripple simulation |
 | `WaterClientSplashes` | 0 | 1 keeps the client's splash and wake sprites; 0 hides them for all units while wakes run |
 | `WaterDebugView` | 0 | 1 wave normals, 2 foam, 3 transmittance, 4 reflection, 5 liquid class, 6 ripple height |
+| `TreeWind` | 1 | Placed trees sway; the other `TreeWind*` keys shape the wind: `Direction` 35 (degrees), `Speed` 3 (yd/s), `Amplitude` 0.6 and `CrossAmplitude` 0.22 (tilt, degrees), `Wavelength` 26 and `CrossWavelength` 9 (yd), `CrossAngle` 40, `Lean` 0.25, `Variance` 0.5, `Gust` 0.35, `DistanceFade` 0 |
+| `TreeDoodadsOnly`, `TreeMatchNames`, `TreeMatchTallThin`, `TreeSkipDead` | 1, 1, 0, 1 | Which models count as trees; every enabled test must pass |
+| `TreeMinHeight`, `TreeMinAspect`, `TreeMaxHeight`, `TreeMaxDistance` | 6, 1.8, 200, 0 | Tall-model test (yd, height over width), tallest tree that sways and farthest tree from the camera; 0 = no limit |
+| `BushWind` | 1 | Placed bushes, ferns and hedges sway with their own `BushWind*` keys (same names as `TreeWind*`; defaults `Speed` 2, `Amplitude` 0.5, `Wavelength` 9, `CrossAmplitude` 0.25, `CrossWavelength` 5, `Lean` 0.2, `Variance` 0.6, `Gust` 0.4) |
+| `BushDoodadsOnly`, `BushSkipDead`, `BushMaxDistance` | 1, 1, 0 | Map-placed models only, skip dead bushes, farthest bush from the camera; 0 = no limit |
 
 Turning `FarClipMax` on from 0 needs a restart. Other changes, including turning it off, apply at the next `farclip`
 change, map load or zone change, where raising it shows a loading screen.
@@ -1126,6 +1164,9 @@ game, so by default colours still differ from Classic.
 - **jealous-sound** wrote CoAVolFog, which this project builds on: the volumetric fog and light shafts, the Classic fog
   data, the modern water, the settings window and the original release build
   ([jealous-sound/coa-vfog](https://github.com/jealous-sound/coa-vfog)).
+- **WarcraftXL** ([WarcraftXL/core](https://github.com/WarcraftXL/core)) and the authors of
+  [wxl-treewind](https://github.com/manatactical/wxl-treewind), whose GPLv3 tree and bush wind the Tree and bush wind
+  section ports.
 - **Luca Foscili** added the interior distance-fog control and the Steam Deck and Proton notes upstream
   (pull requests #9 and #10).
 - **St0ny** and the AIO WoW EXE Patcher, whose patch No. 70 "lightstay" byte the `LightStay` setting reproduces.

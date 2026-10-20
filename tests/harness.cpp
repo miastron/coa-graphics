@@ -15,6 +15,7 @@
 #include "spell_lights.h"
 #include "texture_filtering.h"
 #include "texture_tint.h"
+#include "tree_wind.h"
 #include "noise_volume.h"
 #include "water_contacts.h"
 #include "water_data.h"
@@ -86,6 +87,8 @@ extern "C" __declspec(dllimport) const void* __cdecl vf_test_water_pass_thunk(ui
 extern "C" __declspec(dllimport) void __cdecl vf_test_water_pass_begin_reuses_argument_slot(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_particle_render_thunks(uintptr_t, uintptr_t, const void**,
                                                                             const void**);
+extern "C" __declspec(dllimport) void __cdecl vf_test_model_animate_thunks(uintptr_t, uintptr_t, const float*, const void**,
+                                                                          const void**);
 extern "C" __declspec(dllimport) uint32_t __cdecl vf_test_publish_spell_lights(LocalPointLight*, uint32_t, float);
 extern "C" __declspec(dllimport) const void* __cdecl vf_test_mesh_batch_draw_thunk(uintptr_t);
 extern "C" __declspec(dllimport) int __cdecl vf_test_texture_tint(uintptr_t, int, float*);
@@ -1866,6 +1869,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "early_composite_look_checks.h"
 #include "multisampling_checks.h"
 #include "texture_filtering_checks.h"
+#include "tree_wind_checks.h"
 #include "image_quality_checks.h"
 #include "surface_light_checks.h"
 
@@ -1951,6 +1955,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     texture_filtering_checks::CheckShippedSetting(FullPath(iniPath));
     image_quality_checks::CheckShippedSetting(FullPath(iniPath));
     surface_light_checks::CheckShippedSetting(FullPath(iniPath));
+    tree_wind_checks::CheckShippedSettings(FullPath(iniPath));
 
     if (cpuOnly)
     {
@@ -1962,6 +1967,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
         local_light_stabiliser_checks::CheckLocalLightStabiliser();
         spell_light_checks::CheckSpellLights();
         client_light_stay_checks::CheckClientLightStay();
+        tree_wind_checks::CheckTreeWind();
         CheckInteriorFogInputs();
         water_contact_checks::CheckWaterContacts();
         CoUninitialize();
@@ -2049,6 +2055,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     spell_light_checks::CheckSpellLights();
     spell_light_checks::CheckTextureTintOnTheDevice(h.dev);
     client_light_stay_checks::CheckClientLightStay();
+    tree_wind_checks::CheckTreeWind();
     CheckInteriorFogInputs();
     CheckNoiseVariation(h.dev);
     authored_noise::CheckAuthoredNoiseOnTheGpu(h.dev);

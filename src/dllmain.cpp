@@ -92,6 +92,7 @@ void Attach(HMODULE module)
         PrepareAuthoredNoise();
         InstallTransparentFogHooks();
         InstallSpellLightHooks();
+        InstallTreeWindHooks();
         EnableForeverLookOnHookedClient();
     }
     if (engineHooks && InstallWaterHooks())
@@ -356,6 +357,12 @@ extern "C" void __cdecl vf_test_particle_render_thunks(uintptr_t target, uintptr
                                                        const void** single, const void** batched)
 {
     RetargetParticleRenderThunks(target, worldSceneSlot, *single, *batched);
+}
+
+extern "C" void __cdecl vf_test_model_animate_thunks(uintptr_t full, uintptr_t simple, const float* camera,
+                                                     const void** fullThunk, const void** simpleThunk)
+{
+    RetargetModelAnimateThunks(full, simple, camera, *fullThunk, *simpleThunk);
 }
 
 extern "C" const void* __cdecl vf_test_mesh_batch_draw_thunk(uintptr_t target)

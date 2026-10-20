@@ -113,6 +113,8 @@ struct CodeRange
 bool IsSupportedClient();
 void* GameD3DDevice();
 bool CameraInLiquid();
+void ReadCameraPosition(float out[3]);
+int ReadCurrentMap();
 
 ScreenEffects ReadScreenEffects();
 bool GlowScreenEffectRuns();
