@@ -382,7 +382,7 @@ bool DrawDebug(Config& c)
         return false;
     bool changed = Choice("View", c.debugView, 0, kDebugViewNames, "Show one input of the fog instead of the scene");
     changed |= Toggle("Sun marker", c.sunMarker, "Red marker where the sun direction projects on screen");
-    changed |= Choice("Log level", c.logLevel, 0, kLogLevelNames, "Detail written to CoAVolFog.log");
+    changed |= Choice("Log level", c.logLevel, 0, kLogLevelNames, "Detail written to CoAGraphics.log");
     return changed;
 }
 }
@@ -448,7 +448,7 @@ void SettingsPanel::Draw(ConfigStore& store, const FogFrameStatus& fogStatus, co
 {
     PlaceWindow();
     const bool expanded =
-        ImGui::Begin("CoAVolFog", &open, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavInputs);
+        ImGui::Begin("CoAGraphics", &open, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavInputs);
     if (!expanded)
     {
         ImGui::End();
@@ -472,18 +472,18 @@ void SettingsPanel::DrawSaveRow(ConfigStore& store)
     ImGui::BeginDisabled(!unsaved);
     if (ImGui::Button("Save"))
         m_saveFailed = !store.Save();
-    ImGui::SetItemTooltip("Write the changed settings to CoAVolFog.ini");
+    ImGui::SetItemTooltip("Write the changed settings to CoAGraphics.ini");
     ImGui::SameLine();
     if (ImGui::Button("Revert"))
     {
         store.Revert();
         m_saveFailed = false;
     }
-    ImGui::SetItemTooltip("Go back to the settings in CoAVolFog.ini");
+    ImGui::SetItemTooltip("Go back to the settings in CoAGraphics.ini");
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (m_saveFailed)
-        ImGui::TextColored(kErrorColour, "Could not write CoAVolFog.ini");
+        ImGui::TextColored(kErrorColour, "Could not write CoAGraphics.ini");
     else
-        ImGui::TextDisabled("%s", unsaved ? "Unsaved changes" : "Matches CoAVolFog.ini");
+        ImGui::TextDisabled("%s", unsaved ? "Unsaved changes" : "Matches CoAGraphics.ini");
 }

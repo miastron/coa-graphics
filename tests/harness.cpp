@@ -1412,8 +1412,8 @@ void CheckOverlayKeyNames()
 void CheckSettingsSaveKeepsTheIni(const std::wstring& outDir, const std::wstring& shippedIni)
 {
     const std::wstring savedIni = FullPath(outDir + L"\\saved.ini");
-    Check(CopyFileW(shippedIni.c_str(), savedIni.c_str(), FALSE) != FALSE, "shipped CoAVolFog.ini copied");
-    WritePrivateProfileStringW(L"CoAVolFog", L"MaterialFog", L"0", savedIni.c_str());
+    Check(CopyFileW(shippedIni.c_str(), savedIni.c_str(), FALSE) != FALSE, "shipped CoAGraphics.ini copied");
+    WritePrivateProfileStringW(L"CoAGraphics", L"MaterialFog", L"0", savedIni.c_str());
     ConfigStore store;
     store.Load(NarrowPath(savedIni));
     const Config shipped = store.Get();
@@ -1453,7 +1453,7 @@ void CheckSettingsSaveKeepsTheIni(const std::wstring& outDir, const std::wstring
               r.enable == shipped.enable && r.overlay == shipped.overlay,
           "saved settings reload unchanged and the restart-only keys stay as they were");
     const std::string text = ReadText(savedIni);
-    Check(text.rfind("; CoAVolFog settings.", 0) == 0 && text.find("\nDensity=2.5") != std::string::npos &&
+    Check(text.rfind("; CoAGraphics settings.", 0) == 0 && text.find("\nDensity=2.5") != std::string::npos &&
               text.find("\nHaze=1.0") != std::string::npos && text.find("\nEnable=1") != std::string::npos &&
               text.find("; Global density multiplier") != std::string::npos &&
               text.find("\nLightShafts=0") != std::string::npos && text.find("\nMaterialFog=0") != std::string::npos,
@@ -1468,7 +1468,7 @@ void CheckSettingsSaveKeepsTheIni(const std::wstring& outDir, const std::wstring
     Config typed = store.Get();
     typed.haze = 1.23456f;
     store.Apply(typed);
-    WritePrivateProfileStringW(L"CoAVolFog", L"Quality", L"1", savedIni.c_str());
+    WritePrivateProfileStringW(L"CoAGraphics", L"Quality", L"1", savedIni.c_str());
     const bool mergedSave = store.Save();
     ConfigStore afterMerge;
     afterMerge.Load(NarrowPath(savedIni));
@@ -2967,7 +2967,7 @@ int wmain(int argc, wchar_t** argv)
     std::wstring out = L"harness-out";
     std::string data = "fogdata.bin";
     std::string waterData = "waterdata.bin";
-    std::wstring ini = L"CoAVolFog.ini";
+    std::wstring ini = L"CoAGraphics.ini";
     std::wstring scene;
     D3DMULTISAMPLE_TYPE samples = D3DMULTISAMPLE_NONE;
     HarbourOptions harbour;

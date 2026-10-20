@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(coa_vfog CXX)
+project(coa_graphics CXX)
 
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-    message(FATAL_ERROR "coa-vfog targets the 32-bit client; configure with -A Win32")
+    message(FATAL_ERROR "coa-graphics targets the 32-bit client; configure with -A Win32")
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -175,7 +175,7 @@ target_compile_definitions(imgui
     PRIVATE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS
             IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS WIN32_LEAN_AND_MEAN NOMINMAX)
 
-add_library(CoAVolFog SHARED
+add_library(CoAGraphics SHARED
     src/client_code.cpp
     src/client_light_stay.cpp
     src/client_ripple_sprites.cpp
@@ -214,15 +214,15 @@ add_library(CoAVolFog SHARED
     src/water_renderer.cpp
     src/water_ripples.cpp
     src/water_spectrum.cpp
-    src/CoAVolFog.def)
-add_dependencies(CoAVolFog vf_shaders)
-target_include_directories(CoAVolFog PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
-target_compile_definitions(CoAVolFog PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
-target_compile_options(CoAVolFog PRIVATE /W4 /wd4100 /arch:SSE2 /fp:fast /GS)
-target_link_libraries(CoAVolFog PRIVATE kernel32 user32 imgui)
+    src/CoAGraphics.def)
+add_dependencies(CoAGraphics vf_shaders)
+target_include_directories(CoAGraphics PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
+target_compile_definitions(CoAGraphics PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+target_compile_options(CoAGraphics PRIVATE /W4 /wd4100 /arch:SSE2 /fp:fast /GS)
+target_link_libraries(CoAGraphics PRIVATE kernel32 user32 imgui)
 
 add_library(version SHARED proxy/version_proxy.cpp proxy/version.def)
-target_link_libraries(version PRIVATE CoAVolFog)
+target_link_libraries(version PRIVATE CoAGraphics)
 target_compile_definitions(version PRIVATE WIN32_LEAN_AND_MEAN)
 
 add_executable(vfog_harness tests/harness.cpp src/client_code.cpp src/client_light_stay.cpp
@@ -234,28 +234,28 @@ add_executable(vfog_harness tests/harness.cpp src/client_code.cpp src/client_lig
                src/water_fft.cpp src/water_ripples.cpp src/status_log.cpp src/terrain_shadows.cpp)
 target_include_directories(vfog_harness PRIVATE src ${SHADER_OUT})
 target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
-target_link_libraries(vfog_harness PRIVATE CoAVolFog user32 ole32 windowscodecs)
-add_custom_command(TARGET CoAVolFog POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/CoAVolFog.ini
+target_link_libraries(vfog_harness PRIVATE CoAGraphics user32 ole32 windowscodecs)
+add_custom_command(TARGET CoAGraphics POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/CoAGraphics.ini
             ${CMAKE_CURRENT_SOURCE_DIR}/data/fogdata.bin ${CMAKE_CURRENT_SOURCE_DIR}/data/waterdata.bin
-            $<TARGET_FILE_DIR:CoAVolFog>)
+            $<TARGET_FILE_DIR:CoAGraphics>)
 
 enable_testing()
-configure_file(CoAVolFog.ini interior-test.ini COPYONLY)
+configure_file(CoAGraphics.ini interior-test.ini COPYONLY)
 add_test(NAME interior_fog
     COMMAND vfog_harness --scene interior --ini ${CMAKE_CURRENT_BINARY_DIR}/interior-test.ini
     WORKING_DIRECTORY $<TARGET_FILE_DIR:vfog_harness>)
 add_test(NAME vfog_harness
     COMMAND vfog_harness --out ${CMAKE_CURRENT_BINARY_DIR}/harness-out
             --data ${CMAKE_CURRENT_SOURCE_DIR}/data/fogdata.bin
-            --ini ${CMAKE_CURRENT_SOURCE_DIR}/CoAVolFog.ini
+            --ini ${CMAKE_CURRENT_SOURCE_DIR}/CoAGraphics.ini
             --water-data ${CMAKE_CURRENT_SOURCE_DIR}/data/waterdata.bin
     WORKING_DIRECTORY $<TARGET_FILE_DIR:vfog_harness>)
 set_tests_properties(vfog_harness PROPERTIES LABELS gpu)
 add_test(NAME cpu_harness
     COMMAND vfog_harness --scene cpu --out ${CMAKE_CURRENT_BINARY_DIR}/cpu-harness-out
             --data ${CMAKE_CURRENT_SOURCE_DIR}/data/fogdata.bin
-            --ini ${CMAKE_CURRENT_SOURCE_DIR}/CoAVolFog.ini
+            --ini ${CMAKE_CURRENT_SOURCE_DIR}/CoAGraphics.ini
             --water-data ${CMAKE_CURRENT_SOURCE_DIR}/data/waterdata.bin
     WORKING_DIRECTORY $<TARGET_FILE_DIR:vfog_harness>)
 set_tests_properties(cpu_harness PROPERTIES LABELS cpu)

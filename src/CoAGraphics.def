@@ -1,4 +1,4 @@
-LIBRARY CoAVolFog
+LIBRARY CoAGraphics
 EXPORTS
     vf_loader_anchor
     vf_test_wrap_direct3d9

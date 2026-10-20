@@ -1,6 +1,6 @@
-# CoAVolFog
+# CoAGraphics
 
-Volumetric fog and modern water for the Ascension/CoA 3.3.5a (build 12340) Direct3D 9 client.
+Graphics enhancements (volumetric fog and modern water) for the Ascension/CoA 3.3.5a (build 12340) Direct3D 9 client.
 
 The DLL is a loader, a Direct3D 9 wrapper that makes the depth buffer readable, hooks into the world renderer, a
 ray-marched fog renderer and a water renderer. Fog layers come from the Classic client's own
@@ -8,11 +8,11 @@ ray-marched fog renderer and a water renderer. Fog layers come from the Classic 
 elsewhere (Outland, Northrend, custom maps). Water is shaded like WoW Forever's water, using its liquid presets, wave
 patterns and foam textures.
 
-## About this fork
+## About this project
 
-This fork ([Raz0r1337/coa-vfog](https://github.com/Raz0r1337/coa-vfog), development on `st0ny-dev`, releases from
-`st0ny-main`) builds on [jealous-sound/coa-vfog](https://github.com/jealous-sound/coa-vfog). Its changes are summarised
-here; the sections after it say how each works and what is checked.
+CoAGraphics grew out of CoAVolFog, a fork ([Raz0r1337/coa-vfog](https://github.com/Raz0r1337/coa-vfog)) of
+[jealous-sound/coa-vfog](https://github.com/jealous-sound/coa-vfog). Its changes are summarised here; the sections
+after it say how each works and what is checked.
 
 **Fixes to flickering and vanishing fog lights**
 
@@ -56,9 +56,6 @@ here; the sections after it say how each works and what is checked.
   the ground, buildings and grass, so their mipmapped textures are filtered anisotropically here.
 - **Antialiasing, sharpening and bloom** (`Antialiasing`, `Sharpening`, `Bloom`): SMAA, a contrast-adaptive sharpen and a
   bloom halo, all off by default.
-
-**Releases**: every push to `st0ny-main` publishes the install zip and keeps only the newest build:
-[CoAVolFog-Win32.zip](https://github.com/Raz0r1337/coa-vfog/releases/latest/download/CoAVolFog-Win32.zip).
 
 ## What it draws
 
@@ -413,7 +410,7 @@ The water is tuned by eye against this mapping, not matched to Forever captures.
 ## How it attaches
 
 - **Loader.** A `version.dll` proxy. All 17 exports forward lazily to the system copy, and its static import loads
-  `CoAVolFog.dll` before the client starts.
+  `CoAGraphics.dll` before the client starts.
 - **D3D9.** The client resolves `Direct3DCreate9` through the delay-loaded `GetProcAddress` slot `[0xB2ED98]`. The DLL
   points that slot at a filter that returns a wrapped `IDirect3D9`. No d3d9 code is patched, so DXVK or other `d3d9.dll`
   builds keep working underneath.
@@ -807,7 +804,7 @@ Engine notes behind the code:
 default, hold Fn (the log names the key that arrived). The window edits every setting below except `Enable`,
 `EngineHooks`, `Overlay` and `OverlayKey`, and the next frame uses the change.
 
-- **Save** writes the settings changed in the window back to `CoAVolFog.ini`, keeping the comments and every other line.
+- **Save** writes the settings changed in the window back to `CoAGraphics.ini`, keeping the comments and every other line.
   Settings not changed in the window keep what the file holds.
 - **Revert** reloads the file. A hand edit of the file also replaces unsaved changes.
 - The window shows whether the fog drew in the last frame, or why it did not, and whether the game's multisampling is
@@ -831,32 +828,8 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A Win32
 cmake --build build --config Release
 ```
 
-Outputs in `build/Release`: `version.dll`, `CoAVolFog.dll` and `vfog_harness.exe`, with `CoAVolFog.ini`, `fogdata.bin`
+Outputs in `build/Release`: `version.dll`, `CoAGraphics.dll` and `vfog_harness.exe`, with `CoAGraphics.ini`, `fogdata.bin`
 and `waterdata.bin` copied beside them.
-
-### Download a CI build
-
-The [Windows release build](https://github.com/jealous-sound/coa-vfog/actions/workflows/release.yml) runs on every push
-to `main` (including merged pull requests), on pull requests targeting `main`, and manually from **Actions → Windows
-release build → Run workflow**. The manual button becomes available once the workflow is merged into `main`; select a
-branch to rebuild that revision.
-
-Open a successful run and download its `CoAVolFog-Win32-<commit>` artifact under **Artifacts**. It is a ZIP containing
-`version.dll`, `CoAVolFog.dll`, `CoAVolFog.ini`, `fogdata.bin`, `waterdata.bin`, the README, licences and a `BUILD.txt`
-identifying the commit and validation. Artifacts are kept for 30 days; rerun the workflow to rebuild an expired download.
-Pull-request artifacts are builds of GitHub's proposed merge revision.
-
-Pushes to the development branch `st0ny-dev` are built and checked but publish nothing. On a push to the release branch
-`st0ny-main`, and on a manual run of that branch, a second job publishes the same files as a GitHub release `build-<run>`
-with the asset `CoAVolFog-Win32.zip`, which needs no login to download. It then deletes every other release with its tag,
-so the fork keeps only the newest build at `releases/latest/download/CoAVolFog-Win32.zip`. A build whose branch has
-already moved on to a newer commit gets no release and deletes nothing. Other branches and pull requests publish none.
-
-CI uses Windows Server 2022, MSVC 2022 and `fxc` to build Win32 Release, then runs the comment check and the CPU harness.
-The CPU harness exercises the existing data, fog model, local-light/interior, settings persistence, glow and water-contact
-checks before any D3D9 device is created. CI runs CTest with `-LE gpu`; the full `vfog_harness` stays enabled by default
-for a Windows machine with a suitable graphics device. A successful CI build does not establish graphics correctness or
-in-game appearance and performance.
 
 ## Test
 
@@ -898,7 +871,7 @@ Scenes for looking at the output:
   wading-in units at `WaterRipples=0.5`, each as the shaded frame, its normals and a calm reference.
 - `vfog_harness --scene performance` times the fog passes at 1920×1080 at each quality on one street: derived layers with
   no point lights, eight flood lights or eight street lamps, Classic layers at the harbour with and without the lamps
-  (skipped if `fogdata.bin` beside `CoAVolFog.dll` does not resolve the harbour), and the shipped `LogLevel=1`. Each case
+  (skipped if `fogdata.bin` beside `CoAGraphics.dll` does not resolve the harbour), and the shipped `LogLevel=1`. Each case
   runs with light shafts, and three cases with `LightShafts=0`. It prints `quality,case,point_lights,median_ms,p95_ms` of
   GPU time. This is a controlled renderer cost, not a game frame-rate test. The harness has no world shadow maps, so the
   shafts are timed with the screen-space trace alone. On an AMD Radeon 780M at 1080p it added 0.6 ms at `Quality=1`,
@@ -907,9 +880,9 @@ Scenes for looking at the output:
 
 ## Install
 
-Close the client, then copy `version.dll`, `CoAVolFog.dll`, `CoAVolFog.ini`, `fogdata.bin` and `waterdata.bin` next to
-`Ascension.exe`. To uninstall, remove `version.dll` and `CoAVolFog.dll`; nothing else in the client is changed. The DLL
-writes `CoAVolFog.log` next to itself.
+Close the client, then copy `version.dll`, `CoAGraphics.dll`, `CoAGraphics.ini`, `fogdata.bin` and `waterdata.bin` next to
+`Ascension.exe`. To uninstall, remove `version.dll` and `CoAGraphics.dll`; nothing else in the client is changed. The DLL
+writes `CoAGraphics.log` next to itself.
 
 ## Steam Deck and Linux (Proton)
 
@@ -919,7 +892,7 @@ Install the files as above, then set the game's Steam launch options to:
 WINEDLLOVERRIDES=version=n,b %command%
 ```
 
-This lets the native `version.dll` proxy load CoAVolFog before Proton's builtin version library.
+This lets the native `version.dll` proxy load CoAGraphics before Proton's builtin version library.
 
 A Steam Deck test on 8 October 2026 (Proton with DXVK, AMD VanGogh, 1280x800) loaded the DLL and installed all hooks.
 DXVK copied the multisampled depth through `RESZ` into `INTZ`, passing the depth-copy self-test, so the default
@@ -964,7 +937,7 @@ the feature they switch off.
 
 ## Settings
 
-`CoAVolFog.ini` is re-read within a second while the game runs (except `Enable`, `EngineHooks` and `LightStay`). Its
+`CoAGraphics.ini` is re-read within a second while the game runs (except `Enable`, `EngineHooks` and `LightStay`). Its
 comments describe every key. In the game, `Ctrl+F7` opens the same settings in a window (see In-game settings).
 
 | Key | Default | Meaning |
@@ -1054,7 +1027,7 @@ game, so by default colours still differ from Classic.
 - Multisampling is checked by the harness on the RTX 2060 (NVAPI), and was tested in game on the Steam Deck (`RESZ` through
   DXVK, see above). Alpha-tested foliage stays jagged.
 - The owner reported on 2026-10-15 that the flicker was gone in game with the stabiliser, the tolerant table walk and
-  `LightStay` together. No `CoAVolFog.log` from that test has been read, so which of the three ended it is not separated.
+  `LightStay` together. No `CoAGraphics.log` from that test has been read, so which of the three ended it is not separated.
   The view-only selection without a camera-distance bound and the edge margin are checked by the harness only. The exe
   patch that `LightStay` mirrors is listed as untested by its patcher.
 
@@ -1128,7 +1101,7 @@ game, so by default colours still differ from Classic.
 - Modern water: water seen from below keeps the client's look. Rivers have no flow direction, since the client has no
   flow maps, so Forever's river foam is omitted. The surface stays flat, and only its shading moves. Reflections are
   screen-space, so anything off screen falls back to the sky colours. Interiors are detected by liquid type only.
-- Shore waves (`WaterShoreWaves`) are an addition of this fork with no Forever counterpart. They are checked by the harness
+- Shore waves (`WaterShoreWaves`) are an addition of this project with no Forever counterpart. They are checked by the harness
   only. Their periods, drawdowns and wavelengths per class, the waterline fade and the wet-shore shade are chosen by eye.
   They only draw the waterline back from the client's mesh. The shore distance is estimated from the water's depth (four
   yards per yard), so on steep banks the shore waves are narrow. The shore and shallow-water foam bands are measured by
@@ -1150,8 +1123,8 @@ game, so by default colours still differ from Classic.
 
 ## Credits
 
-- **jealous-sound** wrote the CoAVolFog this fork builds on: the volumetric fog and light shafts, the Classic fog
-  data, the modern water, the settings window and the release build
+- **jealous-sound** wrote CoAVolFog, which this project builds on: the volumetric fog and light shafts, the Classic fog
+  data, the modern water, the settings window and the original release build
   ([jealous-sound/coa-vfog](https://github.com/jealous-sound/coa-vfog)).
 - **Luca Foscili** added the interior distance-fog control and the Steam Deck and Proton notes upstream
   (pull requests #9 and #10).
@@ -1166,8 +1139,8 @@ game, so by default colours still differ from Classic.
 
 ## License
 
-CoAVolFog is licensed under the GNU General Public License version 3 only (`GPL-3.0-only`); see [LICENSE](LICENSE).
+CoAGraphics is licensed under the GNU General Public License version 3 only (`GPL-3.0-only`); see [LICENSE](LICENSE).
 
-As an additional permission under GPLv3 section 7, you may link or combine CoAVolFog, including modified versions,
+As an additional permission under GPLv3 section 7, you may link or combine CoAGraphics, including modified versions,
 with the World of Warcraft client, and distribute the resulting combination without providing the client's source
-code. GPLv3 continues to apply to CoAVolFog.
+code. GPLv3 continues to apply to CoAGraphics.

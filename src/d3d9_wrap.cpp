@@ -16,7 +16,7 @@ namespace
 constexpr D3DFORMAT kIntz = static_cast<D3DFORMAT>(MAKEFOURCC('I', 'N', 'T', 'Z'));
 constexpr D3DFORMAT kMultisampledStencilDepth = D3DFMT_D24S8;
 constexpr const char* kGameMultisamplingOff = "the game's Multisampling option is 1x";
-constexpr const char* kMultisamplingSettingOff = "Multisampling=0 in CoAVolFog.ini";
+constexpr const char* kMultisamplingSettingOff = "Multisampling=0 in CoAGraphics.ini";
 constexpr const char* kSelfTestFailed = "the depth copy self-test failed";
 constexpr const char* kMultisampledDeviceFailed = "the device could not be created with the game's multisampling";
 constexpr const char* kMultisampledResetFailed = "Reset with the game's multisampling failed";

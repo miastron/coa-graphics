@@ -62,10 +62,10 @@ std::string ModuleDirectory(HMODULE module)
 void Attach(HMODULE module)
 {
     std::string dir = ModuleDirectory(module);
-    LogOpen((dir + "CoAVolFog.log").c_str());
-    GlobalConfig().Load(dir + "CoAVolFog.ini");
+    LogOpen((dir + "CoAGraphics.log").c_str());
+    GlobalConfig().Load(dir + "CoAGraphics.ini");
     const Config& cfg = GlobalConfig().Get();
-    VF_LOG_INFO("CoAVolFog loaded from %s", dir.c_str());
+    VF_LOG_INFO("CoAGraphics loaded from %s", dir.c_str());
     GlobalFogData().Load(dir + "fogdata.bin");
 
     if (!engine::IsSupportedClient())

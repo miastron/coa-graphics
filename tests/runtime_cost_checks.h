@@ -73,9 +73,9 @@ void CheckDisabledTemporalSkipsHistoryPasses(Harness& h, Vec3 eye, Vec3 at, cons
 std::wstring FogLogBesideTheFogDll()
 {
     wchar_t path[MAX_PATH] = {};
-    const DWORD length = GetModuleFileNameW(GetModuleHandleW(L"CoAVolFog.dll"), path, MAX_PATH);
+    const DWORD length = GetModuleFileNameW(GetModuleHandleW(L"CoAGraphics.dll"), path, MAX_PATH);
     const std::wstring module(path, length);
-    return module.substr(0, module.find_last_of(L"\\/") + 1) + L"CoAVolFog.log";
+    return module.substr(0, module.find_last_of(L"\\/") + 1) + L"CoAGraphics.log";
 }
 
 std::string LogWrittenSince(size_t offset)

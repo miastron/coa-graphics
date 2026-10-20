@@ -348,12 +348,12 @@ void CheckShippedSetting(const std::wstring& shippedIni)
 {
     Config defaults = {};
     wchar_t text[16] = {};
-    GetPrivateProfileStringW(L"CoAVolFog", L"Sharpening", L"", text, 16, shippedIni.c_str());
+    GetPrivateProfileStringW(L"CoAGraphics", L"Sharpening", L"", text, 16, shippedIni.c_str());
     Check(defaults.sharpening == 0.0f && std::wcscmp(text, L"0") == 0,
           "sharpening is off by default and in the shipped INI");
-    Check(!defaults.antialiasing && GetPrivateProfileIntW(L"CoAVolFog", L"Antialiasing", -1, shippedIni.c_str()) == 0,
+    Check(!defaults.antialiasing && GetPrivateProfileIntW(L"CoAGraphics", L"Antialiasing", -1, shippedIni.c_str()) == 0,
           "SMAA antialiasing is off by default and in the shipped INI");
-    GetPrivateProfileStringW(L"CoAVolFog", L"Bloom", L"", text, 16, shippedIni.c_str());
+    GetPrivateProfileStringW(L"CoAGraphics", L"Bloom", L"", text, 16, shippedIni.c_str());
     Check(defaults.bloom == 0.0f && std::wcscmp(text, L"0") == 0, "bloom is off by default and in the shipped INI");
 }
 }

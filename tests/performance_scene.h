@@ -293,7 +293,7 @@ void DescribeLights(const char* name, const FrameInputs& inputs)
 std::string FogDataBesideTheFogDll()
 {
     char path[MAX_PATH] = {};
-    const DWORD length = GetModuleFileNameA(GetModuleHandleA("CoAVolFog.dll"), path, MAX_PATH);
+    const DWORD length = GetModuleFileNameA(GetModuleHandleA("CoAGraphics.dll"), path, MAX_PATH);
     const std::string module(path, length);
     return module.substr(0, module.find_last_of("\\/") + 1) + "fogdata.bin";
 }
@@ -465,7 +465,7 @@ bool MeasureCases(Harness& h)
                     "authored noise); in a full storm %d layers (%d with authored noise)\n",
                     classicLayers, noisyLayers, stormLayers, noisyStormLayers);
     else
-        std::printf("classic cases skipped: fogdata.bin beside CoAVolFog.dll does not resolve the harbour\n");
+        std::printf("classic cases skipped: fogdata.bin beside CoAGraphics.dll does not resolve the harbour\n");
 
     if (!WarmUpGpuClocks(h, timer, derivedStreet, projection, viewport))
         return false;

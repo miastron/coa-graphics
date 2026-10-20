@@ -455,8 +455,8 @@ void CheckLookSettings(const std::wstring& outDir, const std::wstring& shippedIn
 
     const std::wstring lookIni = FullPath(outDir + L"\\look.ini");
     CopyFileW(shippedIni.c_str(), lookIni.c_str(), FALSE);
-    WritePrivateProfileStringW(L"CoAVolFog", L"ForeverGlow", L"3", lookIni.c_str());
-    WritePrivateProfileStringW(L"CoAVolFog", L"ColorGrading", L"2.5", lookIni.c_str());
+    WritePrivateProfileStringW(L"CoAGraphics", L"ForeverGlow", L"3", lookIni.c_str());
+    WritePrivateProfileStringW(L"CoAGraphics", L"ColorGrading", L"2.5", lookIni.c_str());
     ConfigStore store;
     store.Load(NarrowPath(lookIni));
     Check(store.Get().foreverGlow == 1 && store.Get().colorGrading == 1.0f,

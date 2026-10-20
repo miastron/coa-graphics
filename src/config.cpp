@@ -12,7 +12,7 @@
 
 namespace
 {
-constexpr const char* kSection = "CoAVolFog";
+constexpr const char* kSection = "CoAGraphics";
 constexpr unsigned kMaxFunctionKey = 24;
 
 struct IntSetting
@@ -438,8 +438,8 @@ bool ConfigStore::ReloadIfChanged()
     m_stamp = stamp;
     LogSettledEdits();
     ReadKeepingStartupSwitches();
-    if (!LogChanges("settings from CoAVolFog.ini"))
-        VF_LOG_INFO("CoAVolFog.ini reloaded; no live setting changed");
+    if (!LogChanges("settings from CoAGraphics.ini"))
+        VF_LOG_INFO("CoAGraphics.ini reloaded; no live setting changed");
     return true;
 }
 
@@ -495,7 +495,7 @@ bool ConfigStore::Save()
     m_saved = merged;
     LogSetLevel(merged.logLevel);
     VF_LOG_INFO("settings saved to %s", m_path.c_str());
-    LogChanges("settings from CoAVolFog.ini");
+    LogChanges("settings from CoAGraphics.ini");
     return true;
 }
 
@@ -504,7 +504,7 @@ void ConfigStore::Revert()
     LogSettledEdits();
     m_stamp = FileStamp(m_path);
     ReadKeepingStartupSwitches();
-    LogChanges("settings reverted to CoAVolFog.ini");
+    LogChanges("settings reverted to CoAGraphics.ini");
 }
 
 void ConfigStore::ReadKeepingStartupSwitches()

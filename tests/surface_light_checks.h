@@ -159,7 +159,7 @@ void CheckShippedSetting(const std::wstring& shippedIni)
 {
     const Config defaults = {};
     wchar_t text[16] = {};
-    GetPrivateProfileStringW(L"CoAVolFog", L"SurfaceLights", L"", text, 16, shippedIni.c_str());
+    GetPrivateProfileStringW(L"CoAGraphics", L"SurfaceLights", L"", text, 16, shippedIni.c_str());
     Check(defaults.surfaceLights == 1.0f && std::wcscmp(text, L"1.0") == 0,
           "lights on surfaces are on at 1 by default and in the shipped INI");
 }

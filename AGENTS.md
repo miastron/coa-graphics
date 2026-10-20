@@ -1,7 +1,7 @@
 # AGENTS.md
 
-CoAVolFog is a Win32 Direct3D 9 volumetric fog and water DLL for the Ascension/CoA WoW 3.3.5a (12340) client. A
-`version.dll` proxy loads `CoAVolFog.dll`, which wraps Direct3D 9, retargets a few engine call sites, reshades the
+CoAGraphics is a Win32 Direct3D 9 volumetric fog and water DLL for the Ascension/CoA WoW 3.3.5a (12340) client. A
+`version.dll` proxy loads `CoAGraphics.dll`, which wraps Direct3D 9, retargets a few engine call sites, reshades the
 client's water after its liquid pass and draws the fog after the world. It is built with CMake and MSVC; the shaders
 are compiled with `fxc`. `README.md` holds the design and the reverse-engineering evidence.
 
@@ -15,7 +15,7 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
 - Express intent through names, structure and tests; do not add explanatory comments or docstrings in C++, HLSL,
   Python or CMake. Name engine addresses, offsets and constants after what they are, and split code into named
   functions instead of commenting blocks. Preserve legal notices and tool directives. `python tools/check_comments.py`
-  enforces this. The comments in `CoAVolFog.ini` are the players' settings documentation and stay.
+  enforces this. The comments in `CoAGraphics.ini` are the players' settings documentation and stay.
 - Client addresses target the 12340 image (timestamp `0x4C2452FE`). Verify the bytes of a call site before patching
   it, and record the disassembly evidence in `README.md`, not in code.
 - Add a harness check in `tests/harness.cpp` for a meaningful behaviour change; a regression should fail before the
@@ -25,9 +25,9 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
   exports), which the kit could not decrypt; regenerate it rather than editing it. `data/waterdata.bin` is generated
   by `tools/convert_forever_water.py` from the WoW Forever water kit (folder or zip) in the same way.
 - Ask before launching the game client. Install only when the owner says the client is closed: check that no process
-  runs from the client folder and that the installed `CoAVolFog.ini` still matches the repository, then replace
-  `version.dll`, `CoAVolFog.dll`, `CoAVolFog.ini`, `fogdata.bin` and `waterdata.bin`. After an owner test, read
-  `CoAVolFog.log` in the client folder.
+  runs from the client folder and that the installed `CoAGraphics.ini` still matches the repository, then replace
+  `version.dll`, `CoAGraphics.dll`, `CoAGraphics.ini`, `fogdata.bin` and `waterdata.bin`. After an owner test, read
+  `CoAGraphics.log` in the client folder.
 - Keep plans and results in the conversation. Routine edits need no backups, receipts or standalone reports; use Git.
 
 ## Repository layout

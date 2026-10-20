@@ -20,7 +20,7 @@ constexpr const char* kGhostEffect = "ghost effect";
 constexpr const char* kCameraUnderWater = "camera under water";
 constexpr const char* kNoClassicLight = "no Classic light covers the camera";
 constexpr const char* kNoGradedClassicLight = "no Classic light around the camera carries a grading curve";
-constexpr const char* kStoppedAfterException = "stopped after an exception, see CoAVolFog.log";
+constexpr const char* kStoppedAfterException = "stopped after an exception, see CoAGraphics.log";
 
 struct GlowWrite
 {

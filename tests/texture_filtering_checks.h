@@ -261,7 +261,7 @@ void CheckShippedSetting(const std::wstring& shippedIni)
 {
     Config defaults = {};
     Check(defaults.anisotropicFiltering == kForcedSixteen &&
-              GetPrivateProfileIntW(L"CoAVolFog", L"AnisotropicFiltering", -1, shippedIni.c_str()) == kForcedSixteen,
+              GetPrivateProfileIntW(L"CoAGraphics", L"AnisotropicFiltering", -1, shippedIni.c_str()) == kForcedSixteen,
           "anisotropic filtering is forced at 16x by default and in the shipped INI");
 }
 }

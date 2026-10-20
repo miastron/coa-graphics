@@ -439,7 +439,7 @@ void CheckFallbacks(Harness& m, IDirect3D9* real)
 {
     Config off = MultisamplingConfig(false);
     vf_test_set_config(&off);
-    CheckSingleSampledFallback(m, "Multisampling=0 with 4x requested", "Multisampling=0 in CoAVolFog.ini");
+    CheckSingleSampledFallback(m, "Multisampling=0 with 4x requested", "Multisampling=0 in CoAGraphics.ini");
 
     Config keep = MultisamplingConfig(true);
     vf_test_set_config(&keep);
@@ -1286,7 +1286,7 @@ void CheckMultisamplingSetting(const std::wstring& outDir, const std::wstring& s
 
     const std::wstring savedIni = FullPath(outDir + L"\\multisampling.ini");
     CopyFileW(shippedIni.c_str(), savedIni.c_str(), FALSE);
-    WritePrivateProfileStringW(L"CoAVolFog", L"Multisampling", L"0", savedIni.c_str());
+    WritePrivateProfileStringW(L"CoAGraphics", L"Multisampling", L"0", savedIni.c_str());
     ConfigStore store;
     store.Load(NarrowPath(savedIni));
     const bool readOff = !store.Get().multisampling;
