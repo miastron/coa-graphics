@@ -114,6 +114,29 @@ void CheckRewrite(const StockShaders& stock, const char* label, bool mustInject)
     Check(lightsUntouched, "the point light variants of the grass vertex shader, which read c14 and up, stay stock");
 }
 
+std::vector<DWORD> ForeignShaderOfLength(const ShaderCompiler& compiler, size_t bytes)
+{
+    std::string source = "vs_3_0\ndcl_position v0\ndcl_position o0\nmov o0, v0\n";
+    auto assemble = [&](const std::string& text) {
+        std::vector<DWORD> out;
+        ID3DBlob* blob = nullptr;
+        if (SUCCEEDED(compiler.assemble(text.c_str(), text.size(), "foreign", nullptr, nullptr, 0, &blob, nullptr)) &&
+            blob)
+        {
+            out.resize(blob->GetBufferSize() / sizeof(DWORD));
+            std::memcpy(out.data(), blob->GetBufferPointer(), out.size() * sizeof(DWORD));
+            blob->Release();
+        }
+        return out;
+    };
+    const size_t base = assemble(source).size() * sizeof(DWORD);
+    if (!base || base > bytes)
+        return {};
+    for (size_t padding = (bytes - base) / sizeof(DWORD); padding > 0; --padding)
+        source += "nop\n";
+    return assemble(source);
+}
+
 void CheckPassThrough(const StockShaders& stock)
 {
     const ShaderCompiler compiler = LoadSystemShaderCompiler();
@@ -128,6 +151,15 @@ void CheckPassThrough(const StockShaders& stock)
     const DWORD* fullscreen = reinterpret_cast<const DWORD*>(g_vs_fullscreen);
     Check(on.Rewrite(fullscreen) == fullscreen && on.Rewrite(nullptr) == nullptr && on.Injected() == 0,
           "a vertex shader of another length or model passes through untouched");
+
+    const std::vector<DWORD> foreign = ForeignShaderOfLength(compiler, stock.variants[0].size() * sizeof(DWORD));
+    GrassShaderRewriter other;
+    other.UseCompiler(compiler);
+    other.Enable(true);
+    Check(foreign.size() == stock.variants[0].size() && other.Rewrite(foreign.data()) == foreign.data() &&
+              other.Foreign() == 1 && other.Failed() == 0 && other.Injected() == 0,
+          "another vertex shader of a grass length is recognised as not grass, left alone and not counted as a "
+          "failure");
 
     GrassShaderRewriter noCompiler;
     noCompiler.UseCompiler(ShaderCompiler());

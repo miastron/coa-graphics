@@ -85,10 +85,11 @@ public:
     const DWORD* Rewrite(const DWORD* code);
     unsigned Injected() const { return m_injected; }
     unsigned Failed() const { return m_failed; }
+    unsigned Foreign() const { return m_foreign; }
 
 private:
     bool CompilerReady();
-    std::vector<DWORD> Build(const DWORD* code, size_t tokens);
+    std::vector<DWORD> Build(const DWORD* code, size_t tokens, bool& foreign);
 
     bool m_enabled = false;
     bool m_compilerLoaded = false;
@@ -96,6 +97,7 @@ private:
     std::map<uint64_t, std::vector<DWORD>> m_cache;
     unsigned m_injected = 0;
     unsigned m_failed = 0;
+    unsigned m_foreign = 0;
 };
 
 class GrassWind

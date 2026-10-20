@@ -39,6 +39,7 @@ constexpr size_t kMaxShaderTokens = 4096;
 constexpr size_t kVersionedKeyShift = 32;
 constexpr const char* kShaderCompilerName = "d3dcompiler_47.dll";
 constexpr const char* kAnchorInstruction = "addr0,r0,c3";
+const char* const kGrassSignature[] = {"defc13,0,1,0,0", "dcl_normalv1", "dcl_colorv2", "dcl_texcoordv3", "addr0,r0,c3"};
 
 constexpr size_t kStockVariants = 3;
 constexpr uint32_t kStockLengths20[kStockVariants] = {552, 644, 788};
@@ -132,6 +133,15 @@ std::string WithoutSpaces(const std::string& line)
         if (c != ' ' && c != '\t' && c != '\r')
             out.push_back(c);
     return out;
+}
+
+bool LooksLikeGrass(const std::string& source)
+{
+    const std::string squeezed = WithoutSpaces(source);
+    for (const char* needle : kGrassSignature)
+        if (squeezed.find(needle) == std::string::npos)
+            return false;
+    return true;
 }
 
 size_t EndOfAnchorLine(const std::string& source)
@@ -278,7 +288,7 @@ bool GrassShaderRewriter::CompilerReady()
     return m_compiler.disassemble && m_compiler.assemble;
 }
 
-std::vector<DWORD> GrassShaderRewriter::Build(const DWORD* code, size_t tokens)
+std::vector<DWORD> GrassShaderRewriter::Build(const DWORD* code, size_t tokens, bool& foreign)
 {
     const size_t bytes = tokens * sizeof(DWORD);
     ID3DBlob* text = nullptr;
@@ -290,14 +300,15 @@ std::vector<DWORD> GrassShaderRewriter::Build(const DWORD* code, size_t tokens)
     }
     std::string source = BlobText(text);
     text->Release();
-    size_t anchor = EndOfAnchorLine(source);
-    if (anchor == std::string::npos)
+    if (!LooksLikeGrass(source))
     {
-        VF_LOG_ERROR("grass wind: the stock grass vertex shader (%u bytes) has no \"add r0, r0, c3\" to follow; it "
-                     "stays still",
-                     static_cast<unsigned>(bytes));
+        foreign = true;
+        VF_LOG_INFO("grass wind: a vertex shader of a grass length (0x%08X, %u bytes) is not the grass shader; left "
+                    "alone",
+                    static_cast<unsigned>(code[0]), static_cast<unsigned>(bytes));
         return {};
     }
+    size_t anchor = EndOfAnchorLine(source);
     if (source[anchor - 1] != '\n')
     {
         source.push_back('\n');
@@ -349,9 +360,10 @@ const DWORD* GrassShaderRewriter::Rewrite(const DWORD* code)
     if (cached == m_cache.end())
     {
         std::vector<DWORD> rewritten;
+        bool foreign = false;
         if (CompilerReady())
-            rewritten = Build(code, tokens);
-        (rewritten.empty() ? m_failed : m_injected) += 1;
+            rewritten = Build(code, tokens, foreign);
+        (foreign ? m_foreign : rewritten.empty() ? m_failed : m_injected) += 1;
         cached = m_cache.emplace(key, std::move(rewritten)).first;
     }
     return cached->second.empty() ? code : cached->second.data();
