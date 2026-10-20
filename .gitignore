@@ -1,0 +1,4 @@
+/build/
+*.log
+/PLAN.MD
+/REVIEW_FINDINGS.md
