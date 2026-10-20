@@ -6,6 +6,7 @@
 #include "engine.h"
 #include "fog_model.h"
 #include "forever_look.h"
+#include "grass_wind.h"
 #include "image_quality.h"
 #include "log.h"
 #include "spell_lights.h"
@@ -73,7 +74,12 @@ bool g_treeWindHooksInstalled = false;
 bool g_treeWindFailed = false;
 int g_treeWindMap = -1;
 const float* g_testTreeWindCamera = nullptr;
-Config g_treeWindConfigured;
+Config g_windConfigured;
+uintptr_t g_grassConstantsTarget = engine::kInitializeShaderConstants;
+float* g_grassConstantsDestination = nullptr;
+bool g_grassWindHooksInstalled = false;
+bool g_grassWindFailed = false;
+unsigned g_grassConstantFrames = 0;
 int g_spellLightsObserved = 0;
 
 uintptr_t g_m2BatchFogTarget = engine::kM2BatchFogTarget;
@@ -340,15 +346,16 @@ void PublishSpellLights()
     g_spellLightsObserved = observed ? 1 : 0;
 }
 
-void ConfigureTreeWind()
+void ConfigureWind()
 {
-    if (!g_treeWindHooksInstalled)
+    if (!g_treeWindHooksInstalled && !g_grassWindHooksInstalled)
         return;
     const Config& cfg = GlobalConfig().Get();
-    if (!SameLiveSettings(cfg, g_treeWindConfigured))
+    if (!SameLiveSettings(cfg, g_windConfigured))
     {
-        g_treeWindConfigured = cfg;
+        g_windConfigured = cfg;
         GlobalTreeWind().Configure(TreeWindSettingsFrom(cfg));
+        GlobalGrassWind().Configure(GrassWindSettingsFrom(cfg));
     }
     const int map = engine::ReadCurrentMap();
     if (map != g_treeWindMap)
@@ -361,7 +368,7 @@ void ConfigureTreeWind()
 void OnFrameBegin()
 {
     PublishSpellLights();
-    ConfigureTreeWind();
+    ConfigureWind();
     g_renderedThisFrame = false;
     ResetTransparentFogFrame();
     if (FogDrawsInPlaceOfStockFog())
@@ -1251,6 +1258,39 @@ extern "C" void __cdecl vf_on_model_animate(void* instance)
     }
 }
 
+extern "C" void __cdecl vf_on_grass_constants()
+{
+    if (g_grassWindFailed)
+        return;
+    __try
+    {
+        float camera[3];
+        if (g_testTreeWindCamera)
+            std::memcpy(camera, g_testTreeWindCamera, sizeof(camera));
+        else
+            engine::ReadCameraPosition(camera);
+        float player[3];
+        const bool havePlayer = !g_grassConstantsDestination && engine::ReadActivePlayerPosition(player);
+        const GrassConstants constants =
+            GrassFrameConstants(GlobalGrassWind().Settings(), camera, havePlayer ? player : nullptr, GetTickCount());
+        float* destination =
+            g_grassConstantsDestination
+                ? g_grassConstantsDestination
+                : reinterpret_cast<float*>(engine::kDetailDoodadShaderConstants) +
+                      engine::kDetailDoodadFirstFreeRegister * 4;
+        std::memcpy(destination, constants.registers, sizeof(constants.registers));
+        if (++g_grassConstantFrames == 1)
+            VF_LOG_INFO("grass wind: constants written to the first grass draw (%u shaders rewritten, %u failed)",
+                        GlobalGrassWind().Shaders().Injected(), GlobalGrassWind().Shaders().Failed());
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_grassWindFailed = true;
+        VF_LOG_ERROR("exception 0x%08X in the grass wind hook; the grass stops moving for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+    }
+}
+
 extern "C" void __cdecl vf_on_liquid_begin()
 {
     __try
@@ -1466,6 +1506,28 @@ __declspec(naked) static void MeshBatchDrawThunk()
     drawn:
         ret
     }
+}
+
+__declspec(naked) static void GrassConstantsThunk()
+{
+    __asm {
+        call dword ptr [g_grassConstantsTarget]
+        pushad
+        call vf_on_grass_constants
+        popad
+        ret
+    }
+}
+
+const void* RetargetGrassConstantsThunk(uintptr_t target, float* destination, const float* camera)
+{
+    g_grassConstantsTarget = target;
+    g_grassConstantsDestination = destination;
+    g_testTreeWindCamera = camera;
+    g_grassWindFailed = false;
+    g_grassConstantFrames = 0;
+    GlobalGrassWind().Configure(GrassWindSettingsFrom(GlobalConfig().Get()));
+    return reinterpret_cast<const void*>(&GrassConstantsThunk);
 }
 
 __declspec(naked) static void ModelAnimateFullThunk()
@@ -1778,6 +1840,31 @@ bool InstallTransparentFogHooks()
     VF_LOG_INFO("transparent fog hooks installed: M2 batch fog 0x%08X, glare pass 0x%08X (TransparentFog=%d)",
                 static_cast<unsigned>(engine::kM2BatchFogSite), static_cast<unsigned>(engine::kGlarePassSite),
                 GlobalConfig().Get().transparentFog ? 1 : 0);
+    return true;
+}
+
+bool InstallGrassWindHooks()
+{
+    const Config& cfg = GlobalConfig().Get();
+    if (!cfg.grassWind && !cfg.grassParting)
+    {
+        VF_LOG_INFO("grass wind not installed (GrassWind=0 and GrassParting=0)");
+        return false;
+    }
+    const CallSite sites[] = {
+        {engine::kInitializeShaderConstantsSite, engine::kInitializeShaderConstants,
+         reinterpret_cast<const void*>(&GrassConstantsThunk)},
+    };
+    if (!engine::GrassWindCodeMatches(ClientCodeView()))
+        return false;
+    if (!SitesHoldTheClientCalls(sites, "grass wind") || !PatchCallSites(sites))
+        return false;
+    g_grassWindHooksInstalled = true;
+    GlobalGrassWind().Configure(GrassWindSettingsFrom(cfg));
+    GlobalGrassWind().Shaders().Enable(true);
+    VF_LOG_INFO("grass wind hook installed at 0x%08X (GrassWind=%d, GrassParting=%d)",
+                static_cast<unsigned>(engine::kInitializeShaderConstantsSite), cfg.grassWind ? 1 : 0,
+                cfg.grassParting ? 1 : 0);
     return true;
 }
 

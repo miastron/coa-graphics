@@ -1,6 +1,7 @@
 #include "d3d9_wrap.h"
 
 #include "client_ripple_sprites.h"
+#include "grass_wind.h"
 #include "log.h"
 #include "msaa_depth.h"
 #include "overlay.h"
@@ -443,7 +444,7 @@ public:
     HRESULT STDMETHODCALLTYPE GetFVF(DWORD* fvf) override { return m_real->GetFVF(fvf); }
     HRESULT STDMETHODCALLTYPE CreateVertexShader(const DWORD* code, IDirect3DVertexShader9** out) override
     {
-        return m_real->CreateVertexShader(code, out);
+        return m_real->CreateVertexShader(GlobalGrassWind().Shaders().Rewrite(code), out);
     }
     HRESULT STDMETHODCALLTYPE SetVertexShader(IDirect3DVertexShader9* s) override
     {

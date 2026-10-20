@@ -32,4 +32,5 @@ bool SelectWaterContact(WaterContactFrame& frame, const WaterContact& contact, c
 bool CaptureWaterContactsFrom(uintptr_t objectManager, const float centre[3], WaterContactFrame& out);
 bool WaterContactsSupported();
 bool CaptureWaterContacts(const float centre[3], WaterContactFrame& out);
+bool ReadActivePlayerPosition(float out[3]);
 }

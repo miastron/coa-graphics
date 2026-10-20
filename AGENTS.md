@@ -48,7 +48,8 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
   `client_ripple_sprites` (hold on the client's `waterRipples` splash and wake sprites), `water_renderer` (copies,
   stencil tagging, shading);
   wind: `tree_wind` (CPU sway of placed trees and bushes at the two model animate call sites, pristine placement
-  cache); look: `forever_look` (Forever glow byte before the fog composite, grading decisions at
+  cache), `grass_wind` (grass vertex shader rewrite in the device wrapper, constants block at the detail doodad
+  setup); look: `forever_look` (Forever glow byte before the fog composite, grading decisions at
   world done and frame end), `grading_renderer` (colour grading pass); image: `image_quality` (world viewport at world
   done, the pass at frame end), `image_renderer` (SMAA, sharpening and bloom passes).
 - `shaders/` — the ps_3_0 passes: `vf_*` fog (march, temporal, composite and its multisampled silhouette split, god

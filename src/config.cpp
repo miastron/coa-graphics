@@ -151,6 +151,30 @@ const FloatSetting kTreeWindFloatSettings[] = {
     {"BushMaxDistance", &Config::bushMaxDistance, 0.0f, 500.0f},
 };
 
+const FloatSetting kGrassWindFloatSettings[] = {
+    {"GrassWindDirection", &Config::grassWindDirection, 0.0f, 360.0f},
+    {"GrassWindSpeed", &Config::grassWindSpeed, 0.0f, 20.0f},
+    {"GrassWindAmplitude", &Config::grassWindAmplitude, 0.0f, 0.5f},
+    {"GrassWindWavelength", &Config::grassWindWavelength, 1.0f, 100.0f},
+    {"GrassWindCrossAmplitude", &Config::grassWindCrossAmplitude, 0.0f, 0.3f},
+    {"GrassWindCrossWavelength", &Config::grassWindCrossWavelength, 1.0f, 50.0f},
+    {"GrassWindCrossAngle", &Config::grassWindCrossAngle, 0.0f, 180.0f},
+    {"GrassWindLean", &Config::grassWindLean, 0.0f, 2.0f},
+    {"GrassWindVariance", &Config::grassWindVariance, 0.0f, 1.0f},
+    {"GrassWindDistanceFade", &Config::grassWindDistanceFade, 0.0f, 0.1f},
+    {"GrassWindAnchor", &Config::grassWindAnchor, 0.0f, 0.9f},
+    {"GrassPartingRadius", &Config::grassPartingRadius, 0.1f, 10.0f},
+    {"GrassPartingForce", &Config::grassPartingForce, 0.0f, 2.0f},
+    {"GrassPartingEdgeForce", &Config::grassPartingEdgeForce, 0.0f, 2.0f},
+    {"GrassPartingHeight", &Config::grassPartingHeight, 0.01f, 5.0f},
+    {"GrassPartingMinBladeHeight", &Config::grassPartingMinBladeHeight, 0.0f, 3.0f},
+};
+
+const BoolSetting kGrassWindBoolSettings[] = {
+    {"GrassWind", &Config::grassWind},
+    {"GrassParting", &Config::grassParting},
+};
+
 const BoolSetting kTreeWindBoolSettings[] = {
     {"TreeWind", &Config::treeWind},
     {"TreeDoodadsOnly", &Config::treeDoodadsOnly},
@@ -188,6 +212,8 @@ void ForEachFloatSetting(Visit visit)
         visit(s);
     for (const FloatSetting& s : kTreeWindFloatSettings)
         visit(s);
+    for (const FloatSetting& s : kGrassWindFloatSettings)
+        visit(s);
 }
 
 template <typename Visit>
@@ -200,6 +226,8 @@ void ForEachBoolSetting(Visit visit)
     for (const BoolSetting& s : kWaterBoolSettings)
         visit(s);
     for (const BoolSetting& s : kTreeWindBoolSettings)
+        visit(s);
+    for (const BoolSetting& s : kGrassWindBoolSettings)
         visit(s);
 }
 
@@ -416,7 +444,8 @@ bool SameLiveSettings(const Config& a, const Config& b)
            SameValues(kImageBoolSettings, a, b) &&
            SameValues(kWaterIntSettings, a, b) && SameValues(kWaterFloatSettings, a, b) &&
            SameValues(kWaterBoolSettings, a, b) && SameValues(kTreeWindFloatSettings, a, b) &&
-           SameValues(kTreeWindBoolSettings, a, b);
+           SameValues(kTreeWindBoolSettings, a, b) && SameValues(kGrassWindFloatSettings, a, b) &&
+           SameValues(kGrassWindBoolSettings, a, b);
 }
 
 std::string SettingChanges(const Config& before, const Config& after)

@@ -270,7 +270,7 @@ bool ThunkSwaysBeforeForwarding(const void* thunk, FakeModel& model)
 
 void CheckThunks()
 {
-    const float camera[3] = {kPlacedAt[0], kPlacedAt[1], kPlacedAt[2]};
+    static const float camera[3] = {kPlacedAt[0], kPlacedAt[1], kPlacedAt[2]};
     const void* full = nullptr;
     const void* simple = nullptr;
     vf_test_model_animate_thunks(reinterpret_cast<uintptr_t>(&FakeAnimate), reinterpret_cast<uintptr_t>(&FakeAnimate),

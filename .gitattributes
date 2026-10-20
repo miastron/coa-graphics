@@ -2,3 +2,4 @@
 *.dll binary
 *.png binary
 *.bin binary
+*.bls binary

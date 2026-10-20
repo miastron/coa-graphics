@@ -441,6 +441,47 @@ bool DrawBushWind(Config& c)
     return changed;
 }
 
+bool DrawGrassWind(Config& c)
+{
+    const Section section("Grass");
+    if (!section)
+        return false;
+    bool changed = Toggle("Grass sways", c.grassWind,
+                          "Move the client's grass blades with travelling waves of wind. The shader rewrite is made "
+                          "when the game starts, so switching this on needs a restart if both grass switches were off");
+    changed |= Slider("Direction", c.grassWindDirection, 0.0f, 360.0f, "%.0f",
+                      "Wind heading in the world plane, degrees");
+    changed |= Slider("Speed", c.grassWindSpeed, 0.0f, 20.0f, "%.2f", "How fast the waves travel, yards per second");
+    changed |= Slider("Amplitude", c.grassWindAmplitude, 0.0f, 0.5f, "%.3f",
+                      "Sway of the primary wave at the blade tip, yards");
+    changed |= Slider("Wavelength", c.grassWindWavelength, 1.0f, 100.0f, "%.1f", "Length of the primary wave, yards");
+    changed |= Slider("Cross amplitude", c.grassWindCrossAmplitude, 0.0f, 0.3f, "%.3f",
+                      "Sway of the secondary swell, yards");
+    changed |= Slider("Cross wavelength", c.grassWindCrossWavelength, 1.0f, 50.0f, "%.1f",
+                      "Length of the secondary swell, yards");
+    changed |= Slider("Cross angle", c.grassWindCrossAngle, 0.0f, 180.0f, "%.0f",
+                      "Heading of the secondary swell relative to the primary wave, degrees");
+    changed |= Slider("Lean", c.grassWindLean, 0.0f, 2.0f, "%.2f",
+                      "Constant downwind lean, a share of the primary amplitude");
+    changed |= Slider("Variance", c.grassWindVariance, 0.0f, 1.0f, "%.2f",
+                      "Spread of the sway between blades, 0 = uniform");
+    changed |= Slider("Distance fade", c.grassWindDistanceFade, 0.0f, 0.1f, "%.3f",
+                      "Sway attenuation per yard of view distance, 0 = none");
+    changed |= Slider("Anchor", c.grassWindAnchor, 0.0f, 0.9f, "%.2f",
+                      "Share of the blade, from the base, that never moves");
+    changed |= Toggle("Grass parts around you", c.grassParting,
+                      "Blades lean away from your character as it walks through them");
+    changed |= Slider("Parting radius", c.grassPartingRadius, 0.1f, 10.0f, "%.1f",
+                      "Distance around your character that parts the grass, yards");
+    changed |= Slider("Parting force", c.grassPartingForce, 0.0f, 2.0f, "%.2f", "Lean strength at your character");
+    changed |= Slider("Edge force", c.grassPartingEdgeForce, 0.0f, 2.0f, "%.2f", "Lean strength at the radius edge");
+    changed |= Slider("Parting height", c.grassPartingHeight, 0.01f, 5.0f, "%.2f",
+                      "Height above the ground where the lean reaches full weight, yards");
+    changed |= Slider("Min blade height", c.grassPartingMinBladeHeight, 0.0f, 3.0f, "%.2f",
+                      "Blades shorter than this stay still, yards");
+    return changed;
+}
+
 bool DrawDebug(Config& c)
 {
     const Section section("Debug");
@@ -494,6 +535,7 @@ bool SettingsPanel::DrawSettings(Config& edited, const FogFrameStatus& fogStatus
     changed |= DrawWater(edited);
     changed |= DrawTreeWind(edited);
     changed |= DrawBushWind(edited);
+    changed |= DrawGrassWind(edited);
     changed |= DrawDebug(edited);
     ImGui::PopItemWidth();
     ImGui::EndChild();

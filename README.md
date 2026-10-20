@@ -478,6 +478,44 @@ time, since both would tilt the same placements.
 - **Checks.** The harness checks the matrix at zero strength, translation and scale after the tilt, each gate, the cache
   and its eviction, the guards, the shipped defaults and the thunks. That does not establish in-game behaviour.
 
+## Grass wind and parting
+
+The client's grass (the ground-effect "detail doodads") has no motion. CoAGraphics reassembles the grass vertex shader
+with a block that displaces each blade in the world plane by two travelling sine waves and a lean, and that leans
+blades away from your character. This ports WarcraftXL's Grasswind; `WarcraftXL.dll` and its Grasswind extension are
+not needed and must not be loaded at the same time.
+
+- **The shaders.** The grass vertex shaders are `Shaders\Vertex\vs_2_0\DetailDoodad.bls` and
+  `Shaders\Vertex\vs_3_0\DetailDoodad.bls` in the client's `patch.MPQ` (`HSXG`, version `0x10003`, six permutations
+  each, read by `CGxDevice::IShaderLoad`). Their bytecode lengths are 552, 644, 788, 1428, 1520, 1664 bytes (vs_2_0) and
+  548, 676, 844, 1328, 1456, 1624 bytes (vs_3_0). The permutation is `3 * index + shadow`; the only call of
+  `CDetailDoodad::SetupVertexShader` passes index 0, so only the first three of each are ever drawn. The last three read
+  c14 to c22, the point lights, which the motion block also needs; they are left stock. The first three read c0 to c13
+  and, with shadows, c23 and up.
+- **Where it hooks.** The device wrapper's `CreateVertexShader` measures the bytecode to its end token and, for a
+  version token of `0xFFFE0200` or `0xFFFE0300` with one of the six first lengths, disassembles it with
+  `D3DDisassemble` from the system's `d3dcompiler_47.dll`, inserts the motion block after `add r0, r0, c3` (the view
+  transform), reassembles it with `D3DAssemble` and passes the result on. Nothing in the client is patched for this, so
+  it also works on DXVK. A shader that cannot be rewritten stays stock and is logged once with its length. The block
+  uses `sincos` with one source, which vs_3_0 assembles and vs_2_0 does not: on a client that runs the vs_2_0 grass
+  shaders the grass stays still and the log says so.
+- **The constants.** `CDetailDoodad::InitializeShaderConstants` (`0x007B15D0`, called only from `0x007B2E25`) clears the
+  23-register structure at `0x00D1C518` and fills c0 to c13; `CDetailDoodad::SetupVertexShader` uploads all 23 registers
+  for each chunk (`6A 17 68 18 C5 D1 00 6A 00 6A 00 FF D0` at `0x007B1194`). The call at `0x007B2E25` is retargeted to
+  a thunk that runs the original and writes c14 to c21 of that structure: the camera, the player, the cone and radius,
+  two waves and the blade variance. Their guards are the entry `55 8B EC 81 EC 5C 01 00 00 56 6A 00 68 70 01 00`, the
+  clear `6A 00 68 70 01 00 00 68 18 C5 D1 00` at `0x007B15DA` and the upload above.
+- **The player.** The object manager's active player GUID is at `+0xC0` (`8B 81 C0 00 00 00 8B 91 C4 00 00 00` at
+  `0x004D37AE`); the player's position is read from the visible object list as the water contacts read it, from the
+  unit position or, on a transport, the world entity position. Without a player the grass is not parted.
+- **Settings.** `GrassWind*` and `GrassParting*` in `CoAGraphics.ini` and the Grass section of the settings window. The
+  shader rewrite is made when the game creates its shaders, so it needs `GrassWind=1` or `GrassParting=1` at start; with
+  it in place the keys apply within a second and 0 stops the motion.
+- **Checks.** The harness reads the client's twelve grass shaders from `tests/shaders` (extracted from `patch.MPQ`), and
+  checks their end tokens, the rewrite of the three vs_3_0 shaders, that the light variants, other shaders, a missing
+  compiler and a disabled rewrite pass through, the constants, the thunk, the guards, the shipped defaults and, on the
+  device, that the wrapper hands the driver a longer shader. That does not establish in-game behaviour.
+
 ## Engine inputs
 
 All addresses are static in the 12340 image (base `0x400000`, timestamp `0x4C2452FE`, both checked at start-up);
@@ -1037,6 +1075,8 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `TreeMinHeight`, `TreeMinAspect`, `TreeMaxHeight`, `TreeMaxDistance` | 6, 1.8, 200, 0 | Tall-model test (yd, height over width), tallest tree that sways and farthest tree from the camera; 0 = no limit |
 | `BushWind` | 1 | Placed bushes, ferns and hedges sway with their own `BushWind*` keys (same names as `TreeWind*`; defaults `Speed` 2, `Amplitude` 0.5, `Wavelength` 9, `CrossAmplitude` 0.25, `CrossWavelength` 5, `Lean` 0.2, `Variance` 0.6, `Gust` 0.4) |
 | `BushDoodadsOnly`, `BushSkipDead`, `BushMaxDistance` | 1, 1, 0 | Map-placed models only, skip dead bushes, farthest bush from the camera; 0 = no limit |
+| `GrassWind` | 1 | Grass blades sway; the other `GrassWind*` keys shape the wind: `Direction` 45, `Speed` 3, `Amplitude` 0.06 and `CrossAmplitude` 0.02 (yd), `Wavelength` 18 and `CrossWavelength` 6.5 (yd), `CrossAngle` 35, `Lean` 0.35, `Variance` 0.6, `DistanceFade` 0.015, `Anchor` 0.3. Needs 1 here or in `GrassParting` at start to rewrite the shaders |
+| `GrassParting` | 1 | Grass leans away from your character; `GrassPartingRadius` 2 (yd), `GrassPartingForce` 0.5, `GrassPartingEdgeForce` 0, `GrassPartingHeight` 0.5 (yd), `GrassPartingMinBladeHeight` 0.3 (yd) |
 
 Turning `FarClipMax` on from 0 needs a restart. Other changes, including turning it off, apply at the next `farclip`
 change, map load or zone change, where raising it shows a loading screen.
@@ -1165,8 +1205,9 @@ game, so by default colours still differ from Classic.
   data, the modern water, the settings window and the original release build
   ([jealous-sound/coa-vfog](https://github.com/jealous-sound/coa-vfog)).
 - **WarcraftXL** ([WarcraftXL/core](https://github.com/WarcraftXL/core)) and the authors of
-  [wxl-treewind](https://github.com/manatactical/wxl-treewind), whose GPLv3 tree and bush wind the Tree and bush wind
-  section ports.
+  [wxl-treewind](https://github.com/manatactical/wxl-treewind) and
+  [wxl-grasswind](https://github.com/WarcraftXL/wxl-grasswind), whose GPLv3 tree, bush and grass wind the Tree and bush
+  wind and Grass wind and parting sections port.
 - **Luca Foscili** added the interior distance-fog control and the Steam Deck and Proton notes upstream
   (pull requests #9 and #10).
 - **St0ny** and the AIO WoW EXE Patcher, whose patch No. 70 "lightstay" byte the `LightStay` setting reproduces.

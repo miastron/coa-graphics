@@ -192,6 +192,7 @@ add_library(CoAGraphics SHARED
     src/forever_look.cpp
     src/gpu_timing.cpp
     src/grading_renderer.cpp
+    src/grass_wind.cpp
     src/hooks.cpp
     src/image_quality.cpp
     src/image_renderer.cpp
@@ -231,10 +232,12 @@ add_executable(vfog_harness tests/harness.cpp src/client_code.cpp src/client_lig
                src/engine_lights.cpp src/local_light_stabiliser.cpp src/spell_lights.cpp src/texture_tint.cpp
                src/texture_filtering.cpp
                src/fog_data.cpp src/fog_model.cpp src/gpu_timing.cpp src/log.cpp src/noise_volume.cpp
-               src/transparent_fog.cpp src/tree_wind.cpp src/water_contacts.cpp src/water_data.cpp src/water_spectrum.cpp
+               src/transparent_fog.cpp src/tree_wind.cpp src/grass_wind.cpp src/water_contacts.cpp
+               src/water_data.cpp src/water_spectrum.cpp
                src/water_fft.cpp src/water_ripples.cpp src/status_log.cpp src/terrain_shadows.cpp)
 target_include_directories(vfog_harness PRIVATE src ${SHADER_OUT})
-target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS
+                           GRASS_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders")
 target_link_libraries(vfog_harness PRIVATE CoAGraphics user32 ole32 windowscodecs)
 add_custom_command(TARGET CoAGraphics POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/CoAGraphics.ini

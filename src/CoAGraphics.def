@@ -3,6 +3,8 @@ EXPORTS
     vf_loader_anchor
     vf_test_wrap_direct3d9
     vf_test_model_animate_thunks
+    vf_test_grass_constants_thunk
+    vf_test_enable_grass_shaders
     vf_test_set_config
     vf_test_get_config
     vf_test_render

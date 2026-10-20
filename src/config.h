@@ -124,6 +124,24 @@ struct Config
     bool bushDoodadsOnly = true;
     bool bushSkipDead = true;
     float bushMaxDistance = 0.0f;
+    bool grassWind = true;
+    float grassWindDirection = 45.0f;
+    float grassWindSpeed = 3.0f;
+    float grassWindAmplitude = 0.06f;
+    float grassWindWavelength = 18.0f;
+    float grassWindCrossAmplitude = 0.02f;
+    float grassWindCrossWavelength = 6.5f;
+    float grassWindCrossAngle = 35.0f;
+    float grassWindLean = 0.35f;
+    float grassWindVariance = 0.6f;
+    float grassWindDistanceFade = 0.015f;
+    float grassWindAnchor = 0.3f;
+    bool grassParting = true;
+    float grassPartingRadius = 2.0f;
+    float grassPartingForce = 0.5f;
+    float grassPartingEdgeForce = 0.0f;
+    float grassPartingHeight = 0.5f;
+    float grassPartingMinBladeHeight = 0.3f;
 };
 
 bool SameFogSettings(const Config& a, const Config& b);

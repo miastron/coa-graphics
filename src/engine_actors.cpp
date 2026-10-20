@@ -17,6 +17,7 @@ constexpr uint32_t kClientTimestamp = 0x4C2452FE;
 constexpr uintptr_t kClientConnection = 0x00C79CE0;
 constexpr uintptr_t kConnectionObjectManager = 0x2ED0;
 constexpr uintptr_t kObjectManagerSize = 0xD8;
+constexpr uintptr_t kManagerActivePlayerGuid = 0xC0;
 constexpr uintptr_t kManagerVisibleLinkOffset = 0xA4;
 constexpr uintptr_t kManagerVisibleHead = 0xA8;
 constexpr uintptr_t kManagerVisibleFirst = 0xAC;
@@ -85,6 +86,10 @@ const GuardBytes kWaterContactLayout[] = {
      {0x89, 0x79, 0x6C, 0xD8, 0x65, 0xBC, 0x89, 0x59, 0x70, 0x89, 0x51, 0x74}},
 };
 
+const GuardBytes kActivePlayerLayout[] = {
+    {"active player guid", 0x004D37AE, 12, {0x8B, 0x81, 0xC0, 0x00, 0x00, 0x00, 0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00}},
+};
+
 bool FiniteWithin(float value, float minimum, float maximum)
 {
     return std::isfinite(value) && value >= minimum && value <= maximum;
@@ -116,7 +121,7 @@ bool Precedes(const WaterContact& a, const WaterContact& b, const float centre[3
     return a.guid < b.guid;
 }
 
-bool LayoutMatchesUnsafe()
+bool ClientImageMatches()
 {
     const auto* base = reinterpret_cast<const unsigned char*>(GetModuleHandleA(nullptr));
     if (reinterpret_cast<uintptr_t>(base) != kClientImageBase)
@@ -125,18 +130,46 @@ bool LayoutMatchesUnsafe()
     if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew < 0 || dos->e_lfanew > 0x1000)
         return false;
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
-    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.TimeDateStamp != kClientTimestamp ||
-        nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC)
-        return false;
-    for (const GuardBytes& guard : kWaterContactLayout)
+    return nt->Signature == IMAGE_NT_SIGNATURE && nt->FileHeader.TimeDateStamp == kClientTimestamp &&
+           nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC;
+}
+
+template <size_t N>
+bool GuardsMatch(const GuardBytes (&guards)[N], const char* feature, const char* effect)
+{
+    for (const GuardBytes& guard : guards)
         if (std::memcmp(reinterpret_cast<const void*>(guard.address), guard.bytes, guard.size) != 0)
         {
-            VF_LOG_ERROR("water contacts: the client's %s at 0x%08X differs from the 12340 client; ripples get no "
-                         "contacts and the client's splash and wake sprites stay",
-                         guard.name, static_cast<unsigned>(guard.address));
+            VF_LOG_ERROR("%s: the client's %s at 0x%08X differs from the 12340 client; %s", feature, guard.name,
+                         static_cast<unsigned>(guard.address), effect);
             return false;
         }
     return true;
+}
+
+bool LayoutMatchesUnsafe()
+{
+    return ClientImageMatches() &&
+           GuardsMatch(kWaterContactLayout, "water contacts",
+                       "ripples get no contacts and the client's splash and wake sprites stay");
+}
+
+bool ActivePlayerLayoutMatchesUnsafe()
+{
+    return LayoutMatchesUnsafe() &&
+           GuardsMatch(kActivePlayerLayout, "active player", "the grass is not parted around the player");
+}
+
+bool ActivePlayerLayoutMatches()
+{
+    __try
+    {
+        return ActivePlayerLayoutMatchesUnsafe();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
 }
 
 bool LayoutMatches()
@@ -180,7 +213,8 @@ bool ReadWaterContactUnsafe(uintptr_t object, WaterContact& contact)
     return true;
 }
 
-bool WalkVisibleUnitsUnsafe(uintptr_t manager, const float centre[3], WaterContactFrame& out)
+template <typename Visit>
+bool WalkVisibleObjectsUnsafe(uintptr_t manager, bool& truncated, Visit visit)
 {
     if (!ValidPointer(manager, kObjectManagerSize) ||
         Read<uint32_t>(manager + kManagerVisibleLinkOffset) != kVisibleListLinkOffset)
@@ -191,19 +225,28 @@ bool WalkVisibleUnitsUnsafe(uintptr_t manager, const float centre[3], WaterConta
     {
         if (visited == kMaxVisibleObjects)
         {
-            out.truncated = true;
+            truncated = true;
             return true;
         }
         if (!ValidPointer(object, kObjectNext + sizeof(uintptr_t)) ||
             Read<uintptr_t>(object + kObjectPreviousLink) != previousLink)
             return false;
-        WaterContact contact;
-        if (ReadWaterContactUnsafe(object, contact))
-            engine::SelectWaterContact(out, contact, centre);
+        if (visit(object))
+            return true;
         previousLink = object + kObjectPreviousLink;
         object = Read<uintptr_t>(object + kObjectNext);
     }
     return true;
+}
+
+bool WalkVisibleUnitsUnsafe(uintptr_t manager, const float centre[3], WaterContactFrame& out)
+{
+    return WalkVisibleObjectsUnsafe(manager, out.truncated, [&](uintptr_t object) {
+        WaterContact contact;
+        if (ReadWaterContactUnsafe(object, contact))
+            engine::SelectWaterContact(out, contact, centre);
+        return false;
+    });
 }
 
 bool WalkVisibleUnits(uintptr_t manager, const float centre[3], WaterContactFrame& out)
@@ -230,6 +273,43 @@ bool ReadObjectManager(uintptr_t& manager)
             return false;
         manager = Read<uintptr_t>(connection + kConnectionObjectManager);
         return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+bool ReadUnitPositionUnsafe(uintptr_t object, float out[3])
+{
+    const uintptr_t entity = Read<uintptr_t>(object + kObjectWorldEntity);
+    const bool onTransport = Read<uint64_t>(object + kUnitTransportGuid) != 0;
+    if (onTransport && !ValidPointer(entity, kEntitySize))
+        return false;
+    const uintptr_t position = onTransport ? entity + kEntityWorldPosition : object + kUnitPosition;
+    std::memcpy(out, reinterpret_cast<const void*>(position), sizeof(float) * 3);
+    return true;
+}
+
+bool ReadActivePlayerPositionUnsafe(uintptr_t manager, float out[3])
+{
+    const uint64_t guid = Read<uint64_t>(manager + kManagerActivePlayerGuid);
+    bool truncated = false;
+    bool found = false;
+    const bool walked = WalkVisibleObjectsUnsafe(manager, truncated, [&](uintptr_t object) {
+        if (Read<uint64_t>(object + kObjectGuid) != guid || !IsUnit(object))
+            return false;
+        found = ReadUnitPositionUnsafe(object, out);
+        return true;
+    });
+    return guid && walked && found;
+}
+
+bool ReadActivePlayerPositionGuarded(uintptr_t manager, float out[3])
+{
+    __try
+    {
+        return ReadActivePlayerPositionUnsafe(manager, out);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -288,6 +368,23 @@ bool CaptureWaterContactsFrom(uintptr_t objectManager, const float centre[3], Wa
     if (valid)
         out = captured;
     return valid;
+}
+
+bool ActivePlayerSupported()
+{
+    static const bool supported = ActivePlayerLayoutMatches();
+    return supported;
+}
+
+bool ReadActivePlayerPosition(float out[3])
+{
+    uintptr_t manager = 0;
+    float position[3];
+    if (!ActivePlayerSupported() || !ReadObjectManager(manager) || !manager ||
+        !ReadActivePlayerPositionGuarded(manager, position) || !ValidCentre(position))
+        return false;
+    std::memcpy(out, position, sizeof(position));
+    return true;
 }
 
 bool WaterContactsSupported()

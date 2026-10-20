@@ -5,6 +5,7 @@
 #include "engine.h"
 #include "fog_data.h"
 #include "forever_look.h"
+#include "grass_wind.h"
 #include "hooks.h"
 #include "image_quality.h"
 #include "log.h"
@@ -93,6 +94,7 @@ void Attach(HMODULE module)
         InstallTransparentFogHooks();
         InstallSpellLightHooks();
         InstallTreeWindHooks();
+        InstallGrassWindHooks();
         EnableForeverLookOnHookedClient();
     }
     if (engineHooks && InstallWaterHooks())
@@ -357,6 +359,16 @@ extern "C" void __cdecl vf_test_particle_render_thunks(uintptr_t target, uintptr
                                                        const void** single, const void** batched)
 {
     RetargetParticleRenderThunks(target, worldSceneSlot, *single, *batched);
+}
+
+extern "C" const void* __cdecl vf_test_grass_constants_thunk(uintptr_t target, float* destination, const float* camera)
+{
+    return RetargetGrassConstantsThunk(target, destination, camera);
+}
+
+extern "C" void __cdecl vf_test_enable_grass_shaders(int enabled)
+{
+    GlobalGrassWind().Shaders().Enable(enabled != 0);
 }
 
 extern "C" void __cdecl vf_test_model_animate_thunks(uintptr_t full, uintptr_t simple, const float* camera,
