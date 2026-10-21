@@ -111,7 +111,8 @@ light code only while a point light is uploaded, and carry noise sampling only w
 
 **Temporal filter.** With `Temporal` above 0, samples vary between frames and a filter accumulates them. It rejects
 history from a different surface depth or depth class (world, distant terrain, sky), and lowers its weight where animated
-lighting changes the radiance. Where it drops history, it shows the average of the current samples on the pixel's surface
+lighting changes the radiance, judged on the mean of the current 3×3 low-resolution neighbourhood so the per-texel
+step jitter does not read as a lighting change. Where it drops history, it shows the average of the current samples on the pixel's surface
 in the 3×3 low-resolution neighbourhood. So the jittered sun-shadow samples of the light shafts do not show as a stipple
 when sun light dominates. Settings, map, screen-effect slot, projection and large camera changes discard history. With
 `Temporal=0`, samples stay at fixed midpoints so a still frame does not shimmer, and the temporal passes are skipped.

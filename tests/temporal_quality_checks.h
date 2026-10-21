@@ -11,6 +11,8 @@ constexpr float kFogDistance = 100.0f;
 constexpr float kCurrentFog = 0.2f;
 constexpr float kHistoryFog = 0.8f;
 constexpr float kWeight = 0.75f;
+constexpr float kJitterHighFog = 0.4f;
+constexpr float kJitterLowFog = 0.0f;
 constexpr float kSameSurfaceAverage = (7.0f * kCurrentFog + 1.0f) / 9.0f;
 
 DWORD Grey(float value)
@@ -478,18 +480,26 @@ void CheckTemporalQuality(IDirect3DDevice9* dev)
     Check(Fill(fixture.inputs[1], Grey(0.22f)) &&
               NearTemporal(fixture.Draw(true, 0, true), kCurrentFog * (1 - kWeight) + 0.22f * kWeight),
           "stable lighting retains the configured history weight for small radiance differences");
-    const float halfRetainedPresent = (kSameSurfaceAverage + kCurrentFog) * 0.5f;
-    Check(Fill(fixture.inputs[1], Grey(kCurrentFog / 0.7f)) &&
+    const float neighbourhoodMean = (8.0f * kCurrentFog + 0.6f) / 9.0f;
+    const float halfRetainedHistory = neighbourhoodMean / 0.7f;
+    const float halfRetainedPresent = (neighbourhoodMean + kCurrentFog) * 0.5f;
+    Check(Fill(fixture.inputs[0], Grey(kCurrentFog), 0, Grey(0.6f)) &&
+              Fill(fixture.inputs[1], Grey(halfRetainedHistory)) &&
               NearTemporal(fixture.Draw(true, 0, true),
-                           halfRetainedPresent + (kCurrentFog / 0.7f - halfRetainedPresent) * kWeight * 0.5f),
+                           halfRetainedPresent + (halfRetainedHistory - halfRetainedPresent) * kWeight * 0.5f),
           "temporal lighting rejection fades continuously through intermediate radiance changes");
-    Check(Fill(fixture.inputs[0], Grey(kCurrentFog), 5, Grey(kHistoryFog)) &&
+    Check(Fill(fixture.inputs[0], Grey(kHistoryFog), 0, Grey(kCurrentFog)) &&
               Fill(fixture.inputs[1], Grey(kCurrentFog)) &&
-              NearTemporal(fixture.Draw(true, 0, true), (8.0f * kCurrentFog + kHistoryFog) / 9.0f),
+              NearTemporal(fixture.Draw(true, 0, true), (8.0f * kHistoryFog + kCurrentFog) / 9.0f),
           "moving light brightening replaces stale radiance with the current same-surface average");
     Check(FillTexels(fixture.inputs[0], kSize, [](UINT x, UINT y) { return Grey((x + y) % 2 ? 0.6f : 0.0f); }) &&
-              Fill(fixture.inputs[1], Grey(0.3f)) && NearTemporal(fixture.Draw(true, 0, true), 2.4f / 9.0f),
+              Fill(fixture.inputs[1], Grey(0.6f)) && NearTemporal(fixture.Draw(true, 0, true), 2.4f / 9.0f),
           "rejected history shows the same-surface average instead of a stippled shadow sample");
+    Check(FillTexels(fixture.inputs[0], kSize,
+                     [](UINT x, UINT y) { return Grey((x + y) % 2 == 0 ? kJitterHighFog : kJitterLowFog); }) &&
+              Fill(fixture.inputs[1], Grey(kCurrentFog)) &&
+              NearTemporal(fixture.Draw(true, 0, true), kJitterHighFog * (1 - kWeight) + kCurrentFog * kWeight),
+          "per-texel step jitter around converged fog keeps the history weight under adaptive lighting");
     fixture.Reset();
     fixture.reproject[15] = 1.0f;
     Check(Fill(fixture.inputs[3], PackedDepth(2.0f, 0)) && NearTemporal(fixture.Draw(), accumulated),
