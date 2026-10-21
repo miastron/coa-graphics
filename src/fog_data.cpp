@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <limits>
 
 namespace
@@ -574,6 +575,14 @@ AuthoredNoise FogData::UnpackNoise(const Layer& layer)
     return noise;
 }
 
+void FogData::KeepClearLayersWhereStormHasNoFogKeys(const ConditionFog& clearFog, ConditionFog& stormFog)
+{
+    if (stormFog.layerCount > 0)
+        return;
+    stormFog.layerCount = clearFog.layerCount;
+    std::copy(std::begin(clearFog.layers), std::end(clearFog.layers), std::begin(stormFog.layers));
+}
+
 FogData::ConditionFog FogData::LightConditionFog(const Light& light, float halfMinuteOfDay,
                                                  const LightParamsSelection& selection) const
 {
@@ -584,7 +593,8 @@ FogData::ConditionFog FogData::LightConditionFog(const Light& light, float halfM
     const float storm = std::clamp(selection.stormBlend, 0.0f, 1.0f);
     if (storm <= 0.0f || light.paramsBySlot[kStormSlot] == 0)
         return clearFog;
-    const ConditionFog stormFog = ParamsCondition(FindParams(light.paramsBySlot[kStormSlot]), halfMinuteOfDay);
+    ConditionFog stormFog = ParamsCondition(FindParams(light.paramsBySlot[kStormSlot]), halfMinuteOfDay);
+    KeepClearLayersWhereStormHasNoFogKeys(clearFog, stormFog);
     return BlendConditions(clearFog, stormFog, storm);
 }
 

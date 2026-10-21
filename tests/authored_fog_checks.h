@@ -26,6 +26,8 @@ constexpr int kBlackwingLair = 469;
 constexpr uint32_t kBlackwingLairLight = 83;
 constexpr float kBlackwingLairParams85Glow = 0.9f;
 const float kInsideBlackwingLair[3] = {-7520.0f, -1050.0f, 450.0f};
+constexpr uint32_t kEasternPlaguelandsLight = 42;
+const float kEasternPlaguelandsLight42Centre[3] = {2597.6f, -4303.8f, 80.0f};
 
 bool NearVector(const float* v, float x, float y, float z)
 {
@@ -169,8 +171,27 @@ void CheckGradingCurves(const FogData& data)
           "a blend with any graded light params reports a grading curve");
 }
 
+void CheckStormWithoutFogKeysKeepsTheClearFog(const FogData& data)
+{
+    AuthoredFog clear = {};
+    AuthoredFog storm = {};
+    const bool resolved =
+        data.Resolve(kEasternKingdoms, kEasternPlaguelandsLight42Centre, kNoon, kClearWeather, clear) &&
+        data.Resolve(kEasternKingdoms, kEasternPlaguelandsLight42Centre, kNoon, Storm(1.0f), storm);
+    std::printf("     Eastern Plaguelands at noon, densities clear %.4f %.4f %.4f, full storm %.4f %.4f %.4f\n",
+                clear.layers[0].density, clear.layers[1].density, clear.layers[2].density, storm.layers[0].density,
+                storm.layers[1].density, storm.layers[2].density);
+    bool kept = resolved && clear.lightCount == 1 && clear.lightIds[0] == kEasternPlaguelandsLight &&
+                clear.layers[2].density > 0.0f && storm.layerCount == clear.layerCount;
+    for (int i = 0; kept && i < clear.layerCount; ++i)
+        kept = Near(storm.layers[i].density, clear.layers[i].density) &&
+               Near(storm.layers[i].start, clear.layers[i].start);
+    Check(kept, "a storm whose light params carry no fog keys keeps the clear fog instead of fading it out");
+}
+
 void CheckAuthoredFogExtras(const FogData& data)
 {
+    CheckStormWithoutFogKeysKeepsTheClearFog(data);
     CheckHyjalNoise(data);
     CheckStormNoiseFollowsTheStormWeight(data);
     CheckClassicGlow(data);

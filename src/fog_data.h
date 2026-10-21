@@ -204,6 +204,7 @@ private:
     static AuthoredLayer Unpack(const Layer& layer);
     static AuthoredNoise UnpackNoise(const Layer& layer);
     static ConditionFog BlendConditions(const ConditionFog& a, const ConditionFog& b, float bWeight);
+    static void KeepClearLayersWhereStormHasNoFogKeys(const ConditionFog& clearFog, ConditionFog& stormFog);
     ConditionFog InterpolateKeys(const Params& params, float halfMinuteOfDay) const;
     GradingBlend InterpolateGrading(const Params& params, float halfMinuteOfDay) const;
     ConditionFog ParamsCondition(const Params* params, float halfMinuteOfDay) const;

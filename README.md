@@ -23,6 +23,7 @@ after it say how each works and what is checked.
 - **Lights in view**: a light stays on at any distance while its sphere meets the view, not within a fixed distance.
 - **Smooth swaps**: lights fade in and out over about a second when they take or give up a slot. A light entering from
   the edge of the view shines at once.
+- **Fog in the rain**: where the Forever kit has no storm fog for a light, the clear fog stays when it rains.
 - **Storm fog over water**: no bright lines on grazing water in noisy fog near point lights.
 - **Cheaper fog lights**: shorter light spheres and no second density sampling in the lit march.
 
@@ -352,7 +353,9 @@ blends the Classic lights around the camera:
 
 Each light uses the condition slot the client uses for its stock lighting: the slot a screen effect forces (the ghost
 effect forces slot 4, death), otherwise clear weather (slot 0) blended toward storm (slot 2) by the client's storm weight.
-The two time keys around the current time are interpolated, and layers are paired by their Classic layer index.
+The two time keys around the current time are interpolated, and layers are paired by their Classic layer index. Storm light params
+without fog keys (31 lights, among them light 42 in the Eastern Plaguelands) keep the clear layers through the storm
+instead of fading the fog out with the rain.
 
 Then the Classic transforms apply: density ×0.01; heights relative to the player when flag bit 1 is set; shadow colour and
 density for flag bit 0 while the light is below the horizon; `1 + strength·((d − start)/range)^exponent` over the
