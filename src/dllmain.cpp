@@ -60,14 +60,28 @@ std::string ModuleDirectory(HMODULE module)
     return slash == std::string::npos ? std::string() : dir.substr(0, slash + 1);
 }
 
+std::string g_directory;
+bool g_engineHooks = false;
+bool g_waterHooks = false;
+
+void LoadDataAtFirstDevice()
+{
+    GlobalFogData().Load(g_directory + "fogdata.bin");
+    if (g_engineHooks)
+        PrepareAuthoredNoise();
+    if (g_waterHooks)
+        GlobalWaterData().Load(g_directory + "waterdata.bin");
+}
+
 void Attach(HMODULE module)
 {
     std::string dir = ModuleDirectory(module);
+    g_directory = dir;
     LogOpen((dir + "CoAGraphics.log").c_str());
     GlobalConfig().Load(dir + "CoAGraphics.ini");
     const Config& cfg = GlobalConfig().Get();
     VF_LOG_INFO("CoAGraphics loaded from %s", dir.c_str());
-    GlobalFogData().Load(dir + "fogdata.bin");
+    RunAtFirstDevice(&LoadDataAtFirstDevice);
 
     if (!engine::IsSupportedClient())
     {
@@ -85,20 +99,19 @@ void Attach(HMODULE module)
         return;
     }
     const bool engineHooks = InstallEngineHooks();
+    g_engineHooks = engineHooks;
     AllowFogOnNewDevices(engineHooks);
     if (cfg.lightStay)
         LogLightStay(engine::KeepLightsOnOffScreen({}));
     if (engineHooks)
     {
-        PrepareAuthoredNoise();
         InstallTransparentFogHooks();
         InstallSpellLightHooks();
         InstallTreeWindHooks();
         InstallGrassWindHooks();
         EnableForeverLookOnHookedClient();
     }
-    if (engineHooks && InstallWaterHooks())
-        GlobalWaterData().Load(dir + "waterdata.bin");
+    g_waterHooks = engineHooks && InstallWaterHooks();
     InstallFarClipHooks();
 }
 }
@@ -530,6 +543,11 @@ extern "C" unsigned __cdecl vf_test_water_contact_reads()
 extern "C" void __cdecl vf_test_refuse_water_contacts(int refused)
 {
     RefuseTestWaterContacts(refused != 0);
+}
+
+extern "C" int __cdecl vf_test_fog_data_loaded()
+{
+    return GlobalFogData().Loaded() ? 1 : 0;
 }
 
 extern "C" void __cdecl vf_test_refuse_fog_depth(int refused)

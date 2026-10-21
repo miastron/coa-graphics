@@ -109,6 +109,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_log_transparent_fog_stats(
 extern "C" __declspec(dllimport) void __cdecl vf_test_clear_transparent_fog_failure();
 extern "C" __declspec(dllimport) void __cdecl vf_test_inject_fog_pass_fault(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_refuse_fog_depth(int);
+extern "C" __declspec(dllimport) int __cdecl vf_test_fog_data_loaded();
 extern "C" __declspec(dllimport) void __cdecl vf_test_force_fog_params(const FogParams*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_fail_water_mask_uploads(int);
 extern "C" __declspec(dllimport) int __cdecl vf_test_water_masks_uploaded(int*);
@@ -2053,8 +2054,11 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     Check(engineFlags == 0x52, "harness uses the client's device flags");
     Config startup = {};
     vf_test_set_config(&startup);
+    const bool loadedInDllMain = vf_test_fog_data_loaded() != 0;
     HRESULT hr = h.d3d->CreateDevice(0, D3DDEVTYPE_HAL, h.window, engineFlags, &h.pp, &h.dev);
     Check(SUCCEEDED(hr) && h.dev, "CreateDevice through the wrapper");
+    Check(!loadedInDllMain && vf_test_fog_data_loaded() != 0,
+          "the fog data is read at the first CreateDevice, not under the loader lock in DllMain");
     if (!h.dev)
         return 1;
 

@@ -79,6 +79,7 @@ Direct3DCreate9Fn g_realCreate = nullptr;
 bool g_fogAllowedOnNewDevices = false;
 FogDevice* g_latestFogDevice = nullptr;
 volatile bool g_depthCreationRefused = false;
+void (*g_startupAtFirstDevice)() = nullptr;
 FogDevice* g_devices[kMaxDevices] = {};
 
 void Register(FogDevice* device)
@@ -871,6 +872,11 @@ HRESULT WrappedD3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND window, DW
 {
     if (!pp || !out)
         return D3DERR_INVALIDCALL;
+    if (void (*startup)() = g_startupAtFirstDevice)
+    {
+        g_startupAtFirstDevice = nullptr;
+        startup();
+    }
     LogAdapter(m_real, adapter);
     bool fog = g_fogAllowedOnNewDevices && GlobalConfig().Get().enable && pp->EnableAutoDepthStencil;
     if (fog && !SupportsIntz(adapter, type, *pp))
@@ -1252,6 +1258,11 @@ IDirect3D9* WINAPI WrappedDirect3DCreate9(UINT sdkVersion)
 void AllowFogOnNewDevices(bool allowedOnNewDevices)
 {
     g_fogAllowedOnNewDevices = allowedOnNewDevices;
+}
+
+void RunAtFirstDevice(void (*startup)())
+{
+    g_startupAtFirstDevice = startup;
 }
 
 void RefuseFogDepthCreation(bool refused)
