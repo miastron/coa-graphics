@@ -1742,6 +1742,13 @@ bool SitesHoldTheClientCalls(const CallSite (&sites)[N], const char* what)
 }
 
 template <size_t N>
+void RestoreCallSites(const CallSite (&sites)[N])
+{
+    for (const CallSite& s : sites)
+        PatchCallSite(s.site, reinterpret_cast<uintptr_t>(s.thunk), reinterpret_cast<const void*>(s.originalTarget));
+}
+
+template <size_t N>
 bool PatchCallSites(const CallSite (&sites)[N])
 {
     int patched = 0;
@@ -1811,7 +1818,14 @@ bool InstallEngineHooks()
     };
     if (!SitesHoldTheClientCalls(sites, "world render") || !PatchCallSites(sites))
         return false;
-    *slot = &GetProcAddressFilter;
+    if (!ExchangeSlot(engine::kGetProcAddressSlot, engine::kGetProcAddressThunk,
+                      reinterpret_cast<uintptr_t>(&GetProcAddressFilter)))
+    {
+        VF_LOG_ERROR("GetProcAddress slot 0x%08X could not be replaced; hooks not installed",
+                     static_cast<unsigned>(engine::kGetProcAddressSlot));
+        RestoreCallSites(sites);
+        return false;
+    }
     VF_LOG_INFO("engine hooks installed: GetProcAddress filter, world render 0x%08X, opaque 0x%08X, liquid 0x%08X, "
                 "world done 0x%08X, world text 0x%08X",
                 static_cast<unsigned>(engine::kWorldRenderSite), static_cast<unsigned>(engine::kOpaqueM2PassSite),
