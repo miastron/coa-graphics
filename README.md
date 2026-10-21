@@ -444,7 +444,8 @@ The water is tuned by eye against this mapping, not matched to Forever captures.
 
   The original bytes are checked first; on any mismatch nothing is patched. Two more retarget the far-clip clamp calls
   (`0x780810`, `0x781444`) when `FarClipMax` is set at start-up, independently of the fog hooks.
-- **Transparent fog hooks.** The M2 batch fog call (`0x81FD15`) and the glare pass call (`0x4F9213`), installed after the
+- **Transparent fog hooks.** The M2 batch fog call (`0x81FD15`) and the glare pass call (`0x4F9213`, which then draws the fog
+  before the world text unless it already composited this frame), installed after the
   fog hooks whatever `TransparentFog` says, and neither when a byte run checked under M2 batch fog, M2 fog setter or
   Native glare differs. The M2 thunk forwards to the client while nothing is armed. Otherwise it hands the cdecl argument
   block to the DLL (`pushad; lea eax, [esp+0x24]`). An exception in it turns transparent fog off.
@@ -608,7 +609,10 @@ Engine notes behind the code:
   the glare, so a fog composite after it fogs each glyph by the depth behind it: names in front of the sky took the
   sky's full fog and vanished, while the same name in front of a nearby tree stayed visible. The thunk therefore draws
   the fog first when it has not composited this frame, as the stock client leaves names unfogged, and the world-done
-  hook then skips it. The later name/icon path at `0x4FB042` is left in place.
+  hook then skips it. A name in front of a tree was still reported with the sky's fog beside the trunk with only this
+  hook, so the glare thunk at `0x4F9213` draws the fog when the glare pass returns, just before the world text call
+  (`0x4F9218`) that its byte guard checks; the text hook stays as the fallback while the glare thunk is not installed.
+  The later name/icon path at `0x4FB042` is left in place.
 - Native world shadows. The 12340 image registers the map-shadow callbacks at `0x7BD3A0`: matrix construction
   `0x7BAC10`, cascade setup `0x7BAFD0`, caster gathering `0x7BD200`, and rendering `0x7BBC50`. Exterior shadow quality
   is `[0xD43154]`; `[0xB1D51C]` means its resources need rebuilding. Qualities 1 and 2 supply the dynamic character

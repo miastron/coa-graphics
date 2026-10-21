@@ -799,7 +799,10 @@ HookedFrame RenderHookedFrame(Harness& h, const View& v, const Config& cfg, cons
     EndLiquid(h, v, options, frame);
     DrawEffect(h, v, options, shaders, frame);
     const int beforeOwnCall = g_glarePasses;
-    CallGlarePassThunk();
+    if (options.keepStateAround)
+        frame.stateKept = KeepsState(h, v, &CallGlarePassThunk) && frame.stateKept;
+    else
+        CallGlarePassThunk();
     frame.glarePassesAtOwnCall = g_glarePasses - beforeOwnCall;
     if (options.worldText)
         CallWorldTextThunk(*options.worldText);
@@ -1179,8 +1182,8 @@ void CheckFogDrawnBeforeWorldText(Harness& h)
                 "%d/255\n",
                 text.draws, atText, afterWorld);
     Check(text.draws == kWarmUpFrames && atText == 0 && afterWorld == 0,
-          "with TransparentFog=0 the fog is drawn once before the world-name text and not again after the world, "
-          "so names in front of the sky are not hidden by the sky's fog");
+          "with TransparentFog=0 the fog is drawn once after the glare pass, before the world-name text, and not "
+          "again after the world, so names in front of the sky are not hidden by the sky's fog");
 }
 
 struct Fallback
@@ -1289,9 +1292,12 @@ void CheckThunksAndGlarePass(Harness& h)
     const bool disarmedAfterFrame = g_recordedFog.start == kPushedStockFogStart && g_recordedFog.colour == &lighting;
     const int glareAfterFrame = g_glarePasses;
     vf_test_hook_frame_begin();
+    h.BeginFrame();
     CallGlarePassThunk();
     const bool glarePassesNextFrame = g_glarePasses == glareAfterFrame + 1;
+    h.dev->EndScene();
     vf_test_hook_frame_end();
+    h.dev->Present(nullptr, nullptr, nullptr, nullptr);
     const bool armedRewritten = armedFog.start != kPushedStockFogStart &&
                                 armedFog.exponent == kLinearStockFogExponent && armedFog.colour != &lighting &&
                                 UsesLightingFogColour(armedFog.colourValue);
