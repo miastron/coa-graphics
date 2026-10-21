@@ -1953,6 +1953,26 @@ void CheckDisabledTemporalIsStable(Harness& h, const Config& cfg, Vec3 eye, Vec3
     vf_test_set_config(&cfg);
 }
 
+void CheckBypassesAreWarnedOnce(Harness& h)
+{
+    const size_t start = water_settings_checks::DllLogSize();
+    for (int call = 0; call < 2; ++call)
+    {
+        IDirect3DSwapChain9* chain = nullptr;
+        if (SUCCEEDED(h.dev->GetSwapChain(0, &chain)) && chain)
+            chain->Release();
+        void* other = nullptr;
+        if (SUCCEEDED(h.dev->QueryInterface(__uuidof(IDirect3DDevice9Ex), &other)) && other)
+            static_cast<IUnknown*>(other)->Release();
+    }
+    const std::string text = runtime_cost::LogWrittenSince(start);
+    Check(water_settings_checks::CountOf(text, "GetSwapChain: presenting through the swap chain bypasses") == 1 &&
+              water_settings_checks::CountOf(text, "QueryInterface for an interface the wrapper does not implement") ==
+                  1,
+          "a swap chain taken from the device and a foreign interface query each log one warning that the wrapper "
+          "is bypassed");
+}
+
 int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstring& iniPath,
         const std::string& waterDataPath, bool cpuOnly = false)
 {
@@ -2061,6 +2081,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
           "the fog data is read at the first CreateDevice, not under the loader lock in DllMain");
     if (!h.dev)
         return 1;
+    CheckBypassesAreWarnedOnce(h);
 
     D3DDEVICE_CREATION_PARAMETERS cp;
     h.dev->GetCreationParameters(&cp);

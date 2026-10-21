@@ -82,6 +82,12 @@ volatile bool g_depthCreationRefused = false;
 void (*g_startupAtFirstDevice)() = nullptr;
 FogDevice* g_devices[kMaxDevices] = {};
 
+void WarnOnce(volatile LONG& warned, const char* what)
+{
+    if (InterlockedExchange(&warned, 1) == 0)
+        VF_LOG_ERROR("%s", what);
+}
+
 void Register(FogDevice* device)
 {
     for (auto*& slot : g_devices)
@@ -90,6 +96,8 @@ void Register(FogDevice* device)
             slot = device;
             return;
         }
+    static volatile LONG warned = 0;
+    WarnOnce(warned, "more devices than the wrapper tracks; the extra one is not found by the hooks");
 }
 
 void Unregister(FogDevice* device)
@@ -191,10 +199,14 @@ public:
     BOOL STDMETHODCALLTYPE ShowCursor(BOOL show) override { return m_real->ShowCursor(show); }
     HRESULT STDMETHODCALLTYPE CreateAdditionalSwapChain(D3DPRESENT_PARAMETERS* pp, IDirect3DSwapChain9** out) override
     {
+        static volatile LONG warned = 0;
+        WarnOnce(warned, "CreateAdditionalSwapChain: that swap chain bypasses the wrapper's Present");
         return m_real->CreateAdditionalSwapChain(pp, out);
     }
     HRESULT STDMETHODCALLTYPE GetSwapChain(UINT i, IDirect3DSwapChain9** out) override
     {
+        static volatile LONG warned = 0;
+        WarnOnce(warned, "GetSwapChain: presenting through the swap chain bypasses the wrapper's Present");
         return m_real->GetSwapChain(i, out);
     }
     UINT STDMETHODCALLTYPE GetNumberOfSwapChains() override { return m_real->GetNumberOfSwapChains(); }
@@ -1082,6 +1094,8 @@ HRESULT FogDevice::QueryInterface(REFIID riid, void** out)
         *out = this;
         return S_OK;
     }
+    static volatile LONG warned = 0;
+    WarnOnce(warned, "QueryInterface for an interface the wrapper does not implement returns the real device");
     return m_real->QueryInterface(riid, out);
 }
 
