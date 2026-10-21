@@ -513,7 +513,7 @@ bool ConfigStore::ReloadIfChanged()
         return false;
     m_stamp = stamp;
     LogSettledEdits();
-    ReadKeepingStartupSwitches();
+    MergeFileKeepingEdits();
     if (!LogChanges("settings from CoAGraphics.ini"))
         VF_LOG_INFO("CoAGraphics.ini reloaded; no live setting changed");
     return true;
@@ -581,6 +581,30 @@ void ConfigStore::Revert()
     m_stamp = FileStamp(m_path);
     ReadKeepingStartupSwitches();
     LogChanges("settings reverted to CoAGraphics.ini");
+}
+
+void ConfigStore::MergeFileKeepingEdits()
+{
+    const Config onDisk = ReadFile();
+    Config merged = onDisk;
+    merged.enable = m_config.enable;
+    merged.hooks = m_config.hooks;
+    merged.lightStay = m_config.lightStay;
+    ForEachIntSetting([&](const IntSetting& s) {
+        if (m_config.*s.value != m_saved.*s.value)
+            merged.*s.value = m_config.*s.value;
+    });
+    ForEachFloatSetting([&](const FloatSetting& s) {
+        if (m_config.*s.value != m_saved.*s.value)
+            merged.*s.value = m_config.*s.value;
+    });
+    ForEachBoolSetting([&](const BoolSetting& s) {
+        if (m_config.*s.value != m_saved.*s.value)
+            merged.*s.value = m_config.*s.value;
+    });
+    m_config = merged;
+    m_saved = onDisk;
+    LogSetLevel(merged.logLevel);
 }
 
 void ConfigStore::ReadKeepingStartupSwitches()

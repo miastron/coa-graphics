@@ -365,8 +365,19 @@ void ConfigureWind()
     }
 }
 
+void ReloadConfigAfterInterval()
+{
+    DWORD now = GetTickCount();
+    if (now - g_lastReload > kConfigReloadIntervalMs)
+    {
+        g_lastReload = now;
+        GlobalConfig().ReloadIfChanged();
+    }
+}
+
 void OnFrameBegin()
 {
+    ReloadConfigAfterInterval();
     PublishSpellLights();
     ConfigureWind();
     g_renderedThisFrame = false;
@@ -447,16 +458,6 @@ void OnFrameEnd()
     RestorePushedStockFog();
     g_renderedLastFrame = g_renderedThisFrame;
     LogTransparentFogStatsWhenDue();
-}
-
-void ReloadConfigAfterInterval()
-{
-    DWORD now = GetTickCount();
-    if (now - g_lastReload > kConfigReloadIntervalMs)
-    {
-        g_lastReload = now;
-        GlobalConfig().ReloadIfChanged();
-    }
 }
 
 void UseClientFogRangeInsteadOfPushed(FrameInputs& in)
@@ -611,8 +612,6 @@ FogAttempt RenderWorldFog(FogDevice* device, FogPass pass)
     if (!device || !g_worldClient->worldCaptured())
         return {false, false, false, ""};
 
-    ReloadConfigAfterInterval();
-
     const Config& cfg = GlobalConfig().Get();
     return RenderWorldFogFrom(device, ReadWorldFogInputs(cfg), cfg, pass);
 }
@@ -718,7 +717,6 @@ bool PrepareEarlyComposite(EarlyCompositePlan& plan)
     g_transparentFog.pastLiquid = true;
     if (g_failed)
         return false;
-    ReloadConfigAfterInterval();
     const Config& cfg = GlobalConfig().Get();
     const char* blocked = EarlyCompositeBlocked(cfg);
     FogDevice* device = blocked ? nullptr : g_worldClient->device();
@@ -1151,7 +1149,7 @@ bool IsContinentCappedByExtensionsDll(int mapId)
 
 const Config& ReloadedConfig()
 {
-    GlobalConfig().ReloadIfChanged();
+    ReloadConfigAfterInterval();
     return GlobalConfig().Get();
 }
 

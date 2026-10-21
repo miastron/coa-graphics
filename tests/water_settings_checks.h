@@ -376,6 +376,26 @@ void CheckOverlayKeyReloadLogged(const std::wstring& outDir, const std::wstring&
           "an INI reload that changes only OverlayKey logs the new key instead of saying nothing changed");
 }
 
+void CheckReloadKeepsUnsavedEdits(const std::wstring& outDir, const std::wstring& shippedIni)
+{
+    const std::wstring iniPath = FullPath(outDir + L"\\settings-edits.ini");
+    Check(CopyFileW(shippedIni.c_str(), iniPath.c_str(), FALSE) != FALSE, "shipped CoAGraphics.ini copied for edits");
+    ConfigStore store;
+    store.Load(NarrowPath(iniPath));
+    Config edited = store.Get();
+    const float savedDensity = edited.density;
+    edited.waterWind = 3.0f;
+    store.Apply(edited);
+    WritePrivateProfileStringW(L"CoAGraphics", L"Density", L"2.5", iniPath.c_str());
+    WritePrivateProfileStringW(L"CoAGraphics", L"WaterWind", L"4.5", iniPath.c_str());
+    const bool reloaded = store.ReloadIfChanged();
+    const Config& after = store.Get();
+    std::printf("     after the INI changed under unsaved edits: Density %.2f (was %.2f), WaterWind %.2f\n",
+                after.density, savedDensity, after.waterWind);
+    Check(reloaded && after.density == 2.5f && after.waterWind == 3.0f && store.HasUnsavedChanges(),
+          "an INI reload takes the changed keys but keeps a setting edited in the window and still unsaved");
+}
+
 void CheckWaterLogPolicy()
 {
     StatusLog log;
@@ -456,6 +476,7 @@ void CheckWaterSettings(const std::wstring& outDir, const std::wstring& shippedI
     CheckFogDivesLeaveTheSkipBudget();
     CheckSettingChangesListed();
     CheckSettingChangesLogged(outDir, shippedIni);
+    CheckReloadKeepsUnsavedEdits(outDir, shippedIni);
     CheckSaveLogsNoRoundingChange(outDir, shippedIni);
     CheckOverlayKeyReloadLogged(outDir, shippedIni);
     CheckWaterOnlyEditsKeepFogHistory();

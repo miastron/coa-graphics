@@ -167,6 +167,7 @@ private:
     void Read();
     Config ReadFile() const;
     void ReadKeepingStartupSwitches();
+    void MergeFileKeepingEdits();
     bool LogChanges(const char* origin);
 
     std::string m_path;
