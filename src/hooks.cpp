@@ -707,11 +707,17 @@ void ArmTransparentFog(FogDevice* device)
     ObserveM2BatchFog();
 }
 
-void OnTransparentsBegin()
+struct EarlyCompositePlan
+{
+    FogDevice* device;
+    WorldFogInputs world;
+};
+
+bool PrepareEarlyComposite(EarlyCompositePlan& plan)
 {
     g_transparentFog.pastLiquid = true;
     if (g_failed)
-        return;
+        return false;
     ReloadConfigAfterInterval();
     const Config& cfg = GlobalConfig().Get();
     const char* blocked = EarlyCompositeBlocked(cfg);
@@ -721,21 +727,30 @@ void OnTransparentsBegin()
     if (blocked)
     {
         NoteEarlyCompositeBlocked(cfg, blocked);
-        return;
+        return false;
     }
     if (!g_worldClient->worldCaptured())
     {
         NoteEarlyCompositeSkipped(kWorldNotCaptured);
-        return;
+        return false;
     }
     ForeverLookBeforeEarlyFog();
     const WorldFogInputs world = ReadWorldFogInputs(cfg);
     if (const char* unready = EarlyCompositeUnready(device, world))
     {
         NoteEarlyCompositeSkipped(unready);
-        return;
+        return false;
     }
-    DrawGlareBeforeTheFog();
+    plan.device = device;
+    plan.world = world;
+    return true;
+}
+
+void RenderEarlyComposite(const EarlyCompositePlan& plan)
+{
+    const Config& cfg = GlobalConfig().Get();
+    FogDevice* device = plan.device;
+    const WorldFogInputs& world = plan.world;
     const FogAttempt attempt = RenderWorldFogFrom(device, world, cfg, FogPass::BeforeTransparents);
     if (!attempt.rendered)
     {
@@ -1317,9 +1332,23 @@ extern "C" void __cdecl vf_on_liquid_end()
 
 extern "C" void __cdecl vf_on_transparents_begin()
 {
+    EarlyCompositePlan plan = {};
+    bool ready = false;
     __try
     {
-        OnTransparentsBegin();
+        ready = PrepareEarlyComposite(plan);
+    }
+    __except (GuardFilter(GetExceptionCode(), "transparent fog hook"))
+    {
+        g_failed = true;
+        DisarmTransparentFog();
+    }
+    if (!ready)
+        return;
+    DrawGlareBeforeTheFog();
+    __try
+    {
+        RenderEarlyComposite(plan);
     }
     __except (GuardFilter(GetExceptionCode(), "transparent fog hook"))
     {

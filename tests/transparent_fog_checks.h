@@ -1166,6 +1166,25 @@ void CheckHookedFogRestoresState(Harness& h)
           "sampler, shader, constant, stream, viewport, scissor and target state");
 }
 
+void CheckFaultInAPassRestoresState(Harness& h)
+{
+    const View v;
+    FrameOptions options;
+    options.keepStateAround = true;
+    const Config cfg = HookConfig(false);
+    RenderSettledHookedFrame(h, v, cfg, FrameOptions());
+    const size_t start = water_settings_checks::DllLogSize();
+    vf_test_inject_fog_pass_fault(1);
+    const HookedFrame faulted = RenderHookedFrame(h, v, cfg, options);
+    vf_test_inject_fog_pass_fault(0);
+    vf_test_simulate_fog_hook_failure(0);
+    const size_t faults = water_settings_checks::CountOf(runtime_cost::LogWrittenSince(start),
+                                                         "fog disabled for this session");
+    Check(faults == 1 && faulted.stateKept,
+          "a fault inside the fog passes still restores render, sampler, shader, constant, stream, viewport, "
+          "scissor and target state");
+}
+
 void CheckFogDrawnBeforeWorldText(Harness& h)
 {
     const View v;
@@ -1419,6 +1438,7 @@ void CheckTransparentFog(Harness& h)
     CheckGodRaysAfterTheWorld(h);
     CheckFittedColourCarriesThePointLights(h);
     CheckHookedFogRestoresState(h);
+    CheckFaultInAPassRestoresState(h);
     CheckFogDrawnBeforeWorldText(h);
     CheckWholeFrameFallbacks(h);
     CheckEarlyCompositeFailureLogged(h);

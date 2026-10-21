@@ -35,6 +35,7 @@ public:
     void ReleaseManagedPool();
     void ReleaseAll();
 
+    static void InjectPassFault(bool faulting);
     bool Render(IDirect3DDevice9* dev, const SceneDepth& depth, const FrameInputs& in, const Config& cfg,
                 FogPass pass = FogPass::WholeFrame);
     bool RenderGodRaysAfterWorld(IDirect3DDevice9* dev, const SceneDepth& depth);

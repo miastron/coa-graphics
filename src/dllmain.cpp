@@ -532,6 +532,11 @@ extern "C" void __cdecl vf_test_refuse_water_contacts(int refused)
     RefuseTestWaterContacts(refused != 0);
 }
 
+extern "C" void __cdecl vf_test_inject_fog_pass_fault(int faulting)
+{
+    Renderer::InjectPassFault(faulting != 0);
+}
+
 extern "C" void __cdecl vf_test_inject_water_ripple_fault(int fault)
 {
     InjectWaterRippleFault(static_cast<WaterRippleFault>(fault));

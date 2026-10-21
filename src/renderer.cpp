@@ -1300,6 +1300,22 @@ bool Renderer::ReadyToRender(IDirect3DDevice9* dev, const SceneDepth& depth, con
     return unusable ? NotReady(unusable) : true;
 }
 
+namespace
+{
+volatile bool g_injectedPassFault = false;
+
+void FaultWhenInjected()
+{
+    if (g_injectedPassFault)
+        RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
+}
+}
+
+void Renderer::InjectPassFault(bool faulting)
+{
+    g_injectedPassFault = faulting;
+}
+
 template <typename Passes>
 bool Renderer::WithClientStateSaved(IDirect3DDevice9* dev, const SceneDepth& depth, Passes passes)
 {
@@ -1308,35 +1324,45 @@ bool Renderer::WithClientStateSaved(IDirect3DDevice9* dev, const SceneDepth& dep
         dev->GetRenderTarget(i, &saved[i]);
     IDirect3DSurface9* savedDepth = nullptr;
     dev->GetDepthStencilSurface(&savedDepth);
+    IDirect3DVertexBuffer9* stream = nullptr;
+    UINT streamOffset = 0;
+    UINT streamStride = 0;
 
     bool ok = false;
-    D3DSURFACE_DESC depthDesc = {};
-    if (const char* unusable = UnusableTargets(saved[0], savedDepth, depth, depthDesc))
-        Skip(unusable);
-    else
+    bool captured = false;
+    __try
     {
-        IDirect3DVertexBuffer9* stream = nullptr;
-        UINT streamOffset = 0;
-        UINT streamStride = 0;
-        dev->GetStreamSource(0, &stream, &streamOffset, &streamStride);
-        m_state->Capture();
-        for (DWORD i = 1; i < 4; ++i)
-            if (saved[i])
-                dev->SetRenderTarget(i, nullptr);
-        ok = passes(saved[0], depthDesc);
-        dev->SetRenderTarget(0, saved[0]);
-        for (DWORD i = 1; i < 4; ++i)
-            if (saved[i])
-                dev->SetRenderTarget(i, saved[i]);
-        m_state->Apply();
-        dev->SetDepthStencilSurface(savedDepth);
-        dev->SetStreamSource(0, stream, streamOffset, streamStride);
-        SafeRelease(stream);
+        D3DSURFACE_DESC depthDesc = {};
+        if (const char* unusable = UnusableTargets(saved[0], savedDepth, depth, depthDesc))
+            Skip(unusable);
+        else
+        {
+            dev->GetStreamSource(0, &stream, &streamOffset, &streamStride);
+            m_state->Capture();
+            captured = true;
+            for (DWORD i = 1; i < 4; ++i)
+                if (saved[i])
+                    dev->SetRenderTarget(i, nullptr);
+            ok = passes(saved[0], depthDesc);
+        }
     }
-
-    for (auto*& s : saved)
-        SafeRelease(s);
-    SafeRelease(savedDepth);
+    __finally
+    {
+        if (captured)
+        {
+            dev->SetRenderTarget(0, saved[0]);
+            for (DWORD i = 1; i < 4; ++i)
+                if (saved[i])
+                    dev->SetRenderTarget(i, saved[i]);
+            m_state->Apply();
+            dev->SetDepthStencilSurface(savedDepth);
+            dev->SetStreamSource(0, stream, streamOffset, streamStride);
+        }
+        SafeRelease(stream);
+        for (auto*& s : saved)
+            SafeRelease(s);
+        SafeRelease(savedDepth);
+    }
     return ok;
 }
 
@@ -1632,6 +1658,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     }
     IDirect3DTexture9* const depthTexture = depth.texture;
     PrepareFullscreenPasses(dev);
+    FaultWhenInjected();
     dev->SetPixelShaderConstantF(0, &common[0][0], 9);
 
     SetTarget(dev, m_marchTarget);
