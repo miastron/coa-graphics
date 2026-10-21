@@ -24,6 +24,10 @@ constexpr int kVariants = 3;
 constexpr int kSunShadowRegister = 10;
 constexpr int kSunShadowLightRegister = 54;
 constexpr int kMinPartiallyFogged = kVariants * kSize * kSize / 2;
+constexpr float kOpaqueAlpha = 0.998f;
+constexpr int kMinOpaque = kVariants * kSize * kSize / 4;
+constexpr float kDenseFogDensityScale = 40.0f;
+constexpr float kOpaqueExitDifference = 5.0e-3f;
 
 struct Layer
 {
@@ -205,8 +209,22 @@ void SetSunShadowsOn(float constants[kConstantRegisters][4])
     constants[kSunShadowLightRegister][2] = 1.0f;
 }
 
+void ScaleLayerDensities(float constants[kConstantRegisters][4], float scale)
+{
+    for (int layer = 0; layer < 4; ++layer)
+        constants[kFirstLayerRegister + layer * kRegistersPerLayer][1] *= scale;
+}
+
+struct Comparison
+{
+    float densityScale = 1.0f;
+    float maxDifference = kMaxDifference;
+    bool wantsOpaque = false;
+};
+
 void CheckMarchVariantsMatch(IDirect3DDevice9* device, const Resources& resources, const BYTE* const reference[3],
-                             const BYTE* const candidate[3], bool sunShadows, const char* description)
+                             const BYTE* const candidate[3], bool sunShadows, const char* description,
+                             Comparison comparison = {})
 {
     for (int quality = 0; quality < 3; ++quality)
     {
@@ -216,11 +234,13 @@ void CheckMarchVariantsMatch(IDirect3DDevice9* device, const Resources& resource
             SUCCEEDED(device->CreatePixelShader(reinterpret_cast<const DWORD*>(candidate[quality]), &shaders[1]));
         float worst = 0.0f;
         int partial = 0;
+        int opaque = 0;
         bool rendered = created;
         for (int variant = 0; variant < kVariants && rendered; ++variant)
         {
             float constants[kConstantRegisters][4];
             FillConstants(constants, variant > 0, variant == 2 ? 17.0f : 0.0f);
+            ScaleLayerDensities(constants, comparison.densityScale);
             if (sunShadows)
                 SetSunShadowsOn(constants);
             float pixels[2][kSize * kSize * 4];
@@ -234,7 +254,10 @@ void CheckMarchVariantsMatch(IDirect3DDevice9* device, const Resources& resource
                                : std::numeric_limits<float>::infinity();
             }
             for (UINT i = 0; i < kSize * kSize && rendered; ++i)
+            {
                 partial += pixels[1][i * 4 + 3] > kPartialOpacity[0] && pixels[1][i * 4 + 3] < kPartialOpacity[1];
+                opaque += pixels[1][i * 4 + 3] > kOpaqueAlpha;
+            }
         }
         for (IDirect3DPixelShader9* shader : shaders)
             if (shader)
@@ -242,7 +265,8 @@ void CheckMarchVariantsMatch(IDirect3DDevice9* device, const Resources& resource
         char label[256];
         std::snprintf(label, sizeof(label), "quality %d: %s (%.2g, %d partly fogged)", quality + 1, description, worst,
                       partial);
-        Check(rendered && worst <= kMaxDifference && partial >= kMinPartiallyFogged, label);
+        const bool covered = comparison.wantsOpaque ? opaque >= kMinOpaque : partial >= kMinPartiallyFogged;
+        Check(rendered && worst <= comparison.maxDifference && covered, label);
     }
 }
 
@@ -278,6 +302,10 @@ void CheckStoppedMarchMatchesUnstoppedMarch(IDirect3DDevice9* device)
     CheckMarchVariantsMatch(device, resources, unstopped, stopped, true,
                             "the shadowed march that stops past the last layer matches the one that keeps tracing the "
                             "sun after every layer has ended");
+    CheckMarchVariantsMatch(device, resources, unstopped, stopped, true,
+                            "the shadowed march that stops once the fog is opaque matches the one that keeps "
+                            "marching through dense fog",
+                            {kDenseFogDensityScale, kOpaqueExitDifference, true});
     device->SetRenderTarget(0, resources.previousTarget);
     device->SetDepthStencilSurface(resources.previousDepth);
     resources.previousState->Apply();

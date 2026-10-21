@@ -89,11 +89,11 @@ vf_shader(ps_shadowed_march_low vf_march.hlsl ps_3_0 /DSTEPS=16 /DLOCAL_LIGHTS=0
 vf_shader(ps_shadowed_march_mid vf_march.hlsl ps_3_0 /DSTEPS=24 /DLOCAL_LIGHTS=0 ${SHADOWS_MID})
 vf_shader(ps_shadowed_march_high vf_march.hlsl ps_3_0 /DSTEPS=32 /DLOCAL_LIGHTS=0 ${SHADOWS_HIGH})
 vf_shader(ps_unstopped_shadowed_march_low vf_march.hlsl ps_3_0 /DSTEPS=16 /DLOCAL_LIGHTS=0 /DMARCH_STOPS_PAST_LAYERS=0
-          ${SHADOWS_LOW})
+          /DMARCH_STOPS_OPAQUE=0 ${SHADOWS_LOW})
 vf_shader(ps_unstopped_shadowed_march_mid vf_march.hlsl ps_3_0 /DSTEPS=24 /DLOCAL_LIGHTS=0 /DMARCH_STOPS_PAST_LAYERS=0
-          ${SHADOWS_MID})
+          /DMARCH_STOPS_OPAQUE=0 ${SHADOWS_MID})
 vf_shader(ps_unstopped_shadowed_march_high vf_march.hlsl ps_3_0 /DSTEPS=32 /DLOCAL_LIGHTS=0 /DMARCH_STOPS_PAST_LAYERS=0
-          ${SHADOWS_HIGH})
+          /DMARCH_STOPS_OPAQUE=0 ${SHADOWS_HIGH})
 vf_shader(ps_shadowed_noisy_march_low vf_march.hlsl ps_3_0 /DSTEPS=16 /DLOCAL_LIGHTS=0 /DSAMPLES_AUTHORED_NOISE=1
           ${SHADOWS_LOW})
 vf_shader(ps_shadowed_noisy_march_mid vf_march.hlsl ps_3_0 /DSTEPS=24 /DLOCAL_LIGHTS=0 /DSAMPLES_AUTHORED_NOISE=1

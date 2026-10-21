@@ -22,15 +22,20 @@
 #define MARCH_STOPS_PAST_LAYERS 1
 #endif
 
+#ifndef MARCH_STOPS_OPAQUE
+#define MARCH_STOPS_OPAQUE 1
+#endif
+
 static const int kFogLayers = 4;
 static const int kRegistersPerLayer = 6;
 static const float kGoldenRatioFraction = 0.618034;
-static const float kShadowedTransmittanceFloor = 1.0 / 512;
+static const float kOpaqueTransmittanceFloor = 1.0 / 512;
 static const bool kMarchesLocalLights = LOCAL_LIGHTS;
 static const bool kTracesSunShadows = SUN_SHADOWS;
 static const int kShadowStepStride = SHADOW_STEP_STRIDE;
 static const bool kUnrollsLayers = !kMarchesLocalLights && !kTracesSunShadows;
 static const bool kStopsPastLayers = MARCH_STOPS_PAST_LAYERS;
+static const bool kStopsWhenOpaque = MARCH_STOPS_OPAQUE;
 
 float4 cLight : register(c9);
 float4 cMarch : register(c11);
@@ -323,7 +328,7 @@ float4 IntegrateFogAtDepth(float2 pixel, float depth, float jitter)
         [flatten] if (kShadowStepStride == 1)
             sunVisibility = 1;
         [branch] if (kTracesSunShadows && s % kShadowStepStride == 0 && SunShadowsEnabled() &&
-                     transmittance > kShadowedTransmittanceFloor)
+                     transmittance > kOpaqueTransmittanceFloor)
         {
             float groupFraction = (s + kShadowStepStride * jitter) * stepFraction;
             float sampleDistance = marchLength * groupFraction * groupFraction;
@@ -348,6 +353,8 @@ float4 IntegrateFogAtDepth(float2 pixel, float depth, float jitter)
             inScatteredRadiance += transmittance * stepRadiance * (stepOpacity / stepOpticalDepth);
             transmittance *= 1 - stepOpacity;
         }
+        [branch] if (kStopsWhenOpaque && transmittance <= kOpaqueTransmittanceFloor)
+            break;
     }
     return float4(clamp(inScatteredRadiance, 0, 65504), 1 - transmittance);
 }
