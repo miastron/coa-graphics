@@ -78,6 +78,7 @@ bool HasEightBitStencil(D3DFORMAT format)
 Direct3DCreate9Fn g_realCreate = nullptr;
 bool g_fogAllowedOnNewDevices = false;
 FogDevice* g_latestFogDevice = nullptr;
+volatile bool g_depthCreationRefused = false;
 FogDevice* g_devices[kMaxDevices] = {};
 
 void Register(FogDevice* device)
@@ -576,6 +577,7 @@ private:
     bool m_waterForcesDepthWrite = false;
     WrappedD3D9* m_parent;
     IDirect3DDevice9* m_real;
+    const bool m_fogRequested;
     bool m_fog;
     D3DFORMAT m_depthFormat;
     UINT m_adapter;
@@ -928,8 +930,8 @@ HRESULT WrappedD3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND window, DW
 
 FogDevice::FogDevice(WrappedD3D9* parent, IDirect3DDevice9* real, bool fog, D3DFORMAT depthFormat, UINT adapter,
                      D3DDEVTYPE deviceType)
-    : m_parent(parent), m_real(real), m_fog(fog), m_depthFormat(depthFormat), m_adapter(adapter),
-      m_deviceType(deviceType)
+    : m_parent(parent), m_real(real), m_fogRequested(fog), m_fog(fog), m_depthFormat(depthFormat),
+      m_adapter(adapter), m_deviceType(deviceType)
 {
     m_parent->AddRef();
     Register(this);
@@ -1049,8 +1051,9 @@ bool FogDevice::CreateDepth()
         backBuffer->GetDesc(&desc);
         backBuffer->Release();
     }
-    if (desc.Width && SUCCEEDED(m_real->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_DEPTHSTENCIL, kIntz,
-                                                      D3DPOOL_DEFAULT, &m_depthTexture, nullptr)) &&
+    if (!g_depthCreationRefused && desc.Width &&
+        SUCCEEDED(m_real->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_DEPTHSTENCIL, kIntz, D3DPOOL_DEFAULT,
+                                        &m_depthTexture, nullptr)) &&
         SUCCEEDED(m_depthTexture->GetSurfaceLevel(0, &m_depthSurface)) &&
         SUCCEEDED(m_real->SetDepthStencilSurface(m_depthSurface)))
         return true;
@@ -1115,8 +1118,10 @@ HRESULT FogDevice::ResetDevice(D3DPRESENT_PARAMETERS* pp)
     m_water.ReleaseDefaultPool();
     m_grading.ReleaseDefaultPool();
     m_image.ReleaseDefaultPool();
-    if (!m_fog)
+    if (!m_fogRequested)
         return m_real->Reset(pp);
+
+    m_fog = true;
 
     m_renderer.ReleaseDefaultPool();
     ReleaseDepth();
@@ -1130,6 +1135,7 @@ HRESULT FogDevice::ResetDevice(D3DPRESENT_PARAMETERS* pp)
         if (SUCCEEDED(multisampled) && CopyMultisampledDepth(decision.method, used))
         {
             CopyBackParameters(pp, used);
+            g_latestFogDevice = this;
             LogReset(m_real, requested, used, true);
             LogMultisampling(m_multisampling);
             return multisampled;
@@ -1149,7 +1155,9 @@ HRESULT FogDevice::ResetDevice(D3DPRESENT_PARAMETERS* pp)
     }
     CopyBackParameters(pp, used);
     if (!CreateDepth())
-        VF_LOG_ERROR("fog depth could not be recreated after Reset; fog disabled");
+        VF_LOG_ERROR("fog depth could not be recreated after Reset; fog disabled until the next Reset");
+    else
+        g_latestFogDevice = this;
     KeepSingleSampled(decision.off);
     LogReset(m_real, requested, used, FogActive());
     if (FogActive())
@@ -1244,6 +1252,11 @@ IDirect3D9* WINAPI WrappedDirect3DCreate9(UINT sdkVersion)
 void AllowFogOnNewDevices(bool allowedOnNewDevices)
 {
     g_fogAllowedOnNewDevices = allowedOnNewDevices;
+}
+
+void RefuseFogDepthCreation(bool refused)
+{
+    g_depthCreationRefused = refused;
 }
 
 FogDevice* LatestFogDevice()

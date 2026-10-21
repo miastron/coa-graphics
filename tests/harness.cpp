@@ -108,6 +108,7 @@ extern "C" __declspec(dllimport) const void* __cdecl vf_test_world_text_draw_thu
 extern "C" __declspec(dllimport) void __cdecl vf_test_log_transparent_fog_stats();
 extern "C" __declspec(dllimport) void __cdecl vf_test_clear_transparent_fog_failure();
 extern "C" __declspec(dllimport) void __cdecl vf_test_inject_fog_pass_fault(int);
+extern "C" __declspec(dllimport) void __cdecl vf_test_refuse_fog_depth(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_force_fog_params(const FogParams*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_fail_water_mask_uploads(int);
 extern "C" __declspec(dllimport) int __cdecl vf_test_water_masks_uploaded(int*);
@@ -1663,6 +1664,34 @@ void CheckOverlayWidgets(Harness& h)
     vf_test_set_config(&start);
 }
 
+bool FogDrawnAfterReset(Harness& h, const D3DVIEWPORT9& vp, Vec3 eye, Vec3 at, const float* view,
+                        const float* proj, bool& reset)
+{
+    h.ReleaseEngineObjects();
+    reset = SUCCEEDED(h.dev->Reset(&h.pp));
+    h.CreateEngineObjects();
+    h.BeginFrame();
+    h.DrawScene(eye, view, proj, vp);
+    FrameInputs in = MakeInputs(view, proj, eye, at, vp);
+    const char* skip = "";
+    const bool drawn = vf_test_render(&in, &skip) != 0;
+    h.dev->EndScene();
+    return drawn;
+}
+
+void CheckFogReturnsAfterRefusedDepth(Harness& h, const D3DVIEWPORT9& vp, Vec3 eye, Vec3 at, const float* view,
+                                      const float* proj)
+{
+    bool refusedReset = false;
+    bool retriedReset = false;
+    vf_test_refuse_fog_depth(1);
+    const bool drawnWhileRefused = FogDrawnAfterReset(h, vp, eye, at, view, proj, refusedReset);
+    vf_test_refuse_fog_depth(0);
+    const bool drawnAfterRetry = FogDrawnAfterReset(h, vp, eye, at, view, proj, retriedReset);
+    Check(refusedReset && retriedReset && !drawnWhileRefused && drawnAfterRetry,
+          "a Reset whose fog depth cannot be created leaves the fog off, and the next Reset creates it again");
+}
+
 void DrawEngineFrameWithoutPresent(Harness& h, const D3DVIEWPORT9& world)
 {
     h.BeginFrame();
@@ -2455,6 +2484,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     const D3DVIEWPORT9 resized = {0, 0, 1024, 600, 0.0f, 1.0f};
     EngineProjection(1024.0f / 600.0f, proj);
     CameraRelativeLookAt(eye, at, view);
+    CheckFogReturnsAfterRefusedDepth(h, resized, eye, at, view, proj);
     h.BeginFrame();
     h.DrawScene(eye, view, proj, resized);
     FrameInputs in = MakeInputs(view, proj, eye, at, resized);

@@ -19,6 +19,7 @@ void AllowFogOnNewDevices(bool allowedOnNewDevices);
 
 class FogDevice;
 FogDevice* LatestFogDevice();
+void RefuseFogDepthCreation(bool refused);
 MultisamplingStatus CurrentMultisamplingStatus();
 bool ReadSceneDepth(FogDevice* device, const DepthTexel* texels, int count, float* values);
 FogDevice* WrapperOrLatestFogDevice(void* gameDevice);
