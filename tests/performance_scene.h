@@ -42,20 +42,23 @@ struct BenchmarkCase
     PointLights lights;
     int logLevel;
     bool lightShafts;
+    float temporal;
 };
 
 constexpr BenchmarkCase kCases[] = {
-    {"derived-none", FogSource::Derived, PointLights::None, kErrorLogLevel, kShafts},
-    {"derived-flood8", FogSource::Derived, PointLights::Flood, kErrorLogLevel, kShafts},
-    {"derived-lamps8", FogSource::Derived, PointLights::Lamps, kErrorLogLevel, kShafts},
-    {"classic-none", FogSource::Classic, PointLights::None, kErrorLogLevel, kShafts},
-    {"classic-lamps8", FogSource::Classic, PointLights::Lamps, kErrorLogLevel, kShafts},
-    {"classic-storm", FogSource::ClassicStorm, PointLights::None, kErrorLogLevel, kShafts},
-    {"classic-storm-lamps8", FogSource::ClassicStorm, PointLights::Lamps, kErrorLogLevel, kShafts},
-    {"derived-none-log1", FogSource::Derived, PointLights::None, kShippedLogLevel, kShafts},
-    {"derived-none-shafts0", FogSource::Derived, PointLights::None, kErrorLogLevel, kNoShafts},
-    {"derived-lamps8-shafts0", FogSource::Derived, PointLights::Lamps, kErrorLogLevel, kNoShafts},
-    {"classic-none-shafts0", FogSource::Classic, PointLights::None, kErrorLogLevel, kNoShafts},
+    {"derived-none", FogSource::Derived, PointLights::None, kErrorLogLevel, kShafts, 0.85f},
+    {"derived-flood8", FogSource::Derived, PointLights::Flood, kErrorLogLevel, kShafts, 0.85f},
+    {"derived-lamps8", FogSource::Derived, PointLights::Lamps, kErrorLogLevel, kShafts, 0.85f},
+    {"classic-none", FogSource::Classic, PointLights::None, kErrorLogLevel, kShafts, 0.85f},
+    {"classic-lamps8", FogSource::Classic, PointLights::Lamps, kErrorLogLevel, kShafts, 0.85f},
+    {"classic-storm", FogSource::ClassicStorm, PointLights::None, kErrorLogLevel, kShafts, 0.85f},
+    {"classic-storm-lamps8", FogSource::ClassicStorm, PointLights::Lamps, kErrorLogLevel, kShafts, 0.85f},
+    {"derived-none-log1", FogSource::Derived, PointLights::None, kShippedLogLevel, kShafts, 0.85f},
+    {"derived-none-shafts0", FogSource::Derived, PointLights::None, kErrorLogLevel, kNoShafts, 0.85f},
+    {"derived-lamps8-shafts0", FogSource::Derived, PointLights::Lamps, kErrorLogLevel, kNoShafts, 0.85f},
+    {"classic-none-shafts0", FogSource::Classic, PointLights::None, kErrorLogLevel, kNoShafts, 0.85f},
+    {"derived-none-temporal0", FogSource::Derived, PointLights::None, kErrorLogLevel, kShafts, 0.0f},
+    {"derived-flood8-temporal0", FogSource::Derived, PointLights::Flood, kErrorLogLevel, kShafts, 0.0f},
 };
 
 struct StreetLamp
@@ -484,6 +487,7 @@ bool MeasureCases(Harness& h)
             config.overlay = false;
             config.dataMode = classicCase ? 1 : 0;
             config.lightShafts = benchmark.lightShafts;
+            config.temporal = benchmark.temporal;
             FrameInputs inputs = StreetInputs(street, benchmark.fog, projection, viewport);
             if (!AddPointLights(inputs, benchmark.lights, street))
                 return false;

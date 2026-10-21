@@ -210,6 +210,9 @@ bool DrawLight(Config& c)
                       "How every point light scatters in the fog: 0 evenly in all directions; toward 0.9 mostly in "
                       "the fog between you and the light; below 0 the fog behind the light, steeply brighter toward "
                       "-0.9. The modern client uses one such value for all its lights; 0.3 is a calibration");
+    changed |= Toggle("Decode light colours", c.decodeLightColours,
+                      "Decode the point and spell light colours with a gamma of 2.2 before they scatter (needs Linear "
+                      "light). Off: the colours are used as they are, so warm lights are less saturated");
     changed |= Toggle("Lights follow objects", c.lightsFollowObjects,
                       "A light whose lamp or fire the game no longer draws in view, because it is too far away or "
                       "hidden, fades out with it");

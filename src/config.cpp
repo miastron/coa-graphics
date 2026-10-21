@@ -110,6 +110,7 @@ const BoolSetting kBoolSettings[] = {
     {"Water", &Config::water},                       {"Multisampling", &Config::multisampling},
     {"ClassicNoise", &Config::classicNoise},       {"TransparentFog", &Config::transparentFog},
     {"SpellLights", &Config::spellLights},           {"LightsFollowObjects", &Config::lightsFollowObjects},
+    {"DecodeLightColours", &Config::decodeLightColours},
     {"LightShafts", &Config::lightShafts},           {"WorldShadows", &Config::worldShadows},
 };
 

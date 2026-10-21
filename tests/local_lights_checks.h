@@ -492,6 +492,11 @@ void CheckHdrLocalLightColours()
           "a point light no brighter than 1 keeps the gamma 2.2 decode, times LocalLightIntensity");
     Check(UploadedColourIs(statue, gamma, {kStatueRed, kStatueGreen, kStatueGreen}),
           "with ColorSpace=0 the captured colour is uploaded unchanged");
+    Config decodeOff;
+    decodeOff.decodeLightColours = false;
+    Check(LocalLightUpload(Config{}).linear && !LocalLightUpload(decodeOff).linear &&
+              UploadedColourIs(statue, LocalLightUpload(decodeOff), {kStatueRed, kStatueGreen, kStatueGreen}),
+          "DecodeLightColours=0 uploads a point light's colour as it is, and the default still decodes it");
 
     const float camera[3] = {};
     const LocalPointLight dim = ColouredLightFixture(0.0f, 0.5f, 0.5f, 0.5f);

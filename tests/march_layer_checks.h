@@ -1,5 +1,9 @@
 #pragma once
 
+#include "ps_unstopped_shadowed_march_high.h"
+#include "ps_unstopped_shadowed_march_low.h"
+#include "ps_unstopped_shadowed_march_mid.h"
+
 namespace march_layers
 {
 constexpr UINT kSize = 8;
@@ -17,6 +21,8 @@ constexpr float kLastLayerLimit = 900.0f;
 constexpr float kMaxDifference = 1.0e-4f;
 constexpr float kPartialOpacity[2] = {0.02f, 0.9f};
 constexpr int kVariants = 3;
+constexpr int kSunShadowRegister = 10;
+constexpr int kSunShadowLightRegister = 54;
 constexpr int kMinPartiallyFogged = kVariants * kSize * kSize / 2;
 
 struct Layer
@@ -193,6 +199,53 @@ bool RenderMarch(IDirect3DDevice9* device, const Resources& resources, IDirect3D
     return SUCCEEDED(resources.readback->UnlockRect());
 }
 
+void SetSunShadowsOn(float constants[kConstantRegisters][4])
+{
+    constants[kSunShadowRegister][0] = 1.0f;
+    constants[kSunShadowLightRegister][2] = 1.0f;
+}
+
+void CheckMarchVariantsMatch(IDirect3DDevice9* device, const Resources& resources, const BYTE* const reference[3],
+                             const BYTE* const candidate[3], bool sunShadows, const char* description)
+{
+    for (int quality = 0; quality < 3; ++quality)
+    {
+        IDirect3DPixelShader9* shaders[2] = {};
+        const bool created =
+            SUCCEEDED(device->CreatePixelShader(reinterpret_cast<const DWORD*>(reference[quality]), &shaders[0])) &&
+            SUCCEEDED(device->CreatePixelShader(reinterpret_cast<const DWORD*>(candidate[quality]), &shaders[1]));
+        float worst = 0.0f;
+        int partial = 0;
+        bool rendered = created;
+        for (int variant = 0; variant < kVariants && rendered; ++variant)
+        {
+            float constants[kConstantRegisters][4];
+            FillConstants(constants, variant > 0, variant == 2 ? 17.0f : 0.0f);
+            if (sunShadows)
+                SetSunShadowsOn(constants);
+            float pixels[2][kSize * kSize * 4];
+            rendered = RenderMarch(device, resources, shaders[0], constants, pixels[0]) &&
+                       RenderMarch(device, resources, shaders[1], constants, pixels[1]);
+            for (UINT i = 0; i < kSize * kSize * 4 && rendered; ++i)
+            {
+                const bool finite = std::isfinite(pixels[0][i]) && std::isfinite(pixels[1][i]);
+                worst = finite ? std::max(worst, std::fabs(pixels[0][i] - pixels[1][i]) /
+                                                     std::max(1.0f, pixels[1][i]))
+                               : std::numeric_limits<float>::infinity();
+            }
+            for (UINT i = 0; i < kSize * kSize && rendered; ++i)
+                partial += pixels[1][i * 4 + 3] > kPartialOpacity[0] && pixels[1][i * 4 + 3] < kPartialOpacity[1];
+        }
+        for (IDirect3DPixelShader9* shader : shaders)
+            if (shader)
+                shader->Release();
+        char label[256];
+        std::snprintf(label, sizeof(label), "quality %d: %s (%.2g, %d partly fogged)", quality + 1, description, worst,
+                      partial);
+        Check(rendered && worst <= kMaxDifference && partial >= kMinPartiallyFogged, label);
+    }
+}
+
 void CheckUnrolledMarchMatchesLoopedMarch(IDirect3DDevice9* device)
 {
     Resources resources;
@@ -203,38 +256,28 @@ void CheckUnrolledMarchMatchesLoopedMarch(IDirect3DDevice9* device)
     BindResources(device, resources);
     const BYTE* unrolled[3] = {g_ps_march_low, g_ps_march_mid, g_ps_march_high};
     const BYTE* looped[3] = {g_ps_lit_march_low, g_ps_lit_march_mid, g_ps_lit_march_high};
-    for (int quality = 0; quality < 3; ++quality)
-    {
-        IDirect3DPixelShader9* shaders[2] = {};
-        const bool created =
-            SUCCEEDED(device->CreatePixelShader(reinterpret_cast<const DWORD*>(unrolled[quality]), &shaders[0])) &&
-            SUCCEEDED(device->CreatePixelShader(reinterpret_cast<const DWORD*>(looped[quality]), &shaders[1]));
-        float worst = 0.0f;
-        int partial = 0;
-        bool rendered = created;
-        for (int variant = 0; variant < kVariants && rendered; ++variant)
-        {
-            float constants[kConstantRegisters][4];
-            FillConstants(constants, variant > 0, variant == 2 ? 17.0f : 0.0f);
-            float pixels[2][kSize * kSize * 4];
-            rendered = RenderMarch(device, resources, shaders[0], constants, pixels[0]) &&
-                       RenderMarch(device, resources, shaders[1], constants, pixels[1]);
-            for (UINT i = 0; i < kSize * kSize * 4 && rendered; ++i)
-                worst = std::max(worst, std::fabs(pixels[0][i] - pixels[1][i]) / std::max(1.0f, pixels[1][i]));
-            for (UINT i = 0; i < kSize * kSize && rendered; ++i)
-                partial += pixels[1][i * 4 + 3] > kPartialOpacity[0] && pixels[1][i * 4 + 3] < kPartialOpacity[1];
-        }
-        for (IDirect3DPixelShader9* shader : shaders)
-            if (shader)
-                shader->Release();
-        char label[224];
-        std::snprintf(label, sizeof(label),
-                      "quality %d: the unrolled march (shared step noise, stop past the last layer) matches the "
-                      "per-layer loop with clipped, empty and shadowed layers, sky and horizon rays (%.2g, %d "
-                      "partly fogged)",
-                      quality + 1, worst, partial);
-        Check(rendered && worst <= kMaxDifference && partial >= kMinPartiallyFogged, label);
-    }
+    CheckMarchVariantsMatch(device, resources, unrolled, looped, false,
+                            "the unrolled march (shared step noise, stop past the last layer) matches the per-layer "
+                            "loop with clipped, empty and shadowed layers, sky and horizon rays");
+    device->SetRenderTarget(0, resources.previousTarget);
+    device->SetDepthStencilSurface(resources.previousDepth);
+    resources.previousState->Apply();
+}
+
+void CheckStoppedMarchMatchesUnstoppedMarch(IDirect3DDevice9* device)
+{
+    Resources resources;
+    const bool ready = CreateResources(device, resources);
+    Check(ready, "march stop comparison targets, depth and density noise created");
+    if (!ready)
+        return;
+    BindResources(device, resources);
+    const BYTE* stopped[3] = {g_ps_shadowed_march_low, g_ps_shadowed_march_mid, g_ps_shadowed_march_high};
+    const BYTE* unstopped[3] = {g_ps_unstopped_shadowed_march_low, g_ps_unstopped_shadowed_march_mid,
+                                g_ps_unstopped_shadowed_march_high};
+    CheckMarchVariantsMatch(device, resources, unstopped, stopped, true,
+                            "the shadowed march that stops past the last layer matches the one that keeps tracing the "
+                            "sun after every layer has ended");
     device->SetRenderTarget(0, resources.previousTarget);
     device->SetDepthStencilSurface(resources.previousDepth);
     resources.previousState->Apply();

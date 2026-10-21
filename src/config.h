@@ -45,6 +45,7 @@ struct Config
     bool localLights = true;
     float localLightIntensity = 1.0f;
     float localLightPhase = 0.3f;
+    bool decodeLightColours = true;
     bool lightsFollowObjects = true;
     bool spellLights = true;
     float spellLightIntensity = 1.0f;

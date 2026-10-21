@@ -15,6 +15,7 @@ static const float kFacingWrap = 0.25;
 static const float kFadeSharpness = 4.0;
 static const float kFaintestLight = 1.0 / 1024.0;
 static const float kSmallestScene = 1e-6;
+static const float kMaxEstimatedAlbedo = 0.5;
 
 float SurfaceLightStrength()
 {
@@ -68,7 +69,7 @@ float3 PointLightOnSurface(int index, float3 position, float3 normal)
 float3 EstimatedAlbedo(float3 sceneLinear, float3 normal)
 {
     float3 illuminant = cSurfaceAmbient.rgb + cSurfaceDirect.rgb * saturate(dot(normal, cSurfaceToLight.xyz));
-    return saturate(sceneLinear / max(illuminant, kDarkestIlluminant));
+    return min(sceneLinear / max(illuminant, kDarkestIlluminant), kMaxEstimatedAlbedo);
 }
 
 float4 main(float2 pixelIndex : VPOS) : COLOR0

@@ -131,6 +131,10 @@ per group of steps (every 4th, 3rd and 2nd step at `Quality` 1, 2 and 3), at a p
 for it. It is skipped once the ray's transmittance is below 1/512. The lit noisy march evaluates it at every step, since
 holding it across a group exceeds the 32 temporary registers of ps_3_0 there.
 
+The marches also stop once `stepStart` passes the last layer's end, since no layer contributes beyond it and local
+lights need a lit layer. The lit noisy shadowed march keeps marching to the far clip, because the stop's extra state exceeds
+the 32 temporary registers of ps_3_0 there.
+
 A point's visibility comes first from the client's world shadow maps (see Native world shadows): the near, middle and far
 environment maps in that order. Each has one comparison tap (hardware PCF for `D24X8`) and a coverage that fades over the
 outer 30% of the map, so the first map that covers the point decides it. Where no map covers it, a screen-space trace
@@ -175,7 +179,8 @@ sample of the edge columns. Direct3D 9 maps NDC −1 onto the first column's cen
 **Local lights.** The captured diffuse includes the M2 light's animated intensity (see World lights), so a light brighter
 than 1 carries it in its colour. In linear light, a colour whose brightest channel is above 1 decodes only its
 chromaticity, `(c/peak)^2.2 · peak`, since the modern client scales light colours linearly. This is a choice; the kit
-lacks its CPU packing. Every point light scatters with one Henyey–Greenstein phase, normalised to 1 toward the light, with
+lacks its CPU packing. `DecodeLightColours=0` skips the decode for every colour. The logged torch colour, about (1, 0.27, 0.03) after the decode,
+is what an authored (1, 0.55, 0.20) becomes under it. Every point light scatters with one Henyey–Greenstein phase, normalised to 1 toward the light, with
 g = `LocalLightPhase`. The modern fog-light kernel 6227851 reads one g for all local lights.
 
 The eight uploaded lights are chosen by a stabiliser rather than re-ranked from scratch each frame:

@@ -388,8 +388,36 @@ float EnergyNormalisedPhaseScale(float g)
 
 PointLightUpload LocalLightUpload(const Config& cfg)
 {
-    return {ScattersInLinearLight(cfg), cfg.localLightIntensity, cfg.spellLights ? cfg.spellLightIntensity : 0.0f,
+    return {ScattersInLinearLight(cfg) && cfg.decodeLightColours, cfg.localLightIntensity, cfg.spellLights ? cfg.spellLightIntensity : 0.0f,
             cfg.lightsFollowObjects};
+}
+
+namespace
+{
+float PathLengthTo(const FogLayer& l, float distance, float range)
+{
+    const float length = std::max(std::min(distance, l.endDistance) - l.start, 0.0f);
+    const float u = range > 0.0f ? length / range : 0.0f;
+    return length + l.strength * range * std::pow(u, l.exponent + 1.0f) / (l.exponent + 1.0f);
+}
+}
+
+LevelRayFog LevelRayFogAt(const FogParams& p, float distance)
+{
+    float opticalDepth = 0.0f;
+    float emissionDepth = 0.0f;
+    for (int i = 0; i < kFogLayers; ++i)
+    {
+        const FogLayer& l = p.layers[i];
+        const float noiseFactor = i < kSceneLayers ? MeanNoiseDensity(p.noise[i]) : 1.0f;
+        const float layerDepth = l.density * HeightDensityFactor(l, p.referenceZ) *
+                                 ShadowDensityFactor(l, p.lightAboveHorizon) * noiseFactor *
+                                 PathLengthTo(l, distance, p.maxDistance);
+        opticalDepth += layerDepth;
+        emissionDepth += Luminance(l.emissive) * layerDepth;
+    }
+    const float opacity = 1.0f - std::exp(-opticalDepth);
+    return {opacity, opticalDepth > 0.0f ? emissionDepth / opticalDepth * opacity : 0.0f};
 }
 
 bool AnyLayerNoise(const FogParams& fog)

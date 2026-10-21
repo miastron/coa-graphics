@@ -1843,6 +1843,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "client_light_stay_checks.h"
 #include "noise_variation_checks.h"
 #include "classic_phase_checks.h"
+#include "level_ray_fog_checks.h"
 #include "march_layer_checks.h"
 #include "local_light_gpu_checks.h"
 #include "silhouette_quality_checks.h"
@@ -1940,6 +1941,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     authored_fog::CheckAuthoredFogExtras(classic);
     authored_noise::CheckAuthoredNoise(classic);
     classic_phase::CheckClassicPhase();
+    level_ray_fog::CheckLevelRayFog();
     transparent_fog_checks::CheckStockFogFit(classic);
     terrain_shadow_checks::CheckTerrainShadows();
     shadow_light_checks::CheckShadowDirection();
@@ -2071,6 +2073,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     authored_noise::CheckAuthoredNoiseOnTheGpu(h.dev);
     classic_phase::CheckIsotropicSlabSaturation(h.dev);
     march_layers::CheckUnrolledMarchMatchesLoopedMarch(h.dev);
+    march_layers::CheckStoppedMarchMatchesUnstoppedMarch(h.dev);
     local_light_gpu::CheckLocalLightIntegration(h.dev);
     silhouette_quality::CheckSilhouettes(h.dev);
     grazing_upsample::CheckGrazingGroundUpsample(h.dev);

@@ -79,6 +79,16 @@ struct FogParams
 void UnpackColor(uint32_t argb, float* rgb);
 FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const AuthoredFog* authored);
 PointLightUpload LocalLightUpload(const Config& cfg);
+
+constexpr float kLevelRayLogDistances[] = {50.0f, 150.0f, 400.0f};
+
+struct LevelRayFog
+{
+    float opacity;
+    float emission;
+};
+
+LevelRayFog LevelRayFogAt(const FogParams& fog, float distance);
 bool AnyLayerNoise(const FogParams& fog);
 float EnergyNormalisedPhaseScale(float g);
 

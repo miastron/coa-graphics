@@ -1267,6 +1267,15 @@ void Renderer::LogFrameSummary(IDirect3DDevice9* dev, long long now, const Frame
                     l.emissive[2], l.upperHeight, l.upperFalloff, l.lowerHeight, l.lowerFalloff, l.shadowed,
                     std::min(l.endDistance, 99999.0f));
     }
+    const float exposure = fog.authored ? cfg.classicExposure : cfg.exposure;
+    const LevelRayFog closeRay = LevelRayFogAt(fog, kLevelRayLogDistances[0]);
+    const LevelRayFog midRay = LevelRayFogAt(fog, kLevelRayLogDistances[1]);
+    const LevelRayFog farRay = LevelRayFogAt(fog, kLevelRayLogDistances[2]);
+    VF_LOG_INFO("  level ray at %.0f/%.0f/%.0f yd: opacity %.3f %.3f %.3f, ambient glow %.4f %.4f %.4f "
+                "(exposure %.2f), %u point lights",
+                kLevelRayLogDistances[0], kLevelRayLogDistances[1], kLevelRayLogDistances[2], closeRay.opacity,
+                midRay.opacity, farRay.opacity, closeRay.emission * exposure, midRay.emission * exposure,
+                farRay.emission * exposure, exposure, in.localLights.pointLightCount);
     if (authored.lightCount > 0)
         LogAuthoredExtras(authored, fog, cfg);
 }

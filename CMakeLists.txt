@@ -88,6 +88,12 @@ set(SHADOWS_EVERY_STEP_HIGH /DSUN_SHADOWS=1 /DSHADOW_STEP_STRIDE=1 /DSHADOW_TRAC
 vf_shader(ps_shadowed_march_low vf_march.hlsl ps_3_0 /DSTEPS=16 /DLOCAL_LIGHTS=0 ${SHADOWS_LOW})
 vf_shader(ps_shadowed_march_mid vf_march.hlsl ps_3_0 /DSTEPS=24 /DLOCAL_LIGHTS=0 ${SHADOWS_MID})
 vf_shader(ps_shadowed_march_high vf_march.hlsl ps_3_0 /DSTEPS=32 /DLOCAL_LIGHTS=0 ${SHADOWS_HIGH})
+vf_shader(ps_unstopped_shadowed_march_low vf_march.hlsl ps_3_0 /DSTEPS=16 /DLOCAL_LIGHTS=0 /DMARCH_STOPS_PAST_LAYERS=0
+          ${SHADOWS_LOW})
+vf_shader(ps_unstopped_shadowed_march_mid vf_march.hlsl ps_3_0 /DSTEPS=24 /DLOCAL_LIGHTS=0 /DMARCH_STOPS_PAST_LAYERS=0
+          ${SHADOWS_MID})
+vf_shader(ps_unstopped_shadowed_march_high vf_march.hlsl ps_3_0 /DSTEPS=32 /DLOCAL_LIGHTS=0 /DMARCH_STOPS_PAST_LAYERS=0
+          ${SHADOWS_HIGH})
 vf_shader(ps_shadowed_noisy_march_low vf_march.hlsl ps_3_0 /DSTEPS=16 /DLOCAL_LIGHTS=0 /DSAMPLES_AUTHORED_NOISE=1
           ${SHADOWS_LOW})
 vf_shader(ps_shadowed_noisy_march_mid vf_march.hlsl ps_3_0 /DSTEPS=24 /DLOCAL_LIGHTS=0 /DSAMPLES_AUTHORED_NOISE=1
@@ -98,11 +104,11 @@ vf_shader(ps_shadowed_lit_march_low vf_march.hlsl ps_3_0 /DSTEPS=16 /DLOCAL_LIGH
 vf_shader(ps_shadowed_lit_march_mid vf_march.hlsl ps_3_0 /DSTEPS=24 /DLOCAL_LIGHTS=1 ${SHADOWS_MID})
 vf_shader(ps_shadowed_lit_march_high vf_march.hlsl ps_3_0 /DSTEPS=32 /DLOCAL_LIGHTS=1 ${SHADOWS_HIGH})
 vf_shader(ps_shadowed_lit_noisy_march_low vf_march.hlsl ps_3_0 /DSTEPS=16 /DLOCAL_LIGHTS=1 /DSAMPLES_AUTHORED_NOISE=1
-          ${SHADOWS_EVERY_STEP_LOW})
+          /DMARCH_STOPS_PAST_LAYERS=0 ${SHADOWS_EVERY_STEP_LOW})
 vf_shader(ps_shadowed_lit_noisy_march_mid vf_march.hlsl ps_3_0 /DSTEPS=24 /DLOCAL_LIGHTS=1 /DSAMPLES_AUTHORED_NOISE=1
-          ${SHADOWS_EVERY_STEP_MID})
+          /DMARCH_STOPS_PAST_LAYERS=0 ${SHADOWS_EVERY_STEP_MID})
 vf_shader(ps_shadowed_lit_noisy_march_high vf_march.hlsl ps_3_0 /DSTEPS=32 /DLOCAL_LIGHTS=1 /DSAMPLES_AUTHORED_NOISE=1
-          ${SHADOWS_EVERY_STEP_HIGH})
+          /DMARCH_STOPS_PAST_LAYERS=0 ${SHADOWS_EVERY_STEP_HIGH})
 vf_shader(ps_density_probe vf_density_probe.hlsl ps_3_0)
 vf_shader(ps_temporal vf_temporal.hlsl ps_3_0)
 vf_shader(ps_history_depth vf_history_depth.hlsl ps_3_0)

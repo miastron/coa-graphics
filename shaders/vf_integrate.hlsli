@@ -18,6 +18,10 @@
 #define SHADOW_STEP_STRIDE 1
 #endif
 
+#ifndef MARCH_STOPS_PAST_LAYERS
+#define MARCH_STOPS_PAST_LAYERS 1
+#endif
+
 static const int kFogLayers = 4;
 static const int kRegistersPerLayer = 6;
 static const float kGoldenRatioFraction = 0.618034;
@@ -26,6 +30,7 @@ static const bool kMarchesLocalLights = LOCAL_LIGHTS;
 static const bool kTracesSunShadows = SUN_SHADOWS;
 static const int kShadowStepStride = SHADOW_STEP_STRIDE;
 static const bool kUnrollsLayers = !kMarchesLocalLights && !kTracesSunShadows;
+static const bool kStopsPastLayers = MARCH_STOPS_PAST_LAYERS;
 
 float4 cLight : register(c9);
 float4 cMarch : register(c11);
@@ -312,7 +317,7 @@ float4 IntegrateFogAtDepth(float2 pixel, float depth, float jitter)
         float startFraction = s * stepFraction;
         float endFraction = startFraction + stepFraction;
         float stepStart = marchLength * startFraction * startFraction;
-        [branch] if (kUnrollsLayers && stepStart >= layersEnd)
+        [branch] if (kStopsPastLayers && stepStart >= layersEnd)
             break;
         float stepEnd = marchLength * endFraction * endFraction;
         [flatten] if (kShadowStepStride == 1)
