@@ -485,6 +485,7 @@ void Renderer::ReleaseDefaultPool()
     m_gpuTimer.Release();
     m_lateGodRays = {};
     SafeRelease(m_state);
+    SafeRelease(m_localLightData);
     m_lowW = m_lowH = m_rayW = m_rayH = 0;
     m_sceneCopyW = m_sceneCopyH = 0;
     m_sceneCopyFailed = false;
@@ -496,7 +497,6 @@ void Renderer::ReleaseDefaultPool()
 
 void Renderer::ReleaseManagedPool()
 {
-    SafeRelease(m_localLightData);
     SafeRelease(m_densityNoise);
     SafeRelease(m_authoredNoise);
     m_terrainShadows.ReleaseTexture();
@@ -1662,11 +1662,11 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     {
         if (!m_localLightData && m_localLightRetry.Ready() &&
             !(AttemptCreation(kFogNoise) &&
-              SUCCEEDED(dev->CreateTexture(32, 1, 1, 0, D3DFMT_A32B32G32R32F, D3DPOOL_MANAGED, &m_localLightData,
-                                           nullptr))))
+              SUCCEEDED(dev->CreateTexture(32, 1, 1, D3DUSAGE_DYNAMIC, D3DFMT_A32B32G32R32F, D3DPOOL_DEFAULT,
+                                           &m_localLightData, nullptr))))
             m_localLightRetry.Failed();
         D3DLOCKED_RECT locked = {};
-        if (m_localLightData && SUCCEEDED(m_localLightData->LockRect(0, &locked, nullptr, 0)))
+        if (m_localLightData && SUCCEEDED(m_localLightData->LockRect(0, &locked, nullptr, D3DLOCK_DISCARD)))
         {
             std::memcpy(locked.pBits, localConstants, sizeof(localConstants));
             m_localLightData->UnlockRect(0);
