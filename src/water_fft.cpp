@@ -1,5 +1,6 @@
 #include "water_fft.h"
 
+#include "d3d_util.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
 #include "water_spectrum.h"
@@ -47,16 +48,6 @@ const SamplerSetting kPointClampSampler[] = {
     {D3DSAMP_MIPFILTER, D3DTEXF_POINT},    {D3DSAMP_SRGBTEXTURE, FALSE},
     {D3DSAMP_MAXMIPLEVEL, 0},              {D3DSAMP_MIPMAPLODBIAS, 0},
 };
-
-template <typename T>
-void SafeRelease(T*& p)
-{
-    if (p)
-    {
-        p->Release();
-        p = nullptr;
-    }
-}
 
 bool CreateTarget(IDirect3DDevice9* dev, UINT width, UINT height, UINT levels, D3DFORMAT format,
                   IDirect3DTexture9** out)
@@ -223,17 +214,13 @@ bool WaterFftPasses::EnsureShaders(IDirect3DDevice9* dev)
         {PassShader::Mip, g_ps_vw_fft_mip},
         {PassShader::MipPair, g_ps_vw_fft_mip_pair},
     };
-    static const D3DVERTEXELEMENT9 kElements[] = {
-        {0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-        D3DDECL_END(),
-    };
     HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
     for (const PixelShaderRequest& request : requests)
         if (SUCCEEDED(result))
             result = dev->CreatePixelShader(reinterpret_cast<const DWORD*>(request.code),
                                             &m_shaders[static_cast<int>(request.shader)]);
     if (SUCCEEDED(result))
-        result = dev->CreateVertexDeclaration(kElements, &m_decl);
+        result = CreateFullscreenVertexDeclaration(dev, &m_decl);
     if (SUCCEEDED(result))
         return true;
     for (IDirect3DPixelShader9*& shader : m_shaders)

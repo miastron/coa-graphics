@@ -1,5 +1,6 @@
 #include "grading_renderer.h"
 
+#include "d3d_util.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
 
@@ -55,16 +56,6 @@ const SamplerStateValue kPointSampledClamp[] = {
 };
 
 const D3DFORMAT kCurveFormats[] = {D3DFMT_R32F, D3DFMT_A32B32G32R32F};
-
-template <typename T>
-void SafeRelease(T*& p)
-{
-    if (p)
-    {
-        p->Release();
-        p = nullptr;
-    }
-}
 
 RECT ViewportRect(const D3DVIEWPORT9& vp)
 {
@@ -139,15 +130,11 @@ bool GradingRenderer::EnsureShaders(IDirect3DDevice9* dev)
         return Skip("grading shader unsupported");
     if (m_ps)
         return true;
-    static const D3DVERTEXELEMENT9 kElements[] = {
-        {0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-        D3DDECL_END(),
-    };
     HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
     if (SUCCEEDED(result))
         result = dev->CreatePixelShader(reinterpret_cast<const DWORD*>(g_ps_grade), &m_ps);
     if (SUCCEEDED(result))
-        result = dev->CreateVertexDeclaration(kElements, &m_decl);
+        result = CreateFullscreenVertexDeclaration(dev, &m_decl);
     if (SUCCEEDED(result))
         return true;
     SafeRelease(m_vs);

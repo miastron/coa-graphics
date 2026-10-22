@@ -1,5 +1,6 @@
 #include "terrain_shadows.h"
 
+#include "d3d_util.h"
 #include "log.h"
 
 #include <algorithm>
@@ -15,16 +16,6 @@ constexpr float kLightRecomputeCosine = 0.999998f;
 constexpr unsigned char kNotLoaded = 0;
 constexpr unsigned char kLoaded = 1;
 constexpr uintptr_t kUnscannedIdentity = ~static_cast<uintptr_t>(0);
-
-template <typename T>
-void SafeRelease(T*& p)
-{
-    if (p)
-    {
-        p->Release();
-        p = nullptr;
-    }
-}
 
 bool InMap(int chunk)
 {

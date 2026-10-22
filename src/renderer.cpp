@@ -1,5 +1,6 @@
 #include "renderer.h"
 
+#include "d3d_util.h"
 #include "engine_shadows.h"
 #include "engine_terrain.h"
 #include "shadow_light.h"
@@ -157,16 +158,6 @@ void LogShaderCaps(IDirect3DDevice9* device, LogLevel level)
                  caps.PS20Caps.DynamicFlowControlDepth, caps.PS20Caps.StaticFlowControlDepth);
     else
         LogWrite(level, "shader caps unavailable: HRESULT 0x%08lX", static_cast<unsigned long>(result));
-}
-
-template <typename T>
-void SafeRelease(T*& p)
-{
-    if (p)
-    {
-        p->Release();
-        p = nullptr;
-    }
 }
 
 long long Ticks()
@@ -697,10 +688,6 @@ bool Renderer::EnsureShaders(IDirect3DDevice9* dev)
         {"ps_ray_composite", g_ps_ray_composite, &m_rayComposite},
         {"ps_surface_lights", g_ps_surface_lights, &m_surfaceLights},
     };
-    static const D3DVERTEXELEMENT9 kElements[] = {
-        {0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-        D3DDECL_END(),
-    };
     const char* failedName = "vs_fullscreen";
     HRESULT result = AttemptCreation(kFogShaders)
                          ? dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs)
@@ -716,7 +703,7 @@ bool Renderer::EnsureShaders(IDirect3DDevice9* dev)
     if (SUCCEEDED(result))
     {
         failedName = "fullscreen vertex declaration";
-        result = dev->CreateVertexDeclaration(kElements, &m_decl);
+        result = CreateFullscreenVertexDeclaration(dev, &m_decl);
     }
     if (FAILED(result))
     {

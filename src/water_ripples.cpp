@@ -1,5 +1,6 @@
 #include "water_ripples.h"
 
+#include "d3d_util.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
 
@@ -52,16 +53,6 @@ const SamplerSetting kPointClampSampler[] = {
 };
 
 WaterRippleFault g_injectedRippleFault = WaterRippleFault::None;
-
-template <typename T>
-void SafeRelease(T*& p)
-{
-    if (p)
-    {
-        p->Release();
-        p = nullptr;
-    }
-}
 
 bool ShaderUnsupported(IDirect3DDevice9* dev, HRESULT result)
 {
@@ -194,13 +185,9 @@ bool WaterRipples::EnsureShaders(IDirect3DDevice9* dev)
 {
     if (m_step)
         return true;
-    static const D3DVERTEXELEMENT9 kElements[] = {
-        {0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-        D3DDECL_END(),
-    };
     HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
     if (SUCCEEDED(result))
-        result = dev->CreateVertexDeclaration(kElements, &m_decl);
+        result = CreateFullscreenVertexDeclaration(dev, &m_decl);
     if (SUCCEEDED(result))
         result = dev->CreatePixelShader(reinterpret_cast<const DWORD*>(g_ps_vw_ripple_step), &m_step);
     if (SUCCEEDED(result))

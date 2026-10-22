@@ -1,5 +1,6 @@
 #include "msaa_depth.h"
 
+#include "d3d_util.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
 
@@ -156,16 +157,6 @@ const void* FirstMethodOf(IUnknown* object)
     return (*reinterpret_cast<void* const* const*>(object))[0];
 }
 
-template <typename T>
-void SafeRelease(T*& p)
-{
-    if (p)
-    {
-        p->Release();
-        p = nullptr;
-    }
-}
-
 const D3DRENDERSTATETYPE kReszStates[] = {D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_COLORWRITEENABLE, D3DRS_POINTSIZE};
 constexpr int kReszStateCount = sizeof(kReszStates) / sizeof(kReszStates[0]);
 
@@ -258,13 +249,9 @@ struct DepthReadback
 
 bool CreateDepthReadback(IDirect3DDevice9* dev, UINT texels, DepthReadback& r)
 {
-    static const D3DVERTEXELEMENT9 kElements[] = {
-        {0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-        D3DDECL_END(),
-    };
     return SUCCEEDED(dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &r.vertexShader)) &&
            SUCCEEDED(dev->CreatePixelShader(reinterpret_cast<const DWORD*>(g_ps_depth_check), &r.pixelShader)) &&
-           SUCCEEDED(dev->CreateVertexDeclaration(kElements, &r.declaration)) &&
+           SUCCEEDED(CreateFullscreenVertexDeclaration(dev, &r.declaration)) &&
            SUCCEEDED(dev->CreateTexture(texels, 1, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R32F, D3DPOOL_DEFAULT, &r.target,
                                         nullptr)) &&
            SUCCEEDED(r.target->GetSurfaceLevel(0, &r.targetSurface)) &&

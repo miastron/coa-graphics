@@ -1,5 +1,6 @@
 #include "water_renderer.h"
 
+#include "d3d_util.h"
 #include "fog_model.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
@@ -147,16 +148,6 @@ void RaiseInjectedFault(WaterFaultStage stage)
         return;
     g_injectedFault = WaterFaultStage::None;
     RaiseException(kInjectedWaterFault, 0, 0, nullptr);
-}
-
-template <typename T>
-void SafeRelease(T*& p)
-{
-    if (p)
-    {
-        p->Release();
-        p = nullptr;
-    }
 }
 
 double QpcSeconds()
@@ -551,10 +542,6 @@ bool WaterRenderer::EnsureShaders(IDirect3DDevice9* dev)
         {"ps_vw_shade_mid", g_ps_vw_shade_mid, &m_shade[1]},
         {"ps_vw_shade_high", g_ps_vw_shade_high, &m_shade[2]},
     };
-    static const D3DVERTEXELEMENT9 kElements[] = {
-        {0, 0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-        D3DDECL_END(),
-    };
     const char* failedName = "vs_fullscreen";
     HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
     if (SUCCEEDED(result))
@@ -568,7 +555,7 @@ bool WaterRenderer::EnsureShaders(IDirect3DDevice9* dev)
     if (SUCCEEDED(result))
     {
         failedName = "water vertex declaration";
-        result = dev->CreateVertexDeclaration(kElements, &m_decl);
+        result = CreateFullscreenVertexDeclaration(dev, &m_decl);
     }
     if (SUCCEEDED(result))
         return true;
