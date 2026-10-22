@@ -613,6 +613,12 @@ Engine notes behind the code:
   hook, so the glare thunk at `0x4F9213` draws the fog when the glare pass returns, just before the world text call
   (`0x4F9218`) that its byte guard checks; the text hook stays as the fallback while the glare thunk is not installed.
   The later name/icon path at `0x4FB042` is left in place.
+- Registers across the two plain thunks. After the call at `0x4F9213` the next instructions are `call 0x7E5580` (which
+  loads `eax` from `[0xAF4704]` itself) and, at `0x4F9235`, `mov ecx, [0xC5DF88]`; `esi`, `edi` and `ebp` are the only
+  registers the caller keeps and a cdecl function preserves them. The glare entry `0x7F0870` already clobbers `ecx`.
+  After `0x7E5818` the caller does `add esp, 0x14` and jumps to `0x7E5834`, which reloads `edx` and `eax`; `ebx`, `esi`
+  and `edi` are used later and are preserved. The x87 stack is empty at both calls (`fld`/`fstp` pairs balance before
+  `0x4F9213` and at `0x7E57FC..0x7E5809`), and both targets are cdecl, so the plain C thunks need no `pushad`.
 - Native world shadows. The 12340 image registers the map-shadow callbacks at `0x7BD3A0`: matrix construction
   `0x7BAC10`, cascade setup `0x7BAFD0`, caster gathering `0x7BD200`, and rendering `0x7BBC50`. Exterior shadow quality
   is `[0xD43154]`; `[0xB1D51C]` means its resources need rebuilding. Qualities 1 and 2 supply the dynamic character
@@ -654,6 +660,16 @@ Engine notes behind the code:
   index `17r + c` at `(−4.17r, −4.17c)` from the corner. The fog reads a chunk only when its corner lies at its row
   and column. The shadow map render `0x7BBC50` draws WMO groups and M2 batches only; the terrain queries `0x7BCF20`
   and `0x7BCC00` walk the chunks for the doodads on them, so the client's shadow maps hold no terrain.
+- Window messages. `EventInitialize` is called as `EventInitialize(1, 0)` (`0x406A0B`, `push 1` for the thread count),
+  so no scheduler thread exists. `OsInputGet` (`PeekMessageA`/`GetMessageA`/`DispatchMessageA`, `Input.cpp:1237-1254` in
+  the wowdecomp reconstruction) and `CGxDeviceD3d::ScenePresent` (`0x6A3450`) both run on the main thread, so
+  `OverlayWindowProc` and the `Present` hook never run concurrently. The only other threads the reconstruction creates
+  are asynchronous file reads, the model cache, URL downloads, sound and a Steelseries HID thread.
+- Pure device. The client requests `D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_PUREDEVICE | D3DCREATE_FPU_PRESERVE`
+  (`CGxDeviceD3d.cpp:2606`) and calls only `GetBackBuffer`, `GetCreationParameters`, `GetDepthStencilSurface` and
+  `GetRenderTarget` on its device, all valid on a pure device. The wrapper removes the flag because the DLL itself calls
+  `GetRenderState`, `GetStreamSource`, `GetViewport`, `GetScissorRect`, `GetTexture`, `GetPixelShader`,
+  `GetVertexShader`, `GetVertexDeclaration`, `GetFVF` and `GetIndices` on the real device in nine source files.
 - Native glare. `0x4F9213` (`E8 58 76 2F 00`) calls the sun/moon glare pass `0x7F0870`, which is not patched.
   Its draw `0x9AC400` adds the `sunGlare`/`moonGlare` quads (`D3DBLEND_SRCALPHA`, `D3DBLEND_ONE`) at depth
   `[0.9990234375, 1]`, and its update `0x9AC3C0` runs a GPU occlusion query against the current world depth
