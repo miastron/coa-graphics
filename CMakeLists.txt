@@ -228,17 +228,19 @@ add_library(coa_core OBJECT
 add_dependencies(coa_core vf_shaders)
 target_include_directories(coa_core PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
 target_compile_definitions(coa_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
-target_compile_options(coa_core PRIVATE /W4 /wd4100 /arch:SSE2 /fp:fast /GS)
+target_compile_options(coa_core PRIVATE /W4 /WX /permissive- /wd4100 /arch:SSE2 /fp:fast /GS)
+target_compile_options(coa_core PRIVATE $<$<CONFIG:Release>:/Zi>)
 target_link_libraries(coa_core PRIVATE imgui)
 
 add_library(CoAGraphics SHARED $<TARGET_OBJECTS:coa_core> src/CoAGraphics.def)
 target_link_libraries(CoAGraphics PRIVATE kernel32 user32 imgui)
+target_link_options(CoAGraphics PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
 
 add_library(CoAGraphicsTest SHARED $<TARGET_OBJECTS:coa_core> src/test_exports.cpp src/CoAGraphicsTest.def)
 add_dependencies(CoAGraphicsTest vf_shaders)
 target_include_directories(CoAGraphicsTest PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
 target_compile_definitions(CoAGraphicsTest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
-target_compile_options(CoAGraphicsTest PRIVATE /W4 /wd4100 /arch:SSE2 /fp:fast /GS)
+target_compile_options(CoAGraphicsTest PRIVATE /W4 /WX /permissive- /wd4100 /arch:SSE2 /fp:fast /GS)
 target_link_libraries(CoAGraphicsTest PRIVATE kernel32 user32 imgui)
 
 add_library(version SHARED proxy/version_proxy.cpp proxy/version.def)
@@ -256,6 +258,7 @@ add_executable(vfog_harness tests/harness.cpp src/client_code.cpp src/client_gam
 target_include_directories(vfog_harness PRIVATE src ${SHADER_OUT})
 target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS
                            GRASS_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders")
+target_compile_options(vfog_harness PRIVATE /W4 /WX /permissive- /wd4100 /wd4456)
 target_link_libraries(vfog_harness PRIVATE CoAGraphicsTest user32 ole32 windowscodecs)
 add_custom_command(TARGET CoAGraphics POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/CoAGraphics.ini

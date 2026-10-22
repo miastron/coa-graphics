@@ -801,8 +801,8 @@ void CheckHeldFootprintsFollowTheReference(IDirect3DDevice9* dev)
     for (int step = 1; step <= kHeldReferenceSteps; ++step)
     {
         WaterRippleDisturbance moving;
-        moving.from[0] = kRingStart + kRunSpeed * (step - 1) * kWaterRippleStepSeconds;
-        moving.to[0] = kRingStart + kRunSpeed * step * kWaterRippleStepSeconds;
+        moving.from[0] = static_cast<float>(kRingStart + kRunSpeed * (step - 1) * kWaterRippleStepSeconds);
+        moving.to[0] = static_cast<float>(kRingStart + kRunSpeed * step * kWaterRippleStepSeconds);
         moving.radius = kHeldRadius;
         moving.amplitude = kHeldLevel;
         moving.held = true;
