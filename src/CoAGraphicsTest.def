@@ -69,6 +69,7 @@ EXPORTS
     vf_test_force_water_shading_variant
     vf_test_water_shading_variant
     vf_test_force_depth_copy_method
+    vf_test_override_client_shadow_vector
     vf_test_read_scene_depth
     vf_test_multisampling
     vf_test_probe_depth_copy

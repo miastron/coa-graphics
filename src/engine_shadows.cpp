@@ -158,6 +158,8 @@ bool TryAcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out)
     }
 }
 
+const float* g_overriddenShadowVector = nullptr;
+
 bool ReadClientShadowVectorUnsafe(float* out)
 {
     ReadFloats(kShadowLightDirection, out, 3);
@@ -201,9 +203,16 @@ bool AcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out)
     return acquired;
 }
 
+void OverrideClientShadowVector(const float* vector)
+{
+    g_overriddenShadowVector = vector;
+}
+
 void ReadClientShadowVector(float* out)
 {
-    if (!TryReadClientShadowVector(out))
+    if (g_overriddenShadowVector)
+        std::copy_n(g_overriddenShadowVector, 3, out);
+    else if (!TryReadClientShadowVector(out))
         std::fill_n(out, 3, 0.0f);
 }
 

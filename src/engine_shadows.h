@@ -19,4 +19,5 @@ namespace engine
 bool AcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out);
 void ReleaseWorldShadows(WorldShadowInputs& in);
 void ReadClientShadowVector(float* out);
+void OverrideClientShadowVector(const float* vector);
 }

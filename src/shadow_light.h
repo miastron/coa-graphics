@@ -35,3 +35,19 @@ inline void ShadowDirection(const float* clientVector, const float* skyToLight, 
     if (!ShadowLightFromClientVector(clientVector, toLight))
         std::copy_n(skyToLight, 3, toLight);
 }
+
+struct SunShadowPlan
+{
+    float toLight[3];
+    bool worldShadowMaps;
+};
+
+inline SunShadowPlan PlanSunShadows(const float* clientVector, const float* skyToLight)
+{
+    SunShadowPlan plan = {};
+    ShadowDirection(clientVector, skyToLight, plan.toLight);
+    plan.worldShadowMaps = ShaftsFollowLight(skyToLight, plan.toLight);
+    if (!plan.worldShadowMaps)
+        std::copy_n(skyToLight, 3, plan.toLight);
+    return plan;
+}

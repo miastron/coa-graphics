@@ -43,6 +43,22 @@ void CheckShadowDirection()
     Check(NearVector(toLight, kSkyToLight), "a non-finite client shadow light falls back to the sky body");
 }
 
+void CheckSunShadowPlan()
+{
+    const SunShadowPlan overhead = PlanSunShadows(kClientVector, kClientToLight);
+    Check(overhead.worldShadowMaps && NearVector(overhead.toLight, kClientToLight),
+          "a light along the client shadow light traces along it with the native shadow maps");
+
+    const SunShadowPlan lowSun = PlanSunShadows(kClientVector, kSkyToLight);
+    Check(!lowSun.worldShadowMaps && NearVector(lowSun.toLight, kSkyToLight),
+          "a low sun far from the client shadow light is traced along the sun itself, without the native shadow maps");
+
+    const float zeroVector[3] = {0.0f, 0.0f, 0.0f};
+    const SunShadowPlan unset = PlanSunShadows(zeroVector, kSkyToLight);
+    Check(unset.worldShadowMaps && NearVector(unset.toLight, kSkyToLight),
+          "an unset client shadow light traces along the sky body with the maps, as before");
+}
+
 void CheckShaftsFollowLight()
 {
     Check(ShaftsFollowLight(kClientToLight, kClientToLight), "a light along the client shadow light keeps the shafts");

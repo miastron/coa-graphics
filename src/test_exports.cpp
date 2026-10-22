@@ -394,6 +394,11 @@ extern "C" int __cdecl vf_test_water_shading_variant()
     return LastWaterShadingVariant(LatestFogDevice());
 }
 
+extern "C" void __cdecl vf_test_override_client_shadow_vector(const float* vector)
+{
+    engine::OverrideClientShadowVector(vector);
+}
+
 extern "C" void __cdecl vf_test_force_depth_copy_method(int method)
 {
     ForceDepthCopyMethod(method);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "shadow_light.h"
+
 void CheckDepthWriteStateBlockRestore(IDirect3DDevice9* device)
 {
     DWORD initial = TRUE;
@@ -146,6 +148,7 @@ struct ScreenOccluder
 constexpr ScreenOccluder kNoOccluder = {0, 0};
 constexpr float kFloatingOccluderDistance = 20.0f;
 constexpr float kCliffDistance = 150.0f;
+constexpr float kUpwardLight[3] = {0.0f, 0.0f, 1.0f};
 constexpr float kSkyRowsAboveSun = 40.0f;
 constexpr float kCliffRowsBelowSun = 40.0f;
 constexpr float kMaxKeptSunlightBehindCliff = 0.1f;
@@ -238,6 +241,52 @@ void CheckShaftsBlockSunBehindCliff(Harness& h, const SunOcclusionView& v)
           "longer shines through terrain");
 }
 
+constexpr float kClientShadowStraightDown[3] = {0.0f, 0.0f, -1.0f};
+
+class ClientShadowVectorOverride
+{
+public:
+    explicit ClientShadowVectorOverride(const float (&vector)[3])
+    {
+        vf_test_override_client_shadow_vector(vector);
+    }
+    ~ClientShadowVectorOverride() { vf_test_override_client_shadow_vector(nullptr); }
+    ClientShadowVectorOverride(const ClientShadowVectorOverride&) = delete;
+    ClientShadowVectorOverride& operator=(const ClientShadowVectorOverride&) = delete;
+};
+
+void CheckLowSunShaftsStillBlockedBehindCliff(Harness& h, const SunOcclusionView& v)
+{
+    const ClientShadowVectorOverride client(kClientShadowStraightDown);
+    const bool offAxis = !ShaftsFollowLight(v.input.toLight, kUpwardLight);
+    const float sunDegrees = std::acos(std::clamp(v.input.toLight[2], -1.0f, 1.0f)) * 180.0f / kPi;
+    const ScreenOccluder cliff = {static_cast<float>(v.world.Height), kCliffDistance};
+    bool rendered = true;
+    const Image unshadowed = RenderSunRadiance(h, v, false, cliff, rendered);
+    const Image shadowed = RenderSunRadiance(h, v, true, cliff, rendered);
+    const Image unlit = RenderSunRadiance(h, v, false, cliff, rendered, 0.0f);
+    float worstFraction = 0.0f;
+    int dimmestSunlight = 255;
+    for (float rowBelowSun : {0.0f, kCliffRowsBelowSun})
+        for (float columnFromSun : {-60.0f, 0.0f, 60.0f})
+        {
+            const UINT x = ColumnBesideSun(v, columnFromSun);
+            const UINT y = static_cast<UINT>(v.sunRow + rowBelowSun);
+            const int ambient = BrightestChannel(unlit, x, y);
+            const int sunlight = BrightestChannel(unshadowed, x, y) - ambient;
+            const int keptSunlight = BrightestChannel(shadowed, x, y) - ambient;
+            dimmestSunlight = std::min(dimmestSunlight, sunlight);
+            worstFraction = std::max(worstFraction, keptSunlight / std::max(1.0f, sunlight * 1.0f));
+        }
+    std::printf("     sun %.0f degrees from a straight-down client shadow light, cliff at %.0f yd: fog in front of "
+                "it keeps at most %.2f of its in-scattered sunlight (dimmest unshadowed sunlight %d/255)\n",
+                sunDegrees, kCliffDistance, worstFraction, dimmestSunlight);
+    Check(offAxis && rendered && dimmestSunlight > 8 &&
+              worstFraction <= kMaxKeptSunlightBehindCliff,
+          "with the client's shadow light more than 25 degrees from the sun, LightShafts=1 still blocks the sun "
+          "behind a cliff: the trace follows the sun and skips the native shadow maps");
+}
+
 void CheckShaftsLeaveOpenSkyLit(Harness& h, const SunOcclusionView& v)
 {
     bool rendered = true;
@@ -268,6 +317,7 @@ void CheckSunOcclusion(Harness& h)
     CheckDisabledShaftsLeaveFogBehindOccluderLit(h, view);
     CheckShaftsBlockSunBehindCliff(h, view);
     CheckShaftsLeaveOpenSkyLit(h, view);
+    CheckLowSunShaftsStillBlockedBehindCliff(h, view);
     vf_test_set_config(&saved);
 }
 

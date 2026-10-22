@@ -160,6 +160,16 @@ shadows switched direction when the maps came and went. The owner's log from 202
 maps appeared with the light `(0.405 0.405 0.820)` while the moon's `toLight` was `(0.70 0.70 0.13)`, about 50° apart. The
 fog's glow and direct light still come from the sun or moon in the sky.
 
+That shared direction holds only while the sun or moon is within 25° of the client's shadow light (`PlanSunShadows`,
+`shadow_light.h`). Beyond it, as at a low sun, the native maps would be cast from the wrong place and are not used, and
+the trace and the terrain shadows are cast along the sun or moon itself. The depth of the image and the terrain heights
+still block the light then, so a wall or a rock between the camera and a low sun no longer lets the sun's glow shine
+through; trees, characters and casters outside the view cast no shaft shadow while the sun is that low. An earlier build
+switched the shafts off beyond 25° instead, which left the sun's in-scattered light unshadowed: on 2026-10-22 the owner
+saw the Stormwind sunset glow (sun about 10° up, the Classic layer 0 lobe of `g 0.94`) through a wall in that state. The
+harness check "with the client's shadow light more than 25 degrees from the sun" fails with the shafts off there (the fog
+keeps all its sunlight behind a cliff) and passes now (0.04 kept). It has not been seen in game.
+
 **Terrain shadows.** With `LightShafts=1` the terrain blocks the sun or moon from its heights, not from the image. So a hill
 or cliff outside the view or behind the camera still shades the fog. The renderer tracks the loaded terrain chunks (see
 Terrain heights) in a window of 64×64 chunks, 512×512 outer vertices 4.17 yd apart, about 2133 yd across, centred on the

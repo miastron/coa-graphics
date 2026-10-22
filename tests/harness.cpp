@@ -117,6 +117,7 @@ extern "C" __declspec(dllimport) int __cdecl vf_test_water_masks_uploaded(int*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_force_water_shading_variant(int);
 extern "C" __declspec(dllimport) int __cdecl vf_test_water_shading_variant();
 extern "C" __declspec(dllimport) void __cdecl vf_test_force_depth_copy_method(int);
+extern "C" __declspec(dllimport) void __cdecl vf_test_override_client_shadow_vector(const float*);
 extern "C" __declspec(dllimport) int __cdecl vf_test_read_scene_depth(const DepthTexel*, int, float*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_multisampling(MultisamplingStatus*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_probe_depth_copy(IDirect3D9*, DepthCopyProbe*);
@@ -2244,6 +2245,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     terrain_shadow_checks::CheckTerrainShadows();
     shadow_light_checks::CheckShadowDirection();
     shadow_light_checks::CheckShaftsFollowLight();
+    shadow_light_checks::CheckSunShadowPlan();
     resource_retry::CheckRetryGate();
 
     CreateDirectoryW(outDir.c_str(), nullptr);
