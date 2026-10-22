@@ -167,7 +167,10 @@ private:
     bool AnyClassDrawn() const;
     uint32_t DrawnTileMask() const;
     bool PrepareWaves(IDirect3DDevice9* dev);
-    bool WaveMapsStillCurrent(double seconds) const;
+    double WaveInterval() const;
+    bool WaveUpdateDue(double seconds) const;
+    float HeldWaveBlend(double seconds) const;
+    bool RunWaveUpdate(IDirect3DDevice9* dev, double seconds, double step);
     bool SimulateWaves(IDirect3DDevice9* dev, double seconds);
     bool RippleContinuityBroken(double seconds) const;
     void RestartRipples();
@@ -241,6 +244,9 @@ private:
     uint32_t m_summaryDroppedSteps = 0;
     double m_lastSeconds = -1.0;
     double m_lastWaveRunSeconds = -1.0;
+    double m_waveSpanSeconds = 0.0;
+    float m_waveBlendStart = 1.0f;
+    bool m_wavesHeldLastFrame = false;
     WaterRipples m_ripples;
     WaterContactTracker m_contacts;
     Float4 m_rippleWindow = {};

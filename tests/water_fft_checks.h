@@ -300,6 +300,29 @@ bool SimulateFrame(IDirect3DDevice9* dev, WaterFft& fft, const WaterFftSettings&
     return simulated;
 }
 
+bool InterpolatedFrame(IDirect3DDevice9* dev, WaterFft& fft, const WaterFftSettings& settings,
+                       const std::vector<WaterFftTile>& tiles, uint32_t mask, double seconds, float blend)
+{
+    EnterCallerState(dev);
+    if (FAILED(dev->BeginScene()))
+        return false;
+    const bool ran = fft.Prepare(dev, settings, tiles, mask) &&
+                     fft.RunInterpolated(dev, settings, tiles, seconds, kFrameSeconds, blend);
+    dev->EndScene();
+    return ran;
+}
+
+bool ReblendFrame(IDirect3DDevice9* dev, WaterFft& fft, const WaterFftSettings& settings,
+                  const std::vector<WaterFftTile>& tiles, uint32_t mask, float blend)
+{
+    EnterCallerState(dev);
+    if (FAILED(dev->BeginScene()))
+        return false;
+    const bool ran = fft.Prepare(dev, settings, tiles, mask) && fft.Reblend(dev, settings, tiles, kFrameSeconds, blend);
+    dev->EndScene();
+    return ran;
+}
+
 bool BeginPasses(IDirect3DDevice9* dev, WaterFftPasses& passes)
 {
     EnterCallerState(dev);
@@ -710,7 +733,7 @@ void CheckGpuSingleMode(IDirect3DDevice9* dev)
     {
         passes.Transform(1, n);
         passes.ClearFoam(foam[0]);
-        passes.UpdateMaps(0, kCrestFoamTile, kCrestFoamStepSeconds, surface, foam[0], foam[1]);
+        passes.UpdateMaps(0, kCrestFoamTile, kCrestFoamStepSeconds, 1.0f, surface, foam[0], foam[1]);
         EndPasses(dev, passes);
     }
     Readback displacement;
@@ -1060,6 +1083,73 @@ void CheckTileMaskKeepsOtherTiles(IDirect3DDevice9* dev)
               SameBits(first[0].foam, later[0].foam) && SameBits(first[1].surface, later[1].surface) &&
               SameBits(first[1].foam, later[1].foam),
           "water tiles outside the tile mask keep their previous surface and foam maps");
+}
+
+double MeanAbsoluteDifference(const Readback& a, const Readback& b)
+{
+    if (a.values.size() != b.values.size() || a.values.empty())
+        return std::numeric_limits<double>::max();
+    double sum = 0.0;
+    for (size_t i = 0; i < a.values.size(); ++i)
+        sum += std::fabs(a.values[i] - b.values[i]);
+    return sum / a.values.size();
+}
+
+constexpr double kInterpolationStepSeconds = 0.05;
+constexpr double kBlendMidpoint = 0.5;
+constexpr double kInterpolationErrorShare = 0.25;
+
+void CheckInterpolatedMapsBlendTheKeptDisplacement(IDirect3DDevice9* dev)
+{
+    const std::vector<WaterFftTile> tiles = TileList(kLakeTiles);
+    const WaterFftSettings settings = SettingsFor(kWaterFftLowResolution);
+    const uint32_t mask = EveryTile(tiles.size());
+    const double first = kSimulatedSeconds;
+    const double second = first + kInterpolationStepSeconds;
+    const double middle = first + kBlendMidpoint * kInterpolationStepSeconds;
+    TileReadback atFirst;
+    TileReadback atSecond;
+    TileReadback atMiddle;
+    WaterFft reference;
+    bool ran = SimulateFrame(dev, reference, settings, tiles, mask, first, kFrameSeconds) &&
+               ReadTile(dev, reference, 1, atFirst) &&
+               SimulateFrame(dev, reference, settings, tiles, mask, second, kFrameSeconds) &&
+               ReadTile(dev, reference, 1, atSecond) &&
+               SimulateFrame(dev, reference, settings, tiles, mask, middle, kFrameSeconds) &&
+               ReadTile(dev, reference, 1, atMiddle);
+
+    WaterFft fft;
+    TileReadback shownFirst;
+    TileReadback shownMiddle;
+    TileReadback shownSecond;
+    ran = ran && SimulateFrame(dev, fft, settings, tiles, mask, first, kFrameSeconds);
+    EnterCallerState(dev);
+    const bool plainRunLeavesNothingToBlend = ran && dev->BeginScene() == D3D_OK &&
+                                              fft.Prepare(dev, settings, tiles, mask) &&
+                                              !fft.CanReblend(settings) && SUCCEEDED(dev->EndScene());
+    ran = ran && InterpolatedFrame(dev, fft, settings, tiles, mask, first, 1.0f) &&
+          InterpolatedFrame(dev, fft, settings, tiles, mask, second, 0.0f) && ReadTile(dev, fft, 1, shownFirst) &&
+          ReblendFrame(dev, fft, settings, tiles, mask, static_cast<float>(kBlendMidpoint)) &&
+          ReadTile(dev, fft, 1, shownMiddle) && ReblendFrame(dev, fft, settings, tiles, mask, 1.0f) &&
+          ReadTile(dev, fft, 1, shownSecond);
+    const double heldError = MeanAbsoluteDifference(atFirst.surface, atMiddle.surface);
+    const double blendedError = MeanAbsoluteDifference(shownMiddle.surface, atMiddle.surface);
+    std::printf("     interpolated waves: error against the true middle %.3e blended, %.3e without\n", blendedError,
+                heldError);
+    Check(ran && SameBits(shownFirst.surface, atFirst.surface),
+          "water waves interpolated at blend 0 show the kept displacement of the previous update");
+    Check(ran && SameBits(shownSecond.surface, atSecond.surface),
+          "water waves interpolated at blend 1 show the latest displacement bit for bit");
+    Check(ran && blendedError < kInterpolationErrorShare * heldError,
+          "water waves interpolated halfway are closer to the true waves of that moment than the previous update");
+    Check(plainRunLeavesNothingToBlend, "water waves of a plain run keep no displacement to blend");
+    TileReadback beforeChange;
+    TileReadback afterChange;
+    const bool otherTilesRefused = ran && ReadTile(dev, fft, 1, beforeChange) &&
+                                   !ReblendFrame(dev, fft, settings, tiles, 0x5u, 0.5f) &&
+                                   ReadTile(dev, fft, 1, afterChange) &&
+                                   SameBits(beforeChange.surface, afterChange.surface);
+    Check(otherTilesRefused, "water waves are not blended after the set of simulated tiles changed");
 }
 
 size_t CountLines(const std::string& text, const char* fragment)
@@ -1669,6 +1759,7 @@ void CheckWaterFft(IDirect3DDevice9* dev)
         CheckStepZeroAndRepeatability(dev);
         CheckStillWater(dev);
         CheckTileMaskKeepsOtherTiles(dev);
+        CheckInterpolatedMapsBlendTheKeptDisplacement(dev);
         CheckTileSetChangesLogQuietly(dev);
         CheckAmplitudeScaleScalesTheWaves(dev);
         CheckChangedTilesRestart(dev);

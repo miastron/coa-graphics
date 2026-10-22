@@ -961,6 +961,21 @@ bool SameImage(const Image& a, const Image& b)
     return a.w == b.w && a.h == b.h && a.bgra == b.bgra;
 }
 
+double MeanChannelDifference(const Image& a, const Image& b)
+{
+    if (a.w != b.w || a.h != b.h || a.bgra.empty())
+        return std::numeric_limits<double>::max();
+    double sum = 0.0;
+    size_t channels = 0;
+    for (size_t i = 0; i < a.bgra.size(); ++i)
+        if (i % 4 != 3)
+        {
+            sum += std::abs(static_cast<int>(a.bgra[i]) - static_cast<int>(b.bgra[i]));
+            ++channels;
+        }
+    return sum / channels;
+}
+
 bool IsMaskPixel(const Image& mask, UINT x, UINT y)
 {
     const unsigned char* p = mask.At(x, y);
@@ -1682,7 +1697,9 @@ WaterFrameResult RenderAfterFoamClock(BasinClient& client, const WaterFrame& fra
 constexpr int kSlowWaveRate = 10;
 constexpr double kWaveRateStartSeconds = 300.0;
 constexpr double kWithinWaveInterval = 0.04;
-constexpr double kBeyondWaveInterval = 0.15;
+constexpr double kWaveRateFrameSeconds = 0.05;
+constexpr int kWaveRateFrames = 5;
+constexpr double kWaveInterpolationErrorShare = 0.25;
 
 WaterFrameResult RenderWavesAt(BasinClient& client, const Config& cfg, double seconds)
 {
@@ -1691,7 +1708,7 @@ WaterFrameResult RenderWavesAt(BasinClient& client, const Config& cfg, double se
     return client.Render(WaterFrame());
 }
 
-void CheckWaveRateReusesTheWaves(BasinClient& client, const Config& base)
+void CheckWaveRateInterpolatesBetweenUpdates(BasinClient& client, const Config& base)
 {
     const bool assigned = AssignWaterData(MakeSyntheticWaterData());
     Config every = WaterConfig(base);
@@ -1703,18 +1720,30 @@ void CheckWaveRateReusesTheWaves(BasinClient& client, const Config& base)
     const double start = kWaveRateStartSeconds;
     const WaterFrameResult first = RenderWavesAt(client, every, start);
     const WaterFrameResult next = RenderWavesAt(client, every, start + kWithinWaveInterval);
-    const WaterFrameResult slowFirst = RenderWavesAt(client, slow, start + 1.0);
-    const WaterFrameResult slowWithin = RenderWavesAt(client, slow, start + 1.0 + kWithinWaveInterval);
-    const WaterFrameResult slowBeyond = RenderWavesAt(client, slow, start + 1.0 + kBeyondWaveInterval);
+    WaterFrameResult slowFrames[kWaveRateFrames];
+    for (int frame = 0; frame < kWaveRateFrames; ++frame)
+        slowFrames[frame] = RenderWavesAt(client, slow, start + frame * kWaveRateFrameSeconds);
+    const WaterFrameResult truth = RenderWavesAt(client, every, start + kWaveRateFrameSeconds);
     vf_test_set_water_seconds(kFrameSeconds);
     const Config on = WaterConfig(base);
     vf_test_set_config(&on);
+    bool shaded = assigned && first.began && truth.began;
+    for (const WaterFrameResult& frame : slowFrames)
+        shaded = shaded && frame.began;
+    const double held = MeanChannelDifference(slowFrames[2].image, truth.image);
+    const double blended = MeanChannelDifference(slowFrames[3].image, truth.image);
+    std::printf("     WaterWaveRate=10, frame between two updates: %.3f off the true waves, %.3f without blending\n",
+                blended, held);
     Check(assigned && first.began && !SameImage(first.image, next.image),
           "with WaterWaveRate=0 the waves move between two frames 0.04 s apart");
-    Check(slowFirst.began && SameImage(slowFirst.image, slowWithin.image),
-          "with WaterWaveRate=10 a frame 0.04 s after a wave update keeps the last wave shape");
-    Check(!SameImage(slowFirst.image, slowBeyond.image),
-          "with WaterWaveRate=10 a frame 0.15 s after a wave update recomputes the waves");
+    Check(shaded && SameImage(slowFrames[0].image, slowFrames[1].image) &&
+              SameImage(slowFrames[1].image, slowFrames[2].image),
+          "with WaterWaveRate=10 the first update keeps its waves until the second and shows no jump at it");
+    Check(shaded && !SameImage(slowFrames[2].image, slowFrames[3].image) &&
+              !SameImage(slowFrames[3].image, slowFrames[4].image),
+          "with WaterWaveRate=10 the waves keep moving on the frames between two updates");
+    Check(shaded && blended < kWaveInterpolationErrorShare * held,
+          "with WaterWaveRate=10 a frame between two updates shows the waves between them, not the earlier ones");
 }
 
 void CheckFlatWaterHasNoCrestFoam(BasinClient& client, const Config& base)
@@ -2721,7 +2750,7 @@ void CheckWaterPass(Harness& h, const std::wstring& outDir, const std::string& w
     CheckFaultedFirstBeginReleasesItsResources(client, base);
     CheckFailedFoamMaskUploadsRetry(client, base);
     CheckFlatWaterHasNoCrestFoam(client, base);
-    CheckWaveRateReusesTheWaves(client, base);
+    CheckWaveRateInterpolatesBetweenUpdates(client, base);
     CheckShoreFoamWidthFollowsTheSlope(h, base);
     CheckShoreFoamFollowsItsOwnSetting(h, base);
     CheckShallowFoamIgnoresTheCameraAngle(h, base);

@@ -62,7 +62,8 @@ constexpr float kShoreDistancePerDepth = 4.0f;
 constexpr float kSwashFrontFoamPerShoreFoam = 2.0f;
 constexpr float kMinStockFogRange = 1e-3f;
 constexpr double kMaxFoamStepSeconds = 0.1;
-constexpr double kWaveRateSlack = 0.9;
+constexpr double kLongestWaveSpanIntervals = 2.0;
+constexpr double kShortestWaveSpanIntervals = 0.5;
 constexpr double kSummarySeconds = 60.0;
 constexpr size_t kSummaryTextSize = 96;
 constexpr int kLowQuality = 1;
@@ -487,6 +488,9 @@ void WaterRenderer::ReleaseDefaultPool()
     m_stencilArmed = false;
     m_lastSeconds = -1.0;
     m_lastWaveRunSeconds = -1.0;
+    m_waveSpanSeconds = 0.0;
+    m_waveBlendStart = 1.0f;
+    m_wavesHeldLastFrame = false;
     m_fft.ReleaseDefaultPool();
     m_ripples.ReleaseDefaultPool();
     m_contacts.Reset();
@@ -1082,26 +1086,63 @@ bool WaterRenderer::PrepareWaves(IDirect3DDevice9* dev)
     return m_wavesAttempted && m_fft.Prepare(dev, m_waveSettings, GlobalWaterData().Tiles(), m_waveTiles);
 }
 
-bool WaterRenderer::WaveMapsStillCurrent(double seconds) const
+double WaterRenderer::WaveInterval() const
 {
-    if (m_cfg.waterWaveRate <= 0 || m_lastWaveRunSeconds < 0.0 || seconds < m_lastWaveRunSeconds)
-        return false;
-    const double interval = kWaveRateSlack / m_cfg.waterWaveRate;
-    return seconds - m_lastWaveRunSeconds < interval && m_fft.HoldsCurrentMaps(m_waveSettings);
+    return 1.0 / m_cfg.waterWaveRate;
+}
+
+bool WaterRenderer::WaveUpdateDue(double seconds) const
+{
+    if (m_lastWaveRunSeconds < 0.0 || seconds < m_lastWaveRunSeconds)
+        return true;
+    const double frame = m_lastSeconds >= 0.0 && seconds > m_lastSeconds ? seconds - m_lastSeconds : 0.0;
+    return seconds - m_lastWaveRunSeconds >= WaveInterval() - 0.5 * frame;
+}
+
+float WaterRenderer::HeldWaveBlend(double seconds) const
+{
+    const double progress = std::clamp((seconds - m_lastWaveRunSeconds) / m_waveSpanSeconds, 0.0, 1.0);
+    return static_cast<float>(m_waveBlendStart + (1.0 - m_waveBlendStart) * progress);
+}
+
+bool WaterRenderer::RunWaveUpdate(IDirect3DDevice9* dev, double seconds, double step)
+{
+    const double interval = WaveInterval();
+    const double gap = m_lastWaveRunSeconds >= 0.0 ? seconds - m_lastWaveRunSeconds : -1.0;
+    const bool continuous = m_wavesHeldLastFrame && gap >= 0.0 && gap <= kLongestWaveSpanIntervals * interval;
+    const float blend = continuous ? 0.0f : 1.0f;
+    const bool ran = m_fft.RunInterpolated(dev, m_waveSettings, GlobalWaterData().Tiles(), seconds,
+                                           static_cast<float>(step), blend);
+    if (ran)
+    {
+        m_waveBlendStart = blend;
+        m_waveSpanSeconds = gap < 0.0 ? interval
+                                      : std::clamp(gap, kShortestWaveSpanIntervals * interval,
+                                                   kLongestWaveSpanIntervals * interval);
+        m_lastWaveRunSeconds = seconds;
+    }
+    return ran;
 }
 
 bool WaterRenderer::SimulateWaves(IDirect3DDevice9* dev, double seconds)
 {
-    if (WaveMapsStillCurrent(seconds))
+    const double step = m_lastSeconds < 0.0 ? 0.0 : std::clamp(seconds - m_lastSeconds, 0.0, kMaxFoamStepSeconds);
+    if (m_cfg.waterWaveRate <= 0)
     {
-        m_fft.KeepMaps();
-        return true;
+        m_wavesHeldLastFrame = false;
+        const bool ran = m_fft.Run(dev, m_waveSettings, GlobalWaterData().Tiles(), seconds, static_cast<float>(step));
+        if (ran)
+            m_lastWaveRunSeconds = seconds;
+        return ran;
     }
-    const double previous = m_cfg.waterWaveRate > 0 ? m_lastWaveRunSeconds : m_lastSeconds;
-    const double step = previous < 0.0 ? 0.0 : std::clamp(seconds - previous, 0.0, kMaxFoamStepSeconds);
-    const bool ran = m_fft.Run(dev, m_waveSettings, GlobalWaterData().Tiles(), seconds, static_cast<float>(step));
-    if (ran)
-        m_lastWaveRunSeconds = seconds;
+    if (!WaveUpdateDue(seconds) && m_fft.CanReblend(m_waveSettings))
+    {
+        m_wavesHeldLastFrame = m_fft.Reblend(dev, m_waveSettings, GlobalWaterData().Tiles(), static_cast<float>(step),
+                                             HeldWaveBlend(seconds));
+        return m_wavesHeldLastFrame;
+    }
+    const bool ran = RunWaveUpdate(dev, seconds, step);
+    m_wavesHeldLastFrame = false;
     return ran;
 }
 

@@ -4,9 +4,11 @@ float4 cGrid : register(c0);
 float4 cStencil : register(c1);
 float4 cFoam : register(c2);
 float4 cOxygen : register(c3);
+float4 cBlend : register(c4);
 
 sampler2D sDisplacement : register(s0);
 sampler2D sPreviousFoam : register(s1);
+sampler2D sPreviousDisplacement : register(s2);
 
 static const float kSmallestNormalHalf = 6.10351563e-5;
 static const float kCoarseHalfStepsPerOctave = 512;
@@ -52,12 +54,20 @@ float DeltaSeconds()
     return cStencil.w;
 }
 
+float DisplacementBlend()
+{
+    return cBlend.x;
+}
+
 float3 DisplacementAt(float2 texel, float2 offset)
 {
     float2 wrapped = texel + offset;
     wrapped -= Resolution() * floor(wrapped * InverseResolution());
     float2 uv = float2((SlotOrigin() + wrapped.x + 0.5) * InverseAtlasWidth(), (wrapped.y + 0.5) * InverseResolution());
-    return FetchTexel(sDisplacement, uv).xyz;
+    float3 current = FetchTexel(sDisplacement, uv).xyz;
+    [branch] if (DisplacementBlend() < 1)
+        return lerp(FetchTexel(sPreviousDisplacement, uv).xyz, current, DisplacementBlend());
+    return current;
 }
 
 float3 CentralDifference(float2 texel, float2 step)

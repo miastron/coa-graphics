@@ -398,8 +398,8 @@ bool DrawWaveRate(Config& c)
             index = i;
     const bool changed =
         ImGui::Combo("Wave updates", &index, kWaveRateNames, static_cast<int>(std::size(kWaveRateNames)));
-    ImGui::SetItemTooltip("%s", "How often the waves are recomputed; the water keeps the last wave shape in between, "
-                                "which saves GPU time. Every frame = no saving");
+    ImGui::SetItemTooltip("%s", "How often the waves are recomputed; the water blends from the previous wave shape "
+                                "to the latest in between, which saves GPU time. Every frame = no saving");
     if (changed)
         c.waterWaveRate = kWaveRates[index];
     return changed;

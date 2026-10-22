@@ -34,8 +34,9 @@ public:
     void ClearFoam(IDirect3DTexture9* foam);
     void Evolve(int slot, const WaterFftTile& tile, const WaterFftSettings& settings, double seconds);
     void Transform(int slots, int referenceResolution);
-    void UpdateMaps(int slot, const WaterFftTile& tile, float deltaSeconds, IDirect3DTexture9* surface,
+    void UpdateMaps(int slot, const WaterFftTile& tile, float deltaSeconds, float blend, IDirect3DTexture9* surface,
                     IDirect3DTexture9* previousFoam, IDirect3DTexture9* nextFoam);
+    bool KeepDisplacement(int slots);
     void End();
 
     bool Unsupported() const { return m_unsupported; }
@@ -44,9 +45,14 @@ public:
     int Slots() const { return m_slots; }
     int MaxSlots() const;
     bool PairsTargets() const { return m_pairTargets; }
+    bool DisplacementHeld() const { return m_displacementHeld; }
+    bool PreviousDisplacementHeld() const { return m_previousHeld; }
     IDirect3DTexture9* Spectrum() const { return m_atlas[0]; }
     IDirect3DTexture9* Displacement() const { return m_atlas[m_displacementAtlas]; }
-    bool HoldsDeviceResources() const { return m_noise || m_butterflies || m_atlas[0] || m_mapScratch[0]; }
+    bool HoldsDeviceResources() const
+    {
+        return m_noise || m_butterflies || m_atlas[0] || m_previousDisplacement || m_mapScratch[0];
+    }
     unsigned Draws() const { return m_draws; }
 
 private:
@@ -76,6 +82,7 @@ private:
     bool EnsureShaders(IDirect3DDevice9* dev);
     bool EnsureTables(IDirect3DDevice9* dev);
     bool EnsureAtlas(IDirect3DDevice9* dev, int slots);
+    bool EnsurePreviousDisplacement();
     bool EnsureMapScratch();
     void ReleaseResolutionResources();
     void UseShader(PassShader shader);
@@ -109,6 +116,9 @@ private:
     IDirect3DTexture9* m_noise = nullptr;
     IDirect3DTexture9* m_butterflies = nullptr;
     IDirect3DTexture9* m_atlas[2] = {};
+    IDirect3DTexture9* m_previousDisplacement = nullptr;
+    bool m_displacementHeld = false;
+    bool m_previousHeld = false;
     IDirect3DTexture9* m_mapScratch[2] = {};
     std::vector<float> m_noiseTexels;
     std::vector<float> m_butterflyTexels;
@@ -134,8 +144,12 @@ public:
                  uint32_t tileMask);
     bool Run(IDirect3DDevice9* dev, const WaterFftSettings& settings, const std::vector<WaterFftTile>& tiles,
              double seconds, float deltaSeconds);
+    bool RunInterpolated(IDirect3DDevice9* dev, const WaterFftSettings& settings,
+                         const std::vector<WaterFftTile>& tiles, double seconds, float deltaSeconds, float blend);
+    bool Reblend(IDirect3DDevice9* dev, const WaterFftSettings& settings, const std::vector<WaterFftTile>& tiles,
+                 float deltaSeconds, float blend);
     bool HoldsCurrentMaps(const WaterFftSettings& settings) const;
-    void KeepMaps();
+    bool CanReblend(const WaterFftSettings& settings) const;
     void LogPlan();
 
     IDirect3DTexture9* Surface(int tile) const;
@@ -160,6 +174,12 @@ private:
     bool EnsureTileMaps(TileMaps& maps, bool& created);
     void SimulateBatch(const std::vector<WaterFftTile>& tiles, const int* indices, int count,
                        const WaterFftSettings& settings, double seconds, float deltaSeconds);
+    void SimulateInterpolatedBatch(const std::vector<WaterFftTile>& tiles, const WaterFftSettings& settings,
+                                   double seconds, float deltaSeconds, float blend);
+    void UpdateTileMaps(const std::vector<WaterFftTile>& tiles, int tile, int slot, float deltaSeconds, float blend);
+    bool ActiveTilesMatchKeptLayout() const;
+    void RememberLayout();
+    void ForgetLayout();
 
     const char* m_failure = "";
     const char* m_retryFailure = "";
@@ -168,6 +188,8 @@ private:
     std::vector<TileMaps> m_tiles;
     int m_mapResolution = 0;
     int m_active[kWaterMaxTiles] = {};
+    int m_keptLayout[kWaterMaxTiles] = {};
+    int m_keptLayoutCount = 0;
     bool m_created[kWaterMaxTiles] = {};
     int m_activeCount = 0;
     bool m_prepared = false;

@@ -20,7 +20,7 @@ void QualityOne(Config& cfg) { cfg.waterQuality = 1; }
 void QualityThree(Config& cfg) { cfg.waterQuality = 3; }
 void FlatWaves(Config& cfg) { cfg.waterWaves = 0.0f; }
 void SmallWaves(Config& cfg) { cfg.waterWaves = 0.1f; }
-void WavesReused(Config& cfg) { cfg.waterWaveRate = 1; }
+void WavesBlended(Config& cfg) { cfg.waterWaveRate = 1; }
 void NoReflections(Config& cfg) { cfg.waterReflections = 0.0f; }
 void NoFoam(Config& cfg)
 {
@@ -45,7 +45,7 @@ constexpr WaterCase kCases[] = {
     {"quality3", QualityThree},
     {"waves0", FlatWaves},
     {"waves0.1", SmallWaves},
-    {"waves-reused", WavesReused},
+    {"waves-blended", WavesBlended},
     {"reflections0", NoReflections},
     {"foam0", NoFoam},
     {"specular0", NoSpecular},
