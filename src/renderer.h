@@ -26,6 +26,10 @@ unsigned FogResourceCreationAttempts(FogResourceKind kind);
 FogParams FogParamsFor(const FrameInputs& in, const Config& cfg, const AuthoredFog* authored);
 uint32_t LoggedLightsSignature(const AuthoredFog& fog);
 
+constexpr int kFogQualityLevels = 3;
+constexpr int kMarchFamilies = 8;
+constexpr int kCompositeFamilies = 4;
+
 class Renderer
 {
 public:
@@ -150,25 +154,12 @@ private:
     RetryGate m_authoredNoiseRetry;
     RetryGate m_densityNoiseRetry;
     RetryGate m_localLightRetry;
-    IDirect3DPixelShader9* m_march[3] = {};
-    IDirect3DPixelShader9* m_litMarch[3] = {};
-    IDirect3DPixelShader9* m_noisyMarch[3] = {};
-    IDirect3DPixelShader9* m_litNoisyMarch[3] = {};
-    IDirect3DPixelShader9* m_shadowedMarch[3] = {};
-    IDirect3DPixelShader9* m_shadowedNoisyMarch[3] = {};
-    IDirect3DPixelShader9* m_shadowedLitMarch[3] = {};
-    IDirect3DPixelShader9* m_shadowedLitNoisyMarch[3] = {};
+    IDirect3DPixelShader9* m_marchShaders[kMarchFamilies][kFogQualityLevels] = {};
     IDirect3DPixelShader9* m_temporal = nullptr;
     IDirect3DPixelShader9* m_historyDepthShader = nullptr;
-    IDirect3DPixelShader9* m_composite[3] = {};
-    IDirect3DPixelShader9* m_noisyComposite[3] = {};
-    IDirect3DPixelShader9* m_litComposite[3] = {};
-    IDirect3DPixelShader9* m_shadowedComposite[3] = {};
+    IDirect3DPixelShader9* m_compositeShaders[kCompositeFamilies][kFogQualityLevels] = {};
     IDirect3DPixelShader9* m_silhouetteMask = nullptr;
-    IDirect3DPixelShader9* m_splitComposite[3] = {};
-    IDirect3DPixelShader9* m_noisySplitComposite[3] = {};
-    IDirect3DPixelShader9* m_litSplitComposite[3] = {};
-    IDirect3DPixelShader9* m_shadowedSplitComposite[3] = {};
+    IDirect3DPixelShader9* m_splitCompositeShaders[kCompositeFamilies][kFogQualityLevels] = {};
     bool m_splitCompositesUnavailable = false;
     IDirect3DPixelShader9* m_drawnMarch = nullptr;
     IDirect3DPixelShader9* m_drawnComposite = nullptr;

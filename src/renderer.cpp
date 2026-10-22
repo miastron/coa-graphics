@@ -84,7 +84,23 @@ constexpr DWORD kSceneBeforeLightsStage = 1;
 constexpr DWORD kLocalLightStage = 8;
 constexpr float kSurfaceDisplayGamma = 2.2f;
 constexpr UINT kSampleSideRegister = 99;
-constexpr int kQualityLevels = 3;
+constexpr int kQualityLevels = kFogQualityLevels;
+constexpr int kMarchLit = 1;
+constexpr int kMarchNoisy = 2;
+constexpr int kMarchShadowed = 4;
+constexpr int kCompositePlain = 0;
+constexpr int kCompositeNoisy = 1;
+constexpr int kCompositeLit = 2;
+constexpr int kCompositeShadowed = 3;
+
+template <size_t Families>
+void ReleaseShaderFamilies(IDirect3DPixelShader9* (&shaders)[Families][kQualityLevels])
+{
+    for (auto& family : shaders)
+        for (auto*& ps : family)
+            SafeRelease(ps);
+}
+
 constexpr DWORD kAllStencilBits = 0xFF;
 constexpr DWORD kUnmarkedSamples = 0;
 constexpr DWORD kNearSamples = 1;
@@ -492,32 +508,10 @@ void Renderer::ReleaseAll()
     m_drawnComposite = nullptr;
     m_drawnSplitComposite = nullptr;
     SafeRelease(m_vs);
-    for (auto*& ps : m_march)
-        SafeRelease(ps);
-    for (auto*& ps : m_litMarch)
-        SafeRelease(ps);
-    for (auto*& ps : m_noisyMarch)
-        SafeRelease(ps);
-    for (auto*& ps : m_litNoisyMarch)
-        SafeRelease(ps);
-    for (auto*& ps : m_shadowedMarch)
-        SafeRelease(ps);
-    for (auto*& ps : m_shadowedNoisyMarch)
-        SafeRelease(ps);
-    for (auto*& ps : m_shadowedLitMarch)
-        SafeRelease(ps);
-    for (auto*& ps : m_shadowedLitNoisyMarch)
-        SafeRelease(ps);
+    ReleaseShaderFamilies(m_marchShaders);
     SafeRelease(m_temporal);
     SafeRelease(m_historyDepthShader);
-    for (auto*& ps : m_composite)
-        SafeRelease(ps);
-    for (auto*& ps : m_noisyComposite)
-        SafeRelease(ps);
-    for (auto*& ps : m_litComposite)
-        SafeRelease(ps);
-    for (auto*& ps : m_shadowedComposite)
-        SafeRelease(ps);
+    ReleaseShaderFamilies(m_compositeShaders);
     ReleaseSplitComposites();
     m_splitCompositesUnavailable = false;
     SafeRelease(m_rayMask);
@@ -645,44 +639,44 @@ bool Renderer::EnsureShaders(IDirect3DDevice9* dev)
         IDirect3DPixelShader9** output;
     };
     const PixelShaderRequest pixels[] = {
-        {"ps_march_low", g_ps_march_low, &m_march[0]},
-        {"ps_march_mid", g_ps_march_mid, &m_march[1]},
-        {"ps_march_high", g_ps_march_high, &m_march[2]},
-        {"ps_lit_march_low", g_ps_lit_march_low, &m_litMarch[0]},
-        {"ps_lit_march_mid", g_ps_lit_march_mid, &m_litMarch[1]},
-        {"ps_lit_march_high", g_ps_lit_march_high, &m_litMarch[2]},
-        {"ps_noisy_march_low", g_ps_noisy_march_low, &m_noisyMarch[0]},
-        {"ps_noisy_march_mid", g_ps_noisy_march_mid, &m_noisyMarch[1]},
-        {"ps_noisy_march_high", g_ps_noisy_march_high, &m_noisyMarch[2]},
-        {"ps_lit_noisy_march_low", g_ps_lit_noisy_march_low, &m_litNoisyMarch[0]},
-        {"ps_lit_noisy_march_mid", g_ps_lit_noisy_march_mid, &m_litNoisyMarch[1]},
-        {"ps_lit_noisy_march_high", g_ps_lit_noisy_march_high, &m_litNoisyMarch[2]},
-        {"ps_shadowed_march_low", g_ps_shadowed_march_low, &m_shadowedMarch[0]},
-        {"ps_shadowed_march_mid", g_ps_shadowed_march_mid, &m_shadowedMarch[1]},
-        {"ps_shadowed_march_high", g_ps_shadowed_march_high, &m_shadowedMarch[2]},
-        {"ps_shadowed_noisy_march_low", g_ps_shadowed_noisy_march_low, &m_shadowedNoisyMarch[0]},
-        {"ps_shadowed_noisy_march_mid", g_ps_shadowed_noisy_march_mid, &m_shadowedNoisyMarch[1]},
-        {"ps_shadowed_noisy_march_high", g_ps_shadowed_noisy_march_high, &m_shadowedNoisyMarch[2]},
-        {"ps_shadowed_lit_march_low", g_ps_shadowed_lit_march_low, &m_shadowedLitMarch[0]},
-        {"ps_shadowed_lit_march_mid", g_ps_shadowed_lit_march_mid, &m_shadowedLitMarch[1]},
-        {"ps_shadowed_lit_march_high", g_ps_shadowed_lit_march_high, &m_shadowedLitMarch[2]},
-        {"ps_shadowed_lit_noisy_march_low", g_ps_shadowed_lit_noisy_march_low, &m_shadowedLitNoisyMarch[0]},
-        {"ps_shadowed_lit_noisy_march_mid", g_ps_shadowed_lit_noisy_march_mid, &m_shadowedLitNoisyMarch[1]},
-        {"ps_shadowed_lit_noisy_march_high", g_ps_shadowed_lit_noisy_march_high, &m_shadowedLitNoisyMarch[2]},
+        {"ps_march_low", g_ps_march_low, &m_marchShaders[0][0]},
+        {"ps_march_mid", g_ps_march_mid, &m_marchShaders[0][1]},
+        {"ps_march_high", g_ps_march_high, &m_marchShaders[0][2]},
+        {"ps_lit_march_low", g_ps_lit_march_low, &m_marchShaders[1][0]},
+        {"ps_lit_march_mid", g_ps_lit_march_mid, &m_marchShaders[1][1]},
+        {"ps_lit_march_high", g_ps_lit_march_high, &m_marchShaders[1][2]},
+        {"ps_noisy_march_low", g_ps_noisy_march_low, &m_marchShaders[2][0]},
+        {"ps_noisy_march_mid", g_ps_noisy_march_mid, &m_marchShaders[2][1]},
+        {"ps_noisy_march_high", g_ps_noisy_march_high, &m_marchShaders[2][2]},
+        {"ps_lit_noisy_march_low", g_ps_lit_noisy_march_low, &m_marchShaders[3][0]},
+        {"ps_lit_noisy_march_mid", g_ps_lit_noisy_march_mid, &m_marchShaders[3][1]},
+        {"ps_lit_noisy_march_high", g_ps_lit_noisy_march_high, &m_marchShaders[3][2]},
+        {"ps_shadowed_march_low", g_ps_shadowed_march_low, &m_marchShaders[4][0]},
+        {"ps_shadowed_march_mid", g_ps_shadowed_march_mid, &m_marchShaders[4][1]},
+        {"ps_shadowed_march_high", g_ps_shadowed_march_high, &m_marchShaders[4][2]},
+        {"ps_shadowed_noisy_march_low", g_ps_shadowed_noisy_march_low, &m_marchShaders[6][0]},
+        {"ps_shadowed_noisy_march_mid", g_ps_shadowed_noisy_march_mid, &m_marchShaders[6][1]},
+        {"ps_shadowed_noisy_march_high", g_ps_shadowed_noisy_march_high, &m_marchShaders[6][2]},
+        {"ps_shadowed_lit_march_low", g_ps_shadowed_lit_march_low, &m_marchShaders[5][0]},
+        {"ps_shadowed_lit_march_mid", g_ps_shadowed_lit_march_mid, &m_marchShaders[5][1]},
+        {"ps_shadowed_lit_march_high", g_ps_shadowed_lit_march_high, &m_marchShaders[5][2]},
+        {"ps_shadowed_lit_noisy_march_low", g_ps_shadowed_lit_noisy_march_low, &m_marchShaders[7][0]},
+        {"ps_shadowed_lit_noisy_march_mid", g_ps_shadowed_lit_noisy_march_mid, &m_marchShaders[7][1]},
+        {"ps_shadowed_lit_noisy_march_high", g_ps_shadowed_lit_noisy_march_high, &m_marchShaders[7][2]},
         {"ps_temporal", g_ps_temporal, &m_temporal},
         {"ps_history_depth", g_ps_history_depth, &m_historyDepthShader},
-        {"ps_composite_low", g_ps_composite_low, &m_composite[0]},
-        {"ps_composite_mid", g_ps_composite_mid, &m_composite[1]},
-        {"ps_composite_high", g_ps_composite_high, &m_composite[2]},
-        {"ps_noisy_composite_low", g_ps_noisy_composite_low, &m_noisyComposite[0]},
-        {"ps_noisy_composite_mid", g_ps_noisy_composite_mid, &m_noisyComposite[1]},
-        {"ps_noisy_composite_high", g_ps_noisy_composite_high, &m_noisyComposite[2]},
-        {"ps_lit_composite_low", g_ps_lit_composite_low, &m_litComposite[0]},
-        {"ps_lit_composite_mid", g_ps_lit_composite_mid, &m_litComposite[1]},
-        {"ps_lit_composite_high", g_ps_lit_composite_high, &m_litComposite[2]},
-        {"ps_shadowed_composite_low", g_ps_shadowed_composite_low, &m_shadowedComposite[0]},
-        {"ps_shadowed_composite_mid", g_ps_shadowed_composite_mid, &m_shadowedComposite[1]},
-        {"ps_shadowed_composite_high", g_ps_shadowed_composite_high, &m_shadowedComposite[2]},
+        {"ps_composite_low", g_ps_composite_low, &m_compositeShaders[0][0]},
+        {"ps_composite_mid", g_ps_composite_mid, &m_compositeShaders[0][1]},
+        {"ps_composite_high", g_ps_composite_high, &m_compositeShaders[0][2]},
+        {"ps_noisy_composite_low", g_ps_noisy_composite_low, &m_compositeShaders[1][0]},
+        {"ps_noisy_composite_mid", g_ps_noisy_composite_mid, &m_compositeShaders[1][1]},
+        {"ps_noisy_composite_high", g_ps_noisy_composite_high, &m_compositeShaders[1][2]},
+        {"ps_lit_composite_low", g_ps_lit_composite_low, &m_compositeShaders[2][0]},
+        {"ps_lit_composite_mid", g_ps_lit_composite_mid, &m_compositeShaders[2][1]},
+        {"ps_lit_composite_high", g_ps_lit_composite_high, &m_compositeShaders[2][2]},
+        {"ps_shadowed_composite_low", g_ps_shadowed_composite_low, &m_compositeShaders[3][0]},
+        {"ps_shadowed_composite_mid", g_ps_shadowed_composite_mid, &m_compositeShaders[3][1]},
+        {"ps_shadowed_composite_high", g_ps_shadowed_composite_high, &m_compositeShaders[3][2]},
         {"ps_ray_mask", g_ps_ray_mask, &m_rayMask},
         {"ps_ray_blur", g_ps_ray_blur, &m_rayBlur},
         {"ps_ray_composite", g_ps_ray_composite, &m_rayComposite},
@@ -726,14 +720,7 @@ bool Renderer::EnsureShaders(IDirect3DDevice9* dev)
 void Renderer::ReleaseSplitComposites()
 {
     SafeRelease(m_silhouetteMask);
-    for (auto*& ps : m_splitComposite)
-        SafeRelease(ps);
-    for (auto*& ps : m_noisySplitComposite)
-        SafeRelease(ps);
-    for (auto*& ps : m_litSplitComposite)
-        SafeRelease(ps);
-    for (auto*& ps : m_shadowedSplitComposite)
-        SafeRelease(ps);
+    ReleaseShaderFamilies(m_splitCompositeShaders);
 }
 
 bool Renderer::EnsureSplitComposites(IDirect3DDevice9* dev)
@@ -748,14 +735,12 @@ bool Renderer::EnsureSplitComposites(IDirect3DDevice9* dev)
         {g_ps_lit_split_composite_low, g_ps_lit_split_composite_mid, g_ps_lit_split_composite_high},
         {g_ps_shadowed_split_composite_low, g_ps_shadowed_split_composite_mid, g_ps_shadowed_split_composite_high},
     };
-    IDirect3DPixelShader9** const shaders[] = {m_splitComposite, m_noisySplitComposite, m_litSplitComposite,
-                                               m_shadowedSplitComposite};
-    static_assert(std::size(code) == std::size(shaders), "one split composite array per shader family");
+    static_assert(std::size(code) == kCompositeFamilies, "one split composite array per shader family");
     HRESULT result = D3D_OK;
-    for (size_t family = 0; family < std::size(shaders) && SUCCEEDED(result); ++family)
+    for (size_t family = 0; family < kCompositeFamilies && SUCCEEDED(result); ++family)
         for (int quality = 0; quality < kQualityLevels && SUCCEEDED(result); ++quality)
             result = dev->CreatePixelShader(reinterpret_cast<const DWORD*>(code[family][quality]),
-                                            &shaders[family][quality]);
+                                            &m_splitCompositeShaders[family][quality]);
     if (SUCCEEDED(result))
         result = dev->CreatePixelShader(reinterpret_cast<const DWORD*>(g_ps_silhouette_mask), &m_silhouetteMask);
     if (SUCCEEDED(result))
@@ -773,25 +758,17 @@ bool Renderer::EnsureSplitComposites(IDirect3DDevice9* dev)
 
 IDirect3DPixelShader9* const* Renderer::MarchShaders(bool shadowed, bool lit, bool noisy) const
 {
-    if (shadowed && lit)
-        return noisy ? m_shadowedLitNoisyMarch : m_shadowedLitMarch;
-    if (shadowed)
-        return noisy ? m_shadowedNoisyMarch : m_shadowedMarch;
-    if (lit)
-        return noisy ? m_litNoisyMarch : m_litMarch;
-    return noisy ? m_noisyMarch : m_march;
+    return m_marchShaders[(lit ? kMarchLit : 0) | (noisy ? kMarchNoisy : 0) | (shadowed ? kMarchShadowed : 0)];
 }
 
 IDirect3DPixelShader9* Renderer::CompositeShader(const CompositeChoice& choice, bool splitSamples) const
 {
     const int index = std::clamp(choice.quality, 1, kQualityLevels) - 1;
-    if (choice.shadowed)
-        return (splitSamples ? m_shadowedSplitComposite : m_shadowedComposite)[index];
-    if (choice.lit)
-        return (splitSamples ? m_litSplitComposite : m_litComposite)[index];
-    if (choice.noisy)
-        return (splitSamples ? m_noisySplitComposite : m_noisyComposite)[index];
-    return (splitSamples ? m_splitComposite : m_composite)[index];
+    const int family = choice.shadowed ? kCompositeShadowed
+                       : choice.lit    ? kCompositeLit
+                       : choice.noisy  ? kCompositeNoisy
+                                       : kCompositePlain;
+    return (splitSamples ? m_splitCompositeShaders : m_compositeShaders)[family][index];
 }
 
 void Renderer::MarkSilhouetteSamples(IDirect3DDevice9* dev, IDirect3DSurface9* sampleDepth, const D3DVIEWPORT9& vp)
