@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -282,6 +283,15 @@ float ClampedSetting(float v, float lo, float hi)
     return v >= lo ? std::min(v, hi) : lo;
 }
 
+bool IsNotANumber(float value)
+{
+    constexpr uint32_t kExponentMask = 0x7F800000;
+    constexpr uint32_t kMantissaMask = 0x007FFFFF;
+    uint32_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return (bits & kExponentMask) == kExponentMask && (bits & kMantissaMask) != 0;
+}
+
 float ReadFloat(const std::string& path, const char* key, float fallback, float lo, float hi)
 {
     char buf[64];
@@ -290,7 +300,7 @@ float ReadFloat(const std::string& path, const char* key, float fallback, float 
         return fallback;
     char* end = nullptr;
     float v = std::strtof(buf, &end);
-    if (end == buf || v != v)
+    if (end == buf || IsNotANumber(v))
         return fallback;
     return std::clamp(v, lo, hi);
 }

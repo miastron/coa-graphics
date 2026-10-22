@@ -155,62 +155,38 @@ target_compile_definitions(imgui
     PRIVATE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS
             IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS WIN32_LEAN_AND_MEAN NOMINMAX)
 
-add_library(coa_core OBJECT
-    src/client_code.cpp
-    src/client_game_clock.cpp
-    src/client_light_stay.cpp
-    src/client_ripple_sprites.cpp
-    src/config.cpp
-    src/d3d9_wrap.cpp
-    src/dllmain.cpp
-    src/engine.cpp
-    src/engine_actors.cpp
-    src/engine_lights.cpp
-    src/engine_shadows.cpp
-    src/engine_terrain.cpp
-    src/fog_data.cpp
-    src/fog_model.cpp
-    src/forever_look.cpp
-    src/gpu_timing.cpp
-    src/grading_renderer.cpp
-    src/grass_wind.cpp
-    src/hooks.cpp
-    src/image_quality.cpp
-    src/image_renderer.cpp
-    src/local_light_stabiliser.cpp
-    src/log.cpp
-    src/msaa_depth.cpp
-    src/noise_volume.cpp
-    src/overlay.cpp
-    src/renderer.cpp
-    src/settings_panel.cpp
-    src/spell_lights.cpp
-    src/status_log.cpp
-    src/terrain_shadows.cpp
-    src/texture_filtering.cpp
-    src/time_of_day.cpp
-    src/texture_tint.cpp
-    src/transparent_fog.cpp
-    src/tree_wind.cpp
-    src/water_contacts.cpp
-    src/water_data.cpp
-    src/water_fft.cpp
-    src/water_renderer.cpp
-    src/water_ripples.cpp
-    src/water_spectrum.cpp
-)
-add_dependencies(coa_core vf_shaders)
-target_include_directories(coa_core PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
-target_compile_definitions(coa_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
-target_compile_options(coa_core PRIVATE /W4 /WX /permissive- /wd4100 /arch:SSE2 /fp:fast /GS)
-target_compile_options(coa_core PRIVATE $<$<CONFIG:Release>:/Zi>)
-target_link_libraries(coa_core PRIVATE imgui)
+set(COA_MODULE_SOURCES
+    src/client_code.cpp src/client_game_clock.cpp src/client_light_stay.cpp src/client_ripple_sprites.cpp
+    src/config.cpp src/engine_actors.cpp src/engine_lights.cpp src/fog_data.cpp src/fog_model.cpp src/gpu_timing.cpp
+    src/grass_wind.cpp src/local_light_stabiliser.cpp src/log.cpp src/noise_volume.cpp src/spell_lights.cpp
+    src/status_log.cpp src/terrain_shadows.cpp src/texture_filtering.cpp src/texture_tint.cpp
+    src/transparent_fog.cpp src/tree_wind.cpp src/water_contacts.cpp src/water_data.cpp src/water_fft.cpp
+    src/water_ripples.cpp src/water_spectrum.cpp)
+set(COA_RUNTIME_SOURCES
+    src/d3d9_wrap.cpp src/dllmain.cpp src/engine.cpp src/engine_shadows.cpp src/engine_terrain.cpp
+    src/forever_look.cpp src/grading_renderer.cpp src/hooks.cpp src/image_quality.cpp src/image_renderer.cpp
+    src/msaa_depth.cpp src/overlay.cpp src/renderer.cpp src/settings_panel.cpp src/time_of_day.cpp
+    src/water_renderer.cpp)
 
-add_library(CoAGraphics SHARED $<TARGET_OBJECTS:coa_core> src/CoAGraphics.def)
+function(coa_object_library name)
+    add_library(${name} OBJECT ${ARGN})
+    add_dependencies(${name} vf_shaders)
+    target_include_directories(${name} PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
+    target_compile_definitions(${name} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(${name} PRIVATE /W4 /WX /permissive- /wd4100 /arch:SSE2 /fp:fast /GS)
+    target_compile_options(${name} PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_link_libraries(${name} PRIVATE imgui)
+endfunction()
+
+coa_object_library(coa_modules ${COA_MODULE_SOURCES})
+coa_object_library(coa_runtime ${COA_RUNTIME_SOURCES})
+set(COA_OBJECTS $<TARGET_OBJECTS:coa_modules> $<TARGET_OBJECTS:coa_runtime>)
+
+add_library(CoAGraphics SHARED ${COA_OBJECTS} src/CoAGraphics.def)
 target_link_libraries(CoAGraphics PRIVATE kernel32 user32 imgui)
 target_link_options(CoAGraphics PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
 
-add_library(CoAGraphicsTest SHARED $<TARGET_OBJECTS:coa_core> src/test_exports.cpp src/CoAGraphicsTest.def)
+add_library(CoAGraphicsTest SHARED ${COA_OBJECTS} src/test_exports.cpp src/CoAGraphicsTest.def)
 add_dependencies(CoAGraphicsTest vf_shaders)
 target_include_directories(CoAGraphicsTest PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
 target_compile_definitions(CoAGraphicsTest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
@@ -221,14 +197,7 @@ add_library(version SHARED proxy/version_proxy.cpp proxy/version.def)
 target_link_libraries(version PRIVATE CoAGraphics)
 target_compile_definitions(version PRIVATE WIN32_LEAN_AND_MEAN)
 
-add_executable(vfog_harness tests/harness.cpp src/client_code.cpp src/client_game_clock.cpp src/client_light_stay.cpp
-               src/client_ripple_sprites.cpp src/config.cpp src/engine_actors.cpp
-               src/engine_lights.cpp src/local_light_stabiliser.cpp src/spell_lights.cpp src/texture_tint.cpp
-               src/texture_filtering.cpp
-               src/fog_data.cpp src/fog_model.cpp src/gpu_timing.cpp src/log.cpp src/noise_volume.cpp
-               src/transparent_fog.cpp src/tree_wind.cpp src/grass_wind.cpp src/water_contacts.cpp
-               src/water_data.cpp src/water_spectrum.cpp
-               src/water_fft.cpp src/water_ripples.cpp src/status_log.cpp src/terrain_shadows.cpp)
+add_executable(vfog_harness tests/harness.cpp $<TARGET_OBJECTS:coa_modules>)
 target_include_directories(vfog_harness PRIVATE src ${SHADER_OUT})
 target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS
                            GRASS_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders")
