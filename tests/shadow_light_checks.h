@@ -10,6 +10,7 @@ constexpr float kClientToLight[3] = {0.405f, 0.405f, 0.820f};
 constexpr float kSkyToLight[3] = {0.703f, 0.703f, 0.110f};
 constexpr float kShortVector[3] = {0.0f, 0.0f, -0.9f};
 constexpr float kUpward[3] = {0.0f, 0.0f, 1.0f};
+constexpr float kUpwardVector[3] = {0.0f, 0.0f, -1.0f};
 
 bool NearVector(const float* a, const float* b)
 {
@@ -46,29 +47,48 @@ void CheckShadowDirection()
 void CheckSunShadowPlan()
 {
     const SunShadowPlan overhead = PlanSunShadows(kClientVector, kClientToLight);
-    Check(overhead.worldShadowMaps && NearVector(overhead.toLight, kClientToLight),
-          "a light along the client shadow light traces along it with the native shadow maps");
+    Check(overhead.mapWeight == 1.0f && NearVector(overhead.toLight, kClientToLight),
+          "a light along the client shadow light traces along it with the native shadow maps at full weight");
 
     const SunShadowPlan lowSun = PlanSunShadows(kClientVector, kSkyToLight);
-    Check(!lowSun.worldShadowMaps && NearVector(lowSun.toLight, kSkyToLight),
+    Check(lowSun.mapWeight == 0.0f && NearVector(lowSun.toLight, kSkyToLight),
           "a low sun far from the client shadow light is traced along the sun itself, without the native shadow maps");
 
     const float zeroVector[3] = {0.0f, 0.0f, 0.0f};
     const SunShadowPlan unset = PlanSunShadows(zeroVector, kSkyToLight);
-    Check(unset.worldShadowMaps && NearVector(unset.toLight, kSkyToLight),
+    Check(unset.mapWeight == 1.0f && NearVector(unset.toLight, kSkyToLight),
           "an unset client shadow light traces along the sky body with the maps, as before");
 }
 
-void CheckShaftsFollowLight()
+void CheckShadowMapWeightFades()
 {
-    Check(ShaftsFollowLight(kClientToLight, kClientToLight), "a light along the client shadow light keeps the shafts");
-    Check(!ShaftsFollowLight(kSkyToLight, kClientToLight),
-          "a low sun about 50 degrees from the client shadow light has no shafts");
-    const float nearLight[3] = {0.5f, 0.405f, 0.77f};
-    Check(ShaftsFollowLight(nearLight, kClientToLight), "a light a few degrees off keeps the shafts");
     const float twentyDegrees[3] = {0.3420f, 0.0f, 0.9397f};
     const float thirtyDegrees[3] = {0.5f, 0.0f, 0.8660f};
-    Check(ShaftsFollowLight(twentyDegrees, kUpward) && !ShaftsFollowLight(thirtyDegrees, kUpward),
-          "the shafts switch off between 20 and 30 degrees from the client shadow light");
+    const float fortyDegrees[3] = {0.6428f, 0.0f, 0.7660f};
+    const float within = ShadowMapWeight(twentyDegrees, kUpward);
+    const float middle = ShadowMapWeight(thirtyDegrees, kUpward);
+    const float beyond = ShadowMapWeight(fortyDegrees, kUpward);
+    Check(within == 1.0f && beyond == 0.0f && middle > 0.4f && middle < 0.6f,
+          "the native shadow maps keep full weight to 25 degrees from the client shadow light, half at 30 and none "
+          "from 35");
+    float previous = 1.0f;
+    bool falling = true;
+    for (int tenths = 250; tenths <= 350; ++tenths)
+    {
+        const float radians = static_cast<float>(tenths) * 0.1f * 3.14159265f / 180.0f;
+        const float light[3] = {std::sin(radians), 0.0f, std::cos(radians)};
+        const float weight = ShadowMapWeight(light, kUpward);
+        falling = falling && weight <= previous + 1e-6f;
+        previous = weight;
+    }
+    Check(falling, "the native shadow map weight falls steadily between 25 and 35 degrees, so the shafts fade rather "
+                   "than pop");
+    const float blended[3] = {0.5f, 0.0f, 0.8660f};
+    const SunShadowPlan plan = PlanSunShadows(kUpwardVector, blended);
+    float dot = 0.0f;
+    for (int axis = 0; axis < 3; ++axis)
+        dot += plan.toLight[axis] * blended[axis];
+    Check(plan.mapWeight > 0.0f && plan.mapWeight < 1.0f && dot > 0.9f && dot < 1.0f - 1e-4f,
+          "between 25 and 35 degrees the trace direction turns from the client shadow light toward the sun");
 }
 }

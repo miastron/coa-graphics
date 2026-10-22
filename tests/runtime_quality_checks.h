@@ -258,7 +258,7 @@ public:
 void CheckLowSunShaftsStillBlockedBehindCliff(Harness& h, const SunOcclusionView& v)
 {
     const ClientShadowVectorOverride client(kClientShadowStraightDown);
-    const bool offAxis = !ShaftsFollowLight(v.input.toLight, kUpwardLight);
+    const bool offAxis = ShadowMapWeight(v.input.toLight, kUpwardLight) == 0.0f;
     const float sunDegrees = std::acos(std::clamp(v.input.toLight[2], -1.0f, 1.0f)) * 180.0f / kPi;
     const ScreenOccluder cliff = {static_cast<float>(v.world.Height), kCliffDistance};
     bool rendered = true;

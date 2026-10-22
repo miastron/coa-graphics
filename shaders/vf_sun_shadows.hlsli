@@ -46,6 +46,16 @@ bool CharacterShadowMapPresent()
     return cSunShadow.w > 0;
 }
 
+float EnvironmentShadowWeight()
+{
+    return cSunShadow.z;
+}
+
+float CharacterShadowWeight()
+{
+    return cSunShadow.w;
+}
+
 float3 DirectionToShadowLightView()
 {
     return cSunShadowLight.xyz;
@@ -73,13 +83,13 @@ float WorldShadowVisibility(sampler2D shadowMap, float3 shadowPosition)
     return HardwareShadowComparison() ? stored : step(shadowPosition.z, stored);
 }
 
-void BlendWorldShadowMap(sampler2D shadowMap, int mapIndex, float3 viewPosition, inout float lit,
+void BlendWorldShadowMap(sampler2D shadowMap, int mapIndex, float3 viewPosition, float weight, inout float lit,
                          inout float uncovered)
 {
     [branch] if (uncovered <= 0)
         return;
     float3 shadowPosition = ShadowPosition(viewPosition, mapIndex);
-    float coverage = WorldShadowCoverage(shadowPosition);
+    float coverage = WorldShadowCoverage(shadowPosition) * weight;
     [branch] if (coverage <= 0)
         return;
     lit += uncovered * coverage * WorldShadowVisibility(shadowMap, shadowPosition);
@@ -132,9 +142,10 @@ float SunVisibility(float3 viewPosition, float sampleDistance, float jitter, flo
     float uncovered = 1;
     [branch] if (EnvironmentShadowMapsPresent())
     {
-        BlendWorldShadowMap(sNearShadow, kNearShadowMap, viewPosition, lit, uncovered);
-        BlendWorldShadowMap(sMiddleShadow, kMiddleShadowMap, viewPosition, lit, uncovered);
-        BlendWorldShadowMap(sFarShadow, kFarShadowMap, viewPosition, lit, uncovered);
+        float weight = EnvironmentShadowWeight();
+        BlendWorldShadowMap(sNearShadow, kNearShadowMap, viewPosition, weight, lit, uncovered);
+        BlendWorldShadowMap(sMiddleShadow, kMiddleShadowMap, viewPosition, weight, lit, uncovered);
+        BlendWorldShadowMap(sFarShadow, kFarShadowMap, viewPosition, weight, lit, uncovered);
     }
     [branch] if (uncovered > 0)
         lit += uncovered * ScreenSpaceSunVisibility(viewPosition, sampleDistance, jitter, surfaceMask);
@@ -142,7 +153,8 @@ float SunVisibility(float3 viewPosition, float sampleDistance, float jitter, flo
     {
         float characterLit = 0;
         float characterUncovered = 1;
-        BlendWorldShadowMap(sCharacterShadow, kCharacterShadowMap, viewPosition, characterLit, characterUncovered);
+        BlendWorldShadowMap(sCharacterShadow, kCharacterShadowMap, viewPosition, CharacterShadowWeight(), characterLit,
+                            characterUncovered);
         lit = min(lit, characterLit + characterUncovered);
     }
     return lit * terrainLit;

@@ -2244,7 +2244,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     transparent_fog_checks::CheckStockFogFit(classic);
     terrain_shadow_checks::CheckTerrainShadows();
     shadow_light_checks::CheckShadowDirection();
-    shadow_light_checks::CheckShaftsFollowLight();
+    shadow_light_checks::CheckShadowMapWeightFades();
     shadow_light_checks::CheckSunShadowPlan();
     resource_retry::CheckRetryGate();
 

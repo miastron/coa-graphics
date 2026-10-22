@@ -20,14 +20,19 @@ inline bool ShadowLightFromClientVector(const float* clientVector, float* toLigh
     return true;
 }
 
-constexpr float kShaftsOffBeyondDegrees = 25.0f;
+constexpr float kShadowMapsFullWithinDegrees = 25.0f;
+constexpr float kShadowMapsGoneBeyondDegrees = 35.0f;
 
-inline bool ShaftsFollowLight(const float* skyToLight, const float* shadowToLight)
+inline float ShadowMapWeight(const float* skyToLight, const float* shadowToLight)
 {
-    constexpr float kDegreesToRadians = 3.14159265f / 180.0f;
+    constexpr float kRadiansToDegrees = 180.0f / 3.14159265f;
     const float dot = skyToLight[0] * shadowToLight[0] + skyToLight[1] * shadowToLight[1] +
                       skyToLight[2] * shadowToLight[2];
-    return dot >= std::cos(kShaftsOffBeyondDegrees * kDegreesToRadians);
+    const float degrees = std::acos(std::clamp(dot, -1.0f, 1.0f)) * kRadiansToDegrees;
+    const float t = std::clamp((degrees - kShadowMapsFullWithinDegrees) /
+                                   (kShadowMapsGoneBeyondDegrees - kShadowMapsFullWithinDegrees),
+                               0.0f, 1.0f);
+    return 1.0f - t * t * (3.0f - 2.0f * t);
 }
 
 inline void ShadowDirection(const float* clientVector, const float* skyToLight, float* toLight)
@@ -39,15 +44,33 @@ inline void ShadowDirection(const float* clientVector, const float* skyToLight, 
 struct SunShadowPlan
 {
     float toLight[3];
-    bool worldShadowMaps;
+    float mapWeight;
 };
 
 inline SunShadowPlan PlanSunShadows(const float* clientVector, const float* skyToLight)
 {
     SunShadowPlan plan = {};
-    ShadowDirection(clientVector, skyToLight, plan.toLight);
-    plan.worldShadowMaps = ShaftsFollowLight(skyToLight, plan.toLight);
-    if (!plan.worldShadowMaps)
+    float clientToLight[3];
+    if (!ShadowLightFromClientVector(clientVector, clientToLight))
+    {
         std::copy_n(skyToLight, 3, plan.toLight);
+        plan.mapWeight = 1.0f;
+        return plan;
+    }
+    plan.mapWeight = ShadowMapWeight(skyToLight, clientToLight);
+    float length = 0.0f;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        plan.toLight[axis] = plan.mapWeight * clientToLight[axis] + (1.0f - plan.mapWeight) * skyToLight[axis];
+        length += plan.toLight[axis] * plan.toLight[axis];
+    }
+    if (!(length > 1e-6f))
+    {
+        std::copy_n(skyToLight, 3, plan.toLight);
+        return plan;
+    }
+    const float inverseLength = 1.0f / std::sqrt(length);
+    for (float& axis : plan.toLight)
+        axis *= inverseLength;
     return plan;
 }

@@ -161,14 +161,20 @@ maps appeared with the light `(0.405 0.405 0.820)` while the moon's `toLight` wa
 fog's glow and direct light still come from the sun or moon in the sky.
 
 That shared direction holds only while the sun or moon is within 25° of the client's shadow light (`PlanSunShadows`,
-`shadow_light.h`). Beyond it, as at a low sun, the native maps would be cast from the wrong place and are not used, and
-the trace and the terrain shadows are cast along the sun or moon itself. The depth of the image and the terrain heights
-still block the light then, so a wall or a rock between the camera and a low sun no longer lets the sun's glow shine
-through; trees, characters and casters outside the view cast no shaft shadow while the sun is that low. An earlier build
-switched the shafts off beyond 25° instead, which left the sun's in-scattered light unshadowed: on 2026-10-22 the owner
-saw the Stormwind sunset glow (sun about 10° up, the Classic layer 0 lobe of `g 0.94`) through a wall in that state. The
-harness check "with the client's shadow light more than 25 degrees from the sun" fails with the shafts off there (the fog
-keeps all its sunlight behind a cliff) and passes now (0.04 kept). It has not been seen in game.
+`shadow_light.h`). From 25° to 35° the native maps fade out: their weight (`cSunShadow.z` and `.w`, which the shader
+multiplies into each map's coverage) falls along a smoothstep from 1 to 0, and the trace and terrain direction turns
+from the client's shadow light to the sun or moon in step with it. Beyond 35°, as at a low sun, the maps are not used
+and the trace and the terrain shadows are cast along the sun or moon itself. The depth of the image and the terrain
+heights still block the light there, so a wall or a rock between the camera and a low sun does not let the sun's glow
+shine through. Trees, characters and casters outside the view cast no shaft shadow while the sun is that low, and a sun
+outside the view cannot be traced against what is on screen, so the shafts a map would draw fade out over those 10°
+rather than ending at once. The fade is checked by the harness (`CheckShadowMapWeightFades`), not seen in game.
+
+An earlier build switched the shafts off beyond 25° instead, which left the sun's in-scattered light unshadowed: on
+2026-10-22 the owner saw the Stormwind sunset glow (sun about 10° up, the Classic layer 0 lobe of `g 0.94`) through a
+wall in that state, and the shafts vanished within one tick of the time-of-day slider (17.88 to 17.80). The harness check
+"with the client's shadow light more than 25 degrees from the sun" fails with the shafts off there (the fog keeps all
+its sunlight behind a cliff) and passes now (0.04 kept).
 
 **Terrain shadows.** With `LightShafts=1` the terrain blocks the sun or moon from its heights, not from the image. So a hill
 or cliff outside the view or behind the camera still shades the fog. The renderer tracks the loaded terrain chunks (see
