@@ -76,6 +76,12 @@ float Distance(const float* a, const float* b, size_t count)
     return worst;
 }
 
+float RowLength(const float* placement, int row)
+{
+    const float* r = placement + row * 4;
+    return std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+}
+
 bool Swayed(TreeWind& wind, FakeModel& model, uint32_t tick = kFreshTick)
 {
     const float camera[3] = {kPlacedAt[0], kPlacedAt[1], kPlacedAt[2]};
@@ -107,9 +113,7 @@ void CheckStrengthAndPlacement()
     const float* p = tree.Placement();
     float axisLength = 0.0f;
     for (int row = 0; row < 3; ++row)
-        axisLength = std::max(axisLength, std::fabs(std::sqrt(p[row * 4] * p[row * 4] + p[row * 4 + 1] * p[row * 4 + 1] +
-                                                              p[row * 4 + 2] * p[row * 4 + 2]) -
-                                                    2.0f));
+        axisLength = std::max(axisLength, std::fabs(RowLength(p, row) - 2.0f));
     Check(swayed && wind.HasSwayed(), "a placed tree's matrix is tilted by the wind");
     Check(p[12] == kPlacedAt[0] && p[13] == kPlacedAt[1] && p[14] == kPlacedAt[2] && p[15] == 1.0f,
           "the tilt keeps the tree's translation");
@@ -172,12 +176,6 @@ void CheckBushes()
     wind.Configure(bushesOff);
     FakeModel again("Fern02.m2", engine::kMapDoodadModelFlag, 1.5f);
     Check(!Swayed(wind, again), "bushes stay still with bush wind switched off");
-}
-
-float RowLength(const float* placement, int row)
-{
-    const float* r = placement + row * 4;
-    return std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
 }
 
 void CheckReusedAddressReseeds(TreeWind& wind)
@@ -345,7 +343,8 @@ void CheckShippedSettings(const std::wstring& shippedIni)
               SameWave(shipped.treeWave, defaults.treeWave) && SameWave(shipped.bushWave, defaults.bushWave) &&
               shipped.treeDoodadsOnly == defaults.treeDoodadsOnly &&
               shipped.treeMatchNames == defaults.treeMatchNames &&
-              shipped.treeMatchTallThin == defaults.treeMatchTallThin && shipped.treeSkipDead == defaults.treeSkipDead &&
+              shipped.treeMatchTallThin == defaults.treeMatchTallThin &&
+              shipped.treeSkipDead == defaults.treeSkipDead &&
               shipped.treeMinHeight == defaults.treeMinHeight && shipped.treeMinAspect == defaults.treeMinAspect &&
               shipped.treeMaxHeight == defaults.treeMaxHeight &&
               shipped.treeMaxDistance == defaults.treeMaxDistance &&

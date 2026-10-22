@@ -176,7 +176,8 @@ void CheckWaterSettingsSave(const std::wstring& outDir, const std::wstring& ship
 void CheckWaterSettingClamps(const std::wstring& outDir, const std::wstring& shippedIni)
 {
     const std::wstring clampedIni = FullPath(outDir + L"\\water-clamped.ini");
-    Check(CopyFileW(shippedIni.c_str(), clampedIni.c_str(), FALSE) != FALSE, "shipped CoAGraphics.ini copied for clamps");
+    Check(CopyFileW(shippedIni.c_str(), clampedIni.c_str(), FALSE) != FALSE,
+          "shipped CoAGraphics.ini copied for clamps");
     const wchar_t* const outOfRange[][2] = {
         {L"Water", L"7"},           {L"WaterQuality", L"9"},     {L"WaterWaves", L"-3"},
         {L"WaterWind", L"100"},     {L"WaterFoam", L"5"},        {L"WaterReflections", L"-1"},
@@ -318,7 +319,8 @@ void CheckSettingChangesLogged(const std::wstring& outDir, const std::wstring& s
     store.Revert();
     const std::string text = logged();
     std::printf("%s", text.c_str());
-    Check(reloaded && runtime_cost::HasLine(text, "settings from CoAGraphics.ini: Density 1 -> 2.5, WaterFoam 1 -> 1.5"),
+    Check(reloaded &&
+              runtime_cost::HasLine(text, "settings from CoAGraphics.ini: Density 1 -> 2.5, WaterFoam 1 -> 1.5"),
           "an INI reload logs the changed keys with their old and new values");
     Check(quietWhileEditing && CountOf(text, "settings: WaterWind 2 -> 4") == 1 &&
               CountOf(text, "WaterWind 2 -> 3") == 0,
@@ -362,7 +364,8 @@ void CheckOverlayKeyReloadLogged(const std::wstring& outDir, const std::wstring&
     Check(changes == "Overlay 1 -> 0, OverlayKey Ctrl+F7 -> Ctrl+F8",
           "a settings change lists Overlay and OverlayKey, which an INI reload applies live");
     const std::wstring iniPath = FullPath(outDir + L"\\settings-overlay.ini");
-    Check(CopyFileW(shippedIni.c_str(), iniPath.c_str(), FALSE) != FALSE, "shipped CoAGraphics.ini copied for OverlayKey");
+    Check(CopyFileW(shippedIni.c_str(), iniPath.c_str(), FALSE) != FALSE,
+          "shipped CoAGraphics.ini copied for OverlayKey");
     ConfigStore store;
     store.Load(NarrowPath(iniPath));
     LogSetLevel(static_cast<int>(LogLevel::Info));

@@ -39,7 +39,8 @@ constexpr size_t kMaxShaderTokens = 4096;
 constexpr size_t kVersionedKeyShift = 32;
 constexpr const char* kShaderCompilerName = "d3dcompiler_47.dll";
 constexpr const char* kAnchorInstruction = "addr0,r0,c3";
-const char* const kGrassSignature[] = {"defc13,0,1,0,0", "dcl_normalv1", "dcl_colorv2", "dcl_texcoordv3", "addr0,r0,c3"};
+const char* const kGrassSignature[] = {"defc13,0,1,0,0", "dcl_normalv1", "dcl_colorv2", "dcl_texcoordv3",
+                                       "addr0,r0,c3"};
 
 constexpr size_t kStockVariants = 3;
 constexpr uint32_t kStockLengths20[kStockVariants] = {552, 644, 788};

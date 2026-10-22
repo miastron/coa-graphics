@@ -89,8 +89,8 @@ extern "C" __declspec(dllimport) const void* __cdecl vf_test_water_pass_thunk(ui
 extern "C" __declspec(dllimport) void __cdecl vf_test_water_pass_begin_reuses_argument_slot(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_particle_render_thunks(uintptr_t, uintptr_t, const void**,
                                                                             const void**);
-extern "C" __declspec(dllimport) void __cdecl vf_test_model_animate_thunks(uintptr_t, uintptr_t, const float*, const void**,
-                                                                          const void**);
+extern "C" __declspec(dllimport) void __cdecl vf_test_model_animate_thunks(uintptr_t, uintptr_t, const float*,
+                                                                          const void**, const void**);
 extern "C" __declspec(dllimport) const void* __cdecl vf_test_grass_constants_thunk(uintptr_t, float*, const float*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_enable_grass_shaders(int);
 extern "C" __declspec(dllimport) uint32_t __cdecl vf_test_publish_spell_lights(LocalPointLight*, uint32_t, float);
@@ -1597,6 +1597,31 @@ void CheckOverlayKeyNames()
           "overlay key names read back as written");
 }
 
+constexpr float kShippedFarClipMax = 1583.0f;
+
+void CheckShippedIniMatchesSettingsTable(const std::wstring& shippedIni)
+{
+    const std::string text = ReadText(shippedIni);
+    std::string missing;
+    for (const std::string& key : SettingKeys())
+        if (text.find("\n" + key + "=") == std::string::npos)
+            missing += (missing.empty() ? "" : ", ") + key;
+    if (!missing.empty())
+        std::printf("     keys missing from the shipped INI: %s\n", missing.c_str());
+    Check(missing.empty(), "every key of the settings table is written in the shipped INI");
+
+    ConfigStore store;
+    store.Load(NarrowPath(shippedIni));
+    Config expected;
+    expected.farClipMax = kShippedFarClipMax;
+    const std::string changes = SettingChanges(expected, store.Get());
+    if (!changes.empty())
+        std::printf("     shipped INI differs from the defaults: %s\n", changes.c_str());
+    Check(changes.empty(),
+          "the shipped INI parses to the Config defaults except the far clip it lifts, so a missing key and a shipped "
+          "key agree");
+}
+
 void CheckSettingsSaveKeepsTheIni(const std::wstring& outDir, const std::wstring& shippedIni)
 {
     const std::wstring savedIni = FullPath(outDir + L"\\saved.ini");
@@ -1642,7 +1667,8 @@ void CheckSettingsSaveKeepsTheIni(const std::wstring& outDir, const std::wstring
           "saved settings reload unchanged and the restart-only keys stay as they were");
     const std::string text = ReadText(savedIni);
     Check(text.find("; CoAGraphics settings.") != std::string::npos &&
-              text.find("\nDensity=2.5") != std::string::npos && text.find("\nHaze=1.0") != std::string::npos && text.find("\nEnable=1") != std::string::npos &&
+              text.find("\nDensity=2.5") != std::string::npos && text.find("\nHaze=1.0") != std::string::npos &&
+              text.find("\nEnable=1") != std::string::npos &&
               text.find("; Global density multiplier") != std::string::npos &&
               text.find("\nLightShafts=0") != std::string::npos && text.find("\nMaterialFog=0") != std::string::npos,
           "saving rewrites only the changed lines and keeps the comments and unknown keys");
@@ -2225,6 +2251,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     LogOpen(NarrowPath(g_harnessLog).c_str());
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     CheckOverlayKeyNames();
+    CheckShippedIniMatchesSettingsTable(FullPath(iniPath));
     CheckSettingsSaveKeepsTheIni(outDir, FullPath(iniPath));
     CheckFogDataBounds(outDir, dataPath);
     forever_look_checks::CheckForeverGlow();

@@ -1624,7 +1624,8 @@ void CheckFaultedFirstBeginReleasesItsResources(BasinClient& client, const Confi
     faulted.fault = kFaultInBegin;
     const WaterFrameResult result = client.Render(faulted);
     const unsigned held = vf_test_water_resources_held();
-    std::printf("     water resources held: 0x%X after the release, 0x%X after a faulted first Begin\n", released, held);
+    std::printf("     water resources held: 0x%X after the release, 0x%X after a faulted first Begin\n", released,
+                held);
     Check(released == 0 && !result.began && result.stateKept && held == 0,
           "an exception in the first water Begin after a release stops the water and releases what that Begin "
           "created at the frame end");

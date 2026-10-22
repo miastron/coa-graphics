@@ -457,6 +457,15 @@ bool SameLiveSettings(const Config& a, const Config& b)
            SameValues(kGrassWindBoolSettings, a, b);
 }
 
+std::vector<std::string> SettingKeys()
+{
+    std::vector<std::string> keys = {"Enable", "EngineHooks", "LightStay", "Overlay", "OverlayKey"};
+    ForEachIntSetting([&](const IntSetting& s) { keys.push_back(s.key); });
+    ForEachFloatSetting([&](const FloatSetting& s) { keys.push_back(s.key); });
+    ForEachBoolSetting([&](const BoolSetting& s) { keys.push_back(s.key); });
+    return keys;
+}
+
 std::string SettingChanges(const Config& before, const Config& after)
 {
     std::string changes;

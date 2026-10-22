@@ -43,7 +43,8 @@ void CheckElwynnNoonFogIsNotOrange()
     const FogParams fog = BuildFogParams(NoonFrame(kElwynnNoonFogColor, kElwynnNoonDirectLight), Config(), nullptr);
     for (const FogLayer* layer : {&fog.layers[0], &fog.layers[1], &fog.layers[kDistanceFogLayer]})
         Check(layer->diffuse[0] <= kMaxRedToBlueInElwynnScatter * layer->diffuse[2],
-              "the derived and distance fog's sun scatter at Elwynn's noon (blue fog, orange direct light) is not orange");
+              "the derived and distance fog's sun scatter at Elwynn's noon (blue fog, orange direct light) is not "
+              "orange");
 }
 
 void CheckSunScatterKeepsTheZonesFogHue()

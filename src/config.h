@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 constexpr float kEngineFarClipMin = 183.333f;
 constexpr float kEngineFarClipMax = 1583.33f;
@@ -156,6 +157,7 @@ struct Config
 bool SameFogSettings(const Config& a, const Config& b);
 bool SameLiveSettings(const Config& a, const Config& b);
 std::string SettingChanges(const Config& before, const Config& after);
+std::vector<std::string> SettingKeys();
 
 class ConfigStore
 {

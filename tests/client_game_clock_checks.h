@@ -36,7 +36,8 @@ void Put(unsigned char* clock, size_t offset, T value)
 
 float DayProgression(const unsigned char* clock, uint32_t nowMs)
 {
-    const uint32_t elapsed = Load<uint8_t>(clock, kGameClockRunning) ? nowMs - Load<uint32_t>(clock, kGameClockLastTickMs) : 0;
+    const uint32_t elapsed =
+        Load<uint8_t>(clock, kGameClockRunning) ? nowMs - Load<uint32_t>(clock, kGameClockLastTickMs) : 0;
     float minutes = elapsed * 0.001f * Load<float>(clock, kGameClockMinutesPerSecond) +
                     Load<float>(clock, kGameClockBaseMinuteOfDay);
     while (minutes > kMinutesPerDay)
