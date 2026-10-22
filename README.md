@@ -582,7 +582,7 @@ Gx is the graphics device `[0xC5DF88]`.
 | View, projection | Gx `+0x1B00 + 64·[+0x1AF8]`, `+0xF88`; copies at `0xADF5E8`, `0xADF628` |
 | World viewport depth range (MinZ, MaxZ) | Gx `+0xF80` |
 | Camera position / look-at target | `0xCD8F5C`, `0xCD8F68` |
-| Current map | `0xAB63BC` |
+| Current map (`DayNight::s_mapId`) | `0xD38AC4` |
 | Day fraction | `0xD38B04` |
 | Stock fog groups: colour, start, end (read by the render callbacks) | `0xD38B8C`–`0xD38B94`, `0xD38BA0`–`0xD38BA8` |
 | Zone fog distance (light float band 0) | `0xD38C1C` |
@@ -619,7 +619,9 @@ Engine notes behind the code:
 - Loader slot. On disk `[0xB2ED98]` holds the delay-load thunk `0x41C654`, which pushes the slot (`0x41C65F`)
   before resolving it; `0x41C673` jumps through it. The hooks install only while the slot still holds the thunk.
 - Matrices. `0x6821A4` reads the camera-relative view matrix at Gx `+0x1B00 + 64·[+0x1AF8]` and then the projection at
-  `+0xF88`. The engine builds its projection with `0x6BF370` (OpenGL depth range, w = view z); the D3D backend
+  `+0xF88`. Gx `+0x1AF8` is the level of the view `CGxMatrixStack` (`m_xforms[10]`, 0x118 bytes each from `+0x1008`),
+  which holds four matrices, so the level is read only below 4 (wowdecomp `CGxMatrixStack.h`). The engine builds its
+  projection with `0x6BF370` (OpenGL depth range, w = view z); the D3D backend
   converts it.
 - Depth. The world viewport's MaxZ is `[0xADEEE4]` = 0.94 (loaded at `0x4F9019`, passed to GxXformSetViewport
   at `0x4F905A`) and uploaded as `D3DVIEWPORT9::MaxZ` by the D3D9 backend (`0x6A9ACC`). The Gx viewport is
@@ -779,9 +781,14 @@ Engine notes behind the code:
   uses it instead (`0x7F346F`). `0x7ECEC0` stores it from the current `ScreenEffect` row (`+0x1C`, called at
   `0x4F712D`; values above 7 become −1) and `0x7ECEE0` clears it. In CoA's `ScreenEffect.dbc` the ghost effect
   (ID 1) and the other death-style effects use slot 4; a few event effects force slots 0, 1, 2, 3 or 5.
-- Current map. The world-transfer loading screen `0x40AD50` (`LoadingScreen.cpp`) stores its map argument in
-  `[0xAB63BC]` (`0x40AD56`, `A3 BC 63 AB 00`); `0x40AE0A` and `0x40AECF` set it to −1. In-game logs show map 0
-  in Elwynn Forest.
+- Current map. `DayNight::s_mapId` `[0xD38AC4]` is stored by `DayNight::LoadMap` `0x7F2790` (`A3 C4 8A D3 00` at
+  `0x7F27A1`, the argument of `CMap::LoadMap` `Map.cpp:3033`), the same map the light tables are loaded for, and
+  is not cleared on unload. `World::QueryMapId` `0x77F080` returns the map's own copy `[0xADFBC4]`
+  (`A1 C4 FB AD 00 C3`), which `Map.cpp:702` resets to −1 on unload. The earlier source `[0xAB63BC]` is the
+  loading screen's `s_simpleMapID`: the world-transfer loading screen `0x40AD50` stores its map argument there
+  (`0x40AD56`, `A3 BC 63 AB 00`) and `0x40AE0A` and `0x40AECF` set it to −1 for the ship and zeppelin screens, so
+  it is not the world's map. Bytes checked in the 12340 image (timestamp `0x4C2452FE`). In-game logs showed map 0
+  in Elwynn Forest with the old address; the value after a zeppelin ride is not yet confirmed in game.
 - Far clip. The clamp `0x780770` is cdecl `float(float farclip, int mapId)`, result in ST0, caller pops; it
   bounds the value to `[0xA3E708]` (183.33) .. `[0xA3E710]` (1583.33). Its calls at `0x780810` (in the
   `farclip` CVar setter `0x780800`, also reached from Extensions.dll on zone changes) and `0x781444` (map load
@@ -866,7 +873,8 @@ Engine notes behind the code:
   matches a texture the client created through the wrapper.
 - Interiors. `0x795D40` stores the camera's WMO instance at `[0xCD87A4]`, its active group IDs at `[0xCDB0DC]`
   and their count at `[0xCDB0D8]`. The instance's root is at `+0xF4`; the root's loaded flag is `+0x1E0`, its
-  group count `+0x1F4` (set at `0x7D7F18`, bounded at `0x7AE467`) and inline group pointers start at `+0x1F8`;
+  group count `+0x1F4` (set at `0x7D7F18`, bounded at `0x7AE467`) and inline group pointers start at `+0x1F8`
+  (`m_mapObjGroupArray[512]`, so the group count is accepted up to 512);
   group `+0x198` bit 0 means loaded (`0x7AEA80`). The client's camera-fog query at `0x7A11C7` accepts an interior
   group when its `+0x30` flags have neither bit in `0x48` set. Day/night fog update `0x7F17B5` writes the
   transition weight to `[0xD38B9C]` at `0x7F1931` and from `0x7F1955` blends the outdoor fog toward the WMO fog,
@@ -1058,6 +1066,12 @@ This lets the native `version.dll` proxy load CoAGraphics before Proton's builti
 A Steam Deck test on 8 October 2026 (Proton with DXVK, AMD VanGogh, 1280x800) loaded the DLL and installed all hooks.
 DXVK copied the multisampled depth through `RESZ` into `INTZ`, passing the depth-copy self-test, so the default
 `Multisampling=1` worked on this device.
+
+DXVK answers the `RESZ` format query and honours the `RESZ` trigger write only when its reported vendor ID is AMD
+(`d3d9_adapter.cpp` `CheckDeviceFormat`, `d3d9_device.cpp` `SetRenderState`). On NVIDIA or Intel under DXVK the depth
+copy therefore finds no method (NVAPI cannot reach DXVK's device) and multisampling is hidden; the log line names the
+reason. Setting `d3d9.customVendorId = 1002` in `dxvk.conf` makes DXVK report AMD and enables its `RESZ` path, and its
+other AMD workarounds with it. This has not been tested in game.
 
 With `Quality=2` and the game's Multisampling set to 2x, the tested scene held 60 fps at 69% GPU utilisation, 914 MHz and
 2.8 W. At 8x, median GPU costs were 6.47 ms per frame for fog and 2.81 ms for water; GPU utilisation was 97% at 1,600 MHz

@@ -32,7 +32,7 @@ constexpr uintptr_t kCameraInteriorFogBlend = 0x00D38B9C;
 constexpr LightCaptureSources kClientLightSources = {
     engine::kWorldM2Scene, {kCameraWmoInstance, kCameraWmoGroupCount, kCameraWmoGroupIds, kCameraInteriorFogBlend}};
 constexpr uint32_t kMaxCameraWmoGroups = 64;
-constexpr uint32_t kMaxWmoGroups = 4096;
+constexpr uint32_t kMaxWmoGroups = 512;
 
 struct NativePointLight
 {

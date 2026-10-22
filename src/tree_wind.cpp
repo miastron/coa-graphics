@@ -362,6 +362,7 @@ bool TreeWind::BasePlacement(const void* instance, uintptr_t model, const float*
         e.model = model;
         e.stamp = now;
         std::memcpy(e.base, current, sizeof(e.base));
+        std::memcpy(e.translation, current + kTranslationX, sizeof(e.translation));
         std::memcpy(out, e.base, sizeof(out));
     };
     for (size_t probe = 0; probe < kProbeLimit; ++probe)
@@ -370,7 +371,7 @@ bool TreeWind::BasePlacement(const void* instance, uintptr_t model, const float*
         BaseEntry& e = m_cache[index];
         if (e.instance == instance)
         {
-            if (e.model != model)
+            if (e.model != model || std::memcmp(e.translation, current + kTranslationX, sizeof(e.translation)) != 0)
                 seed(e);
             e.stamp = now;
             std::memcpy(out, e.base, sizeof(out));

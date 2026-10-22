@@ -174,6 +174,30 @@ void CheckBushes()
     Check(!Swayed(wind, again), "bushes stay still with bush wind switched off");
 }
 
+float RowLength(const float* placement, int row)
+{
+    const float* r = placement + row * 4;
+    return std::sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+}
+
+void CheckReusedAddressReseeds(TreeWind& wind)
+{
+    constexpr float kReplacementScale = 2.0f;
+    constexpr float kReplacementShift = 90.0f;
+    FakeModel tree("PineTree03.m2", engine::kMapDoodadModelFlag, kTreeHeight);
+    const float camera[3] = {kPlacedAt[0], kPlacedAt[1], kPlacedAt[2]};
+    wind.Sway(tree.instance.data(), camera, kFreshTick);
+
+    float* p = tree.Placement();
+    std::memset(p, 0, engine::kPlacementFloats * sizeof(float));
+    p[0] = p[5] = p[10] = kReplacementScale;
+    p[12] = kPlacedAt[0] + kReplacementShift;
+    wind.Sway(tree.instance.data(), camera, kFreshTick);
+    Check(std::fabs(RowLength(p, 0) - kReplacementScale) < kTolerance * 10.0f,
+          "a tree placed at a reused instance address with the same model is swayed from its own placement");
+    wind.Clear();
+}
+
 void CheckPlacementCache()
 {
     TreeWind wind;
@@ -190,6 +214,8 @@ void CheckPlacementCache()
     Check(wind.CachedInstances() == 1, "one tree takes one cache entry");
     wind.Clear();
     Check(wind.CachedInstances() == 0, "the cache is cleared on a world change");
+
+    CheckReusedAddressReseeds(wind);
 
     unsigned char* region = static_cast<unsigned char*>(
         VirtualAlloc(nullptr, kCollidingStride * kCollidingInstances, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));

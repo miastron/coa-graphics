@@ -68,6 +68,7 @@ constexpr uintptr_t kSharedFileStem = 0x140;
 constexpr uintptr_t kSharedData = 0x150;
 constexpr uintptr_t kSharedBounds = 0x154;
 constexpr size_t kPlacementFloats = 12;
+constexpr size_t kPlacementTranslationFloats = 3;
 
 const ClientCodeGuard* TreeWindGuards(size_t& count);
 bool TreeWindCodeMatches(const ClientCodeView& code);
@@ -89,6 +90,7 @@ private:
         uintptr_t model = 0;
         uint32_t stamp = 0;
         float base[engine::kPlacementFloats] = {};
+        float translation[engine::kPlacementTranslationFloats] = {};
     };
 
     bool BasePlacement(const void* instance, uintptr_t model, const float* current, uint32_t now,

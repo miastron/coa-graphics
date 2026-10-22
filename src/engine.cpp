@@ -25,7 +25,7 @@ constexpr uintptr_t kGxViewportDepthRange = 0xF80;
 constexpr uintptr_t kGxViewIndex = 0x1AF8;
 constexpr uintptr_t kGxViewBase = 0x1B00;
 constexpr uintptr_t kGxViewStride = 64;
-constexpr uint32_t kGxViewStackDepth = 64;
+constexpr uint32_t kGxViewStackDepth = 4;
 constexpr float kMinWorldDepthRangeSpan = 0.01f;
 
 constexpr uintptr_t kFfxCVar = 0x00D45774;
@@ -51,7 +51,7 @@ constexpr uintptr_t kProjectionGlobal = 0x00ADF628;
 constexpr uintptr_t kCameraPosition = 0x00CD8F5C;
 constexpr uintptr_t kCameraTarget = 0x00CD8F68;
 constexpr uintptr_t kCameraInLiquid = 0x00CD8794;
-constexpr uintptr_t kCurrentMap = 0x00AB63BC;
+constexpr uintptr_t kCurrentMap = 0x00D38AC4;
 constexpr uintptr_t kWorldFrame = 0x00B7436C;
 constexpr uintptr_t kWorldFrameFarClip = 0xB14;
 
