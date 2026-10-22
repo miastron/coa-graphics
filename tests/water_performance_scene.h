@@ -53,6 +53,13 @@ constexpr WaterCase kCases[] = {
     {"quality1-waves0-reflections0", QualityOneFlatNoReflections},
 };
 
+bool SummaryDueAfter(int frame)
+{
+    return frame == kWarmupFrames - 1 || frame == kWarmupFrames + kMeasuredFrames - 1;
+}
+
+constexpr int kFramesPerCase = kWarmupFrames + kMeasuredFrames + 1;
+
 double LastWaterGpuMs(const std::string& log)
 {
     const size_t at = log.rfind(kGpuMarker);
@@ -67,16 +74,56 @@ bool MeasureCase(water_checks::BasinClient& client, const Config& base, const Wa
     vf_test_set_config(&cfg);
     const size_t logStart = ReadText(runtime_cost::FogLogBesideTheFogDll()).size();
     bool shaded = true;
-    for (int frame = 0; frame < kWarmupFrames + kMeasuredFrames; ++frame)
+    for (int frame = 0; frame < kFramesPerCase; ++frame)
     {
         vf_test_set_water_seconds(kStartSeconds + frame * kClockStepSeconds);
         shaded = client.Render({}).shaded && shaded;
-        if (frame == kWarmupFrames - 1)
+        if (SummaryDueAfter(frame))
             vf_test_force_water_summary();
     }
-    vf_test_force_water_summary();
     const std::string log = runtime_cost::LogWrittenSince(logStart);
     std::printf("%s,%.3f\n", item.name, LastWaterGpuMs(log));
+    return shaded;
+}
+
+struct RippleCase
+{
+    const char* name;
+    const wchar_t* shot;
+    float ripples;
+    double startSeconds;
+};
+
+constexpr RippleCase kRippleCases[] = {
+    {"ripples0-wader-shin", L"wader-shin", 0.0f, ripple_scene::kStandSeconds},
+    {"ripples-wader-shin-running", L"wader-shin", 0.5f, ripple_scene::kStandSeconds},
+    {"ripples-wader-shin-standing", L"wader-shin", 0.5f, 0.0},
+    {"ripples-npc-run-two-units", L"npc-run", 0.5f, 0.0},
+};
+
+bool MeasureRippleCase(water_checks::BasinClient& client, const Config& base, const RippleCase& item)
+{
+    const std::vector<ripple_scene::Shot> shots = ripple_scene::Shots();
+    const ripple_scene::Shot* shot = nullptr;
+    for (const ripple_scene::Shot& candidate : shots)
+        if (std::wcscmp(candidate.name, item.shot) == 0)
+            shot = &candidate;
+    if (!shot)
+        return false;
+    Config cfg = ripple_scene::WakeConfig(base);
+    cfg.logLevel = kShippedLogLevel;
+    cfg.waterRipples = item.ripples;
+    vf_test_set_config(&cfg);
+    const size_t logStart = ReadText(runtime_cost::FogLogBesideTheFogDll()).size();
+    bool shaded = true;
+    for (int frame = 0; frame < kFramesPerCase; ++frame)
+    {
+        const double seconds = item.startSeconds + frame * kClockStepSeconds;
+        shaded = ripple_scene::RenderShotFrame(client, *shot, seconds, true).began && shaded;
+        if (SummaryDueAfter(frame))
+            vf_test_force_water_summary();
+    }
+    std::printf("%s,%.3f\n", item.name, LastWaterGpuMs(runtime_cost::LogWrittenSince(logStart)));
     return shaded;
 }
 
@@ -102,6 +149,8 @@ int RunWaterPerformance(const std::string& waterDataPath)
         std::printf("case,median_ms\n");
         for (const WaterCase& item : kCases)
             ok = MeasureCase(client, startup, item) && ok;
+        for (const RippleCase& item : kRippleCases)
+            ok = MeasureRippleCase(client, startup, item) && ok;
         vf_test_set_water_seconds(water_checks::kRealTime);
     }
     h.ReleaseEngineObjects();
