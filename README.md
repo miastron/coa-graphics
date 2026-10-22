@@ -1100,6 +1100,10 @@ this test.
 
 ## Log
 
+When the fog shaders are created the log says how long it took, for example `fog shaders: 42 pixel shaders created in
+18.2 ms` (native Direct3D 9 on the Radeon 780M; the figure under DXVK, which translates each shader at that call, has not
+been measured).
+
 At `LogLevel=1` the log holds a frame summary on the first frame, whenever the viewport or far clip changes, and every 60 s
 (`LogLevel=2` adds one every 600 frames). Its first line ends with the median GPU time of the fog passes since the
 previous summary, for example

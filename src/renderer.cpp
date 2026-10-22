@@ -683,6 +683,8 @@ bool Renderer::EnsureShaders(IDirect3DDevice9* dev)
         {"ps_surface_lights", g_ps_surface_lights, &m_surfaceLights},
     };
     const char* failedName = "vs_fullscreen";
+    LARGE_INTEGER creationStart;
+    QueryPerformanceCounter(&creationStart);
     HRESULT result = AttemptCreation(kFogShaders)
                          ? dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs)
                          : D3DERR_OUTOFVIDEOMEMORY;
@@ -713,6 +715,13 @@ bool Renderer::EnsureShaders(IDirect3DDevice9* dev)
             m_shaderRetry.Failed();
         return Skip(unsupported ? "required shader unsupported" : "shader creation failed");
     }
+    LARGE_INTEGER creationEnd;
+    LARGE_INTEGER frequency;
+    QueryPerformanceCounter(&creationEnd);
+    QueryPerformanceFrequency(&frequency);
+    VF_LOG_INFO("fog shaders: %zu pixel shaders created in %.1f ms", std::size(pixels),
+                1000.0 * static_cast<double>(creationEnd.QuadPart - creationStart.QuadPart) /
+                    static_cast<double>(frequency.QuadPart));
     LogShaderCaps(dev, LogLevel::Info);
     return true;
 }
