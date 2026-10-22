@@ -280,4 +280,7 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME format
         COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_format.py
                 --root ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME evidence
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_evidence.py
+                --root ${CMAKE_CURRENT_SOURCE_DIR})
 endif()

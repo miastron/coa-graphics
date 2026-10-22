@@ -672,9 +672,10 @@ Engine notes behind the code:
   character extent is 20 yd (`0x875E6E`); environment extents are 40, 160 and 640 yd (`0xB1D520`). Caster gathering
   traverses map chunks and tests their shadow frusta (`0x7BC490`, `0x7BCC00`, `0x7BC890`, `0x7BCF20`), so visibility
   includes geometry outside the camera image, within the client's loaded and culled shadow scene.
-  `0x8750B0` constructs four view-space-to-shadow transforms, packs three float4 rows each at `0xD43348`, and uploads
-  all twelve rows at `0x87450A`. It inverts the current Gx view (`0x7BAE25`), builds the light view, and applies a Y
-  flip and a depth scale of 1/4000 (`0x875197`, `0x7BC105`). Both final XY axes map to UV with `0.5*x + 0.5`; Z is
+  `0x8750B0` constructs four view-space-to-shadow transforms, packs three float4 rows each at `0xD43348` (the first
+  store is `D9 1D 48 33 D4 00` at `0x87526B`), and uploads all twelve rows at `0x87450A`. It inverts the current Gx view (`0x7BAE25`), builds the light view, and applies a Y
+  flip and a depth scale of 1/4000 (`0x875197`, `0x7BC105`), which the client keeps in `CShadowCache::s_shadowScale`
+  `[0xD431C8]` (`D9 05 C8 31 D4 00` at `0x8751A3`) and the hook checks before it reads the maps. Both final XY axes map to UV with `0.5*x + 0.5`; Z is
   normalized linear light-view depth. The constant receiver biases are 0.4 yd for the character and first environment
   map, 0.8 yd for the second and 1.6 yd for the third (`0x7BAF4E`–`0x7BAFBE`), with no surface-normal dependence.
   The native direction comes from `[[0xCE04A8] + 0x7C]`, has its Z multiplied by five and capped at -1.2, and is
@@ -734,7 +735,7 @@ Engine notes behind the code:
   `0x821A20` puts see-through batches (blend mode above 1 or alpha below 0.99999, `0x821F47`) in pass 1 on the
   camera's side of the model's liquid plane and in pass 2 beyond it. The liquid pass sets the Gx fog, draws the water
   (`0x790AA2`) and tail-jumps to the ripples `0x79D5E0`.
-- M2 batch fog. `0x81FB10` picks the fog colour by blend mode through `0xA45390` = {1, 1, 1, 2, 2, 3, 4, 0}
+- M2 batch fog. `0x81FB10` picks the fog colour by blend mode through `0xA45390` = {1, 1, 1, 2, 2, 3, 4, 0} (eight dwords; the second half starts at `0xA453A0`)
   (`0x81FB7B 8B 04 8D 90 53 A4 00`) and the jump table `0x81FE7C` (`0x81FBA3 FF 24 85 7C FE 81 00` → `0x81FBAA`,
   `0x81FCAE`, `0x81FCC2`, `0x81FCD8`): mode 1 is the lighting fog colour with alpha 0xFF (`0x81FC5D C6 45 FB FF`),
   modes 2, 3 and 4 black, white and grey 0x80 with alpha 0 (`0x81FB20 33 DB`; `88 5D FB` at `0x81FCB7`, `0x81FCCD`
