@@ -65,6 +65,10 @@ after it say how each works and what is checked.
 - **Distance fog** replacing the stock linear fog on maps without Classic data. It turns opaque where the stock fog did,
   is lit by the direct light (warm at sunset), and fades into a horizon band on the sky. With Classic layers it returns
   only across the edge of Classic coverage, and where those layers are too thin to hide the far clip.
+- **Sun scatter colour of the derived layers and the distance fog**: the zone's fog colour at the direct light's
+  brightness, with a quarter of the direct light's own colour mixed in. A frame logged in Elwynn at noon (fog
+  `FF4C788E`, direct light `FFFE8E40`, day 0.4921, map 0 without Classic data) scattered the raw direct colour, 1.61 0.45
+  0.08 after the gamma decode, and turned the far fog salmon under a blue sky.
 - **Forward scattering** (glow brighter toward the light) around the visible sun or moon sprite, using the
   Henyey–Greenstein phase function.
 - **Light shafts**: terrain, buildings, trees and characters block the sun or moon in the fog, so the halo shines only
@@ -900,6 +904,18 @@ Engine notes behind the code:
   doodads, passes 0 with `GxTex_LinearMipLinear`, so those stay trilinear at any Texture Filtering setting. The
   override needs no client address: it acts on the `SetTexture` and `SetSamplerState` calls the game makes through
   the wrapper, and the client never reads a sampler state back or records a state block (`CGxDeviceD3d`).
+- Game clock. Read from the `Wow-Base-RDP.exe` image (timestamp `0x4C2452FE`) and the wowdecomp reconstruction. The
+  day fraction `0xD38B04` is `DayNight::g_dnInfo.m_dayProgression`; the world frame rewrites it every frame from
+  `CGameTime::GameTimeGetDayProgression` (`0x76CFF0`) on `g_clientGameTime` (`0xD37F98`), whose `UpdateTime` (`0x7E2730`)
+  loads it at `0x7E273F` (`B9 98 7F D3 00`). The progression is `(now - [clock+0x3C]) * 0.001 * [clock+0x30] +
+  [clock+0x44]`, with the elapsed time 0 while `[clock+0x40]` is 0 (`0x76CFF7 80 7E 40 00`, `0x76D007 2B 46 3C`,
+  `0x76D024 D8 4E 30 D8 46 44`). `CGameTime::GameTimeSetTime` (`0x76D810`, `55 8B EC 83 EC 20 8B 45 08 53 56 8B D9 83 7B
+  24`; `this` in ecx, the time and a tick flag on the stack, `0x76D8FA C2 08 00`) stores the hour at `+4` and the minute
+  at `+0`, steps one minute back and ticks, which sets the tick time, the running flag and the base minute. Pinning the
+  clock writes the minute, hour, fractional minutes (`+0x34`), running flag and base minute each `Present`; resuming
+  calls `GameTimeSetTime` once with the pinned time. The server's `SMSG_GAME_TIME_UPDATE` ticks the clock through
+  `GameTimeSync`, so the pin is rewritten every frame. Maps with a time of day override and ghosts in the spirit realm
+  ignore the clock (`CGWorldFrame` at `WorldFrame.cpp:1579-1600`).
 - Not used. `0xD38B98` is fog group 0's exponent, which Extensions.dll overrides (group 0's end is `0xD38B94`), and
   `0xD38C9C` is a near-constant model lighting direction, not the visible sun, so the fog's light direction
   follows the sprite positions.
@@ -914,6 +930,9 @@ default, hold Fn (the log names the key that arrived). The window edits every se
 - **Save** writes the settings changed in the window back to `CoAGraphics.ini`, keeping the comments and every other line.
   Settings not changed in the window keep what the file holds.
 - **Revert** reloads the file. A hand edit of the file also replaces unsaved changes.
+- **Time of day** freezes the game clock at an hour, or drags it to move the sun, moon, sky and light. It is not saved
+  and is off after a restart; the server's own time updates cannot move it while frozen. Maps with a fixed time of
+  day ignore it.
 - The window shows whether the fog drew in the last frame, or why it did not, and whether the game's multisampling is
   kept, or why it is off (`Multisampling` applies later, see Settings). It can be moved and resized, and keeps its place
   and size for the session.

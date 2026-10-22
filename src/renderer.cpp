@@ -1658,7 +1658,8 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     dev->SetPixelShaderConstantF(11, &march.x, 1);
     static_assert(sizeof(FogLayer) == 6 * sizeof(Float4), "FogLayer is six shader registers");
     dev->SetPixelShaderConstantF(12, &fog.layers[0].start, 6 * kFogLayers);
-    const Float4 sunShadow = {cfg.lightShafts ? 1.0f : 0.0f, shadows.hardwareComparison ? 1.0f : 0.0f,
+    const bool shaftsFollowLight = ShaftsFollowLight(in.toLight, shadowToLight);
+    const Float4 sunShadow = {cfg.lightShafts && shaftsFollowLight ? 1.0f : 0.0f, shadows.hardwareComparison ? 1.0f : 0.0f,
                               shadows.count > 1 ? 1.0f : 0.0f, shadows.count > 0 ? 1.0f : 0.0f};
     BindSunShadows(dev, in, shadows, shadowToLight, &sunShadow.x);
     BindTerrainShadows(dev, terrainShadows);

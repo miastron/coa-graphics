@@ -1,6 +1,7 @@
 #include "settings_panel.h"
 
 #include "imgui.h"
+#include "time_of_day.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,7 @@ constexpr float kPanelMarginInLines = 2.0f;
 constexpr float kLabelWidthInLines = 11.0f;
 constexpr float kLabelShareOfWidth = 0.45f;
 constexpr float kFirstFooterLines = 4.0f;
+constexpr float kHoursPerDay = 24.0f;
 constexpr float kNoTextWrap = -1.0f;
 constexpr size_t kStatusTextSize = 512;
 const ImVec4 kDrawnColour = {0.45f, 0.85f, 0.45f, 1.0f};
@@ -485,6 +487,32 @@ bool DrawGrassWind(Config& c)
     return changed;
 }
 
+void DrawTimeOfDay()
+{
+    const Section section("Time of day");
+    if (!section)
+        return;
+    const TimeOfDayStatus status = CurrentTimeOfDay();
+    if (!status.available)
+    {
+        ImGui::TextDisabled("Needs the 12340 client with its stock game clock");
+        return;
+    }
+    bool frozen = status.frozen;
+    if (Toggle("Freeze time", frozen,
+               "Hold the game clock at this hour, whatever the server sends. Not saved; off again after a restart"))
+    {
+        if (frozen)
+            FreezeTimeOfDay(status.hours);
+        else
+            ResumeTimeOfDay();
+    }
+    float hours = status.hours;
+    if (Slider("Hour", hours, 0.0f, kHoursPerDay, "%.2f",
+               "Move the sun and moon, the sky and the light; dragging it freezes the clock"))
+        FreezeTimeOfDay(hours);
+}
+
 bool DrawDebug(Config& c)
 {
     const Section section("Debug");
@@ -532,6 +560,7 @@ bool SettingsPanel::DrawSettings(Config& edited, const FogFrameStatus& fogStatus
     bool changed = DrawQuality(edited);
     changed |= DrawDensity(edited);
     changed |= DrawLight(edited);
+    DrawTimeOfDay();
     changed |= DrawGlowAndGrading(edited);
     changed |= DrawWorld(edited);
     changed |= DrawAntialiasing(edited);

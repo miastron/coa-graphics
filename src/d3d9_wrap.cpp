@@ -8,6 +8,7 @@
 #include "renderer.h"
 #include "texture_filtering.h"
 #include "texture_tint.h"
+#include "time_of_day.h"
 #include "water_renderer.h"
 
 #include <cstdio>
@@ -214,6 +215,7 @@ public:
     HRESULT ResetDevice(D3DPRESENT_PARAMETERS* pp);
     HRESULT STDMETHODCALLTYPE Present(const RECT* src, const RECT* dst, HWND wnd, const RGNDATA* dirty) override
     {
+        HoldTimeOfDay();
         DrawOverlay(m_real);
         return m_real->Present(src, dst, wnd, dirty);
     }

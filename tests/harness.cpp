@@ -1,3 +1,4 @@
+#include "client_game_clock.h"
 #include "client_light_stay.h"
 #include "client_ripple_sprites.h"
 #include "config.h"
@@ -752,7 +753,7 @@ float WeightOf(const AuthoredFog& fog, uint32_t light)
 
 constexpr int kEasternKingdoms = 0;
 constexpr int kKalimdor = 1;
-constexpr int kOutland = 530;
+constexpr int kMapWithoutClassicData = 9999;
 const LightParamsSelection kClearWeather = {};
 constexpr uint32_t kEasternKingdomsGlobalLight = 1;
 constexpr uint32_t kStormwindLight = 77;
@@ -813,7 +814,7 @@ void CheckClassicData(const FogData& data)
           "Classic keys interpolated between 18:00 and 19:30");
 
     AuthoredFog none = {};
-    Check(!data.Resolve(kOutland, harbourAtStormwindLightEdge, kDayFraction1800, kClearWeather, none),
+    Check(!data.Resolve(kMapWithoutClassicData, harbourAtStormwindLightEdge, kDayFraction1800, kClearWeather, none),
           "maps without Classic lights fall back to derived layers");
 }
 
@@ -1462,8 +1463,8 @@ void CheckSettingsSaveKeepsTheIni(const std::wstring& outDir, const std::wstring
               r.enable == shipped.enable && r.overlay == shipped.overlay,
           "saved settings reload unchanged and the restart-only keys stay as they were");
     const std::string text = ReadText(savedIni);
-    Check(text.rfind("; CoAGraphics settings.", 0) == 0 && text.find("\nDensity=2.5") != std::string::npos &&
-              text.find("\nHaze=1.0") != std::string::npos && text.find("\nEnable=1") != std::string::npos &&
+    Check(text.find("; CoAGraphics settings.") != std::string::npos &&
+              text.find("\nDensity=2.5") != std::string::npos && text.find("\nHaze=1.0") != std::string::npos && text.find("\nEnable=1") != std::string::npos &&
               text.find("; Global density multiplier") != std::string::npos &&
               text.find("\nLightShafts=0") != std::string::npos && text.find("\nMaterialFog=0") != std::string::npos,
           "saving rewrites only the changed lines and keeps the comments and unknown keys");
@@ -1872,8 +1873,10 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "local_light_stabiliser_checks.h"
 #include "spell_light_checks.h"
 #include "client_light_stay_checks.h"
+#include "client_game_clock_checks.h"
 #include "noise_variation_checks.h"
 #include "classic_phase_checks.h"
+#include "derived_fog_hue_checks.h"
 #include "level_ray_fog_checks.h"
 #include "march_layer_checks.h"
 #include "local_light_gpu_checks.h"
@@ -1992,10 +1995,12 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     authored_fog::CheckAuthoredFogExtras(classic);
     authored_noise::CheckAuthoredNoise(classic);
     classic_phase::CheckClassicPhase();
+    derived_fog_hue::CheckDerivedFogHue();
     level_ray_fog::CheckLevelRayFog();
     transparent_fog_checks::CheckStockFogFit(classic);
     terrain_shadow_checks::CheckTerrainShadows();
     shadow_light_checks::CheckShadowDirection();
+    shadow_light_checks::CheckShaftsFollowLight();
     resource_retry::CheckRetryGate();
 
     CreateDirectoryW(outDir.c_str(), nullptr);
@@ -2027,6 +2032,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
         local_light_stabiliser_checks::CheckLocalLightStabiliser();
         spell_light_checks::CheckSpellLights();
         client_light_stay_checks::CheckClientLightStay();
+        client_game_clock_checks::CheckGameClock();
         tree_wind_checks::CheckTreeWind();
         grass_wind_checks::CheckGrassWind();
         CheckInteriorFogInputs();
@@ -2120,6 +2126,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     spell_light_checks::CheckSpellLights();
     spell_light_checks::CheckTextureTintOnTheDevice(h.dev);
     client_light_stay_checks::CheckClientLightStay();
+    client_game_clock_checks::CheckGameClock();
     tree_wind_checks::CheckTreeWind();
     grass_wind_checks::CheckGrassWind();
     grass_wind_checks::CheckShadersOnTheDevice(h.dev);

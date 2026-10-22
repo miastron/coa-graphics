@@ -114,9 +114,9 @@ bool IsIdentityCurve(const float* curve)
 void CheckGlowWithoutClassicFog(const FogData& data)
 {
     AuthoredFog lair = {};
-    AuthoredFog outland = {};
+    AuthoredFog bare = {};
     const bool lairFog = data.Resolve(kBlackwingLair, kInsideBlackwingLair, kNoon, kClearWeather, lair);
-    const bool outlandFog = data.Resolve(kOutland, kInsideBlackwingLair, kNoon, kClearWeather, outland);
+    const bool bareFog = data.Resolve(kMapWithoutClassicData, kInsideBlackwingLair, kNoon, kClearWeather, bare);
     std::printf("     Blackwing Lair: Classic fog %d, lights %d (first %u), coverage %.2f, glow %.2f (%s), "
                 "grading %s\n",
                 lairFog, lair.lightCount, lair.lightCount > 0 ? lair.lightIds[0] : 0u, lair.coverage, lair.glow,
@@ -126,8 +126,8 @@ void CheckGlowWithoutClassicFog(const FogData& data)
               IsIdentityCurve(lair.gradingCurve) && !lair.hasGradingCurve,
           "a map without Classic fog keeps the derived fog but still resolves its Classic lights' glow and grading, "
           "here a light without a grading key, so no grading curve");
-    Check(!outlandFog && outland.lightCount == 0 && !outland.hasGlow && IsIdentityCurve(outland.gradingCurve) &&
-              !outland.hasGradingCurve,
+    Check(!bareFog && bare.lightCount == 0 && !bare.hasGlow && IsIdentityCurve(bare.gradingCurve) &&
+              !bare.hasGradingCurve,
           "a map without Classic lights resolves no glow, no grading curve and the identity");
 }
 

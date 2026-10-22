@@ -183,6 +183,7 @@ target_compile_definitions(imgui
 
 add_library(CoAGraphics SHARED
     src/client_code.cpp
+    src/client_game_clock.cpp
     src/client_light_stay.cpp
     src/client_ripple_sprites.cpp
     src/config.cpp
@@ -213,6 +214,7 @@ add_library(CoAGraphics SHARED
     src/status_log.cpp
     src/terrain_shadows.cpp
     src/texture_filtering.cpp
+    src/time_of_day.cpp
     src/texture_tint.cpp
     src/transparent_fog.cpp
     src/tree_wind.cpp
@@ -233,7 +235,7 @@ add_library(version SHARED proxy/version_proxy.cpp proxy/version.def)
 target_link_libraries(version PRIVATE CoAGraphics)
 target_compile_definitions(version PRIVATE WIN32_LEAN_AND_MEAN)
 
-add_executable(vfog_harness tests/harness.cpp src/client_code.cpp src/client_light_stay.cpp
+add_executable(vfog_harness tests/harness.cpp src/client_code.cpp src/client_game_clock.cpp src/client_light_stay.cpp
                src/client_ripple_sprites.cpp src/config.cpp src/engine_actors.cpp
                src/engine_lights.cpp src/local_light_stabiliser.cpp src/spell_lights.cpp src/texture_tint.cpp
                src/texture_filtering.cpp

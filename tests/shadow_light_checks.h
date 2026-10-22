@@ -42,4 +42,17 @@ void CheckShadowDirection()
     ShadowDirection(notANumber, kSkyToLight, toLight);
     Check(NearVector(toLight, kSkyToLight), "a non-finite client shadow light falls back to the sky body");
 }
+
+void CheckShaftsFollowLight()
+{
+    Check(ShaftsFollowLight(kClientToLight, kClientToLight), "a light along the client shadow light keeps the shafts");
+    Check(!ShaftsFollowLight(kSkyToLight, kClientToLight),
+          "a low sun about 50 degrees from the client shadow light has no shafts");
+    const float nearLight[3] = {0.5f, 0.405f, 0.77f};
+    Check(ShaftsFollowLight(nearLight, kClientToLight), "a light a few degrees off keeps the shafts");
+    const float twentyDegrees[3] = {0.3420f, 0.0f, 0.9397f};
+    const float thirtyDegrees[3] = {0.5f, 0.0f, 0.8660f};
+    Check(ShaftsFollowLight(twentyDegrees, kUpward) && !ShaftsFollowLight(thirtyDegrees, kUpward),
+          "the shafts switch off between 20 and 30 degrees from the client shadow light");
+}
 }

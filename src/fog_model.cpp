@@ -47,6 +47,8 @@ constexpr float kLightSettingHalfWidth = 0.02f;
 constexpr float kMinClassicDirectLuminance = 1.0e-3f;
 constexpr float kLuminanceWeights[3] = {0.2126f, 0.7152f, 0.0722f};
 constexpr float kReferenceFarTarget = 200.0f;
+constexpr float kMinFogHueLuminance = 1.0e-4f;
+constexpr float kDirectLightTintShare = 0.25f;
 constexpr float kNoLimit = 1.0e9f;
 
 float SmoothStep(float e0, float e1, float x)
@@ -77,6 +79,21 @@ void Encode(float* rgb, bool linear)
 float Luminance(const float* rgb)
 {
     return rgb[0] * kLuminanceWeights[0] + rgb[1] * kLuminanceWeights[1] + rgb[2] * kLuminanceWeights[2];
+}
+
+void SunScatterColor(const float* fogColor, const float* directLight, float* out)
+{
+    const float fogLuminance = Luminance(fogColor);
+    const float directLuminance = Luminance(directLight);
+    if (fogLuminance < kMinFogHueLuminance || directLuminance <= 0.0f)
+    {
+        Scale(directLight, 1.0f, out);
+        return;
+    }
+    const float fogHueAtDirectLuminance = directLuminance / fogLuminance;
+    for (int c = 0; c < 3; ++c)
+        out[c] = fogColor[c] * fogHueAtDirectLuminance * (1.0f - kDirectLightTintShare) +
+                 directLight[c] * kDirectLightTintShare;
 }
 
 float ReferenceZ(const FrameInputs& in)
@@ -114,7 +131,7 @@ void DerivedLayers(const FrameInputs& in, const Config& cfg, const FogParams& p,
     haze.g = kHazeG;
     haze.isotropic = kHazeIsotropic;
     Scale(fogColor, kHazeAmbient * cfg.ambient, haze.emissive);
-    Scale(p.lightColor, kHazeSun * sunScatter, haze.diffuse);
+    Scale(p.sunScatterColor, kHazeSun * sunScatter, haze.diffuse);
     haze.exponent = 1.0f;
     haze.upperHeight = p.referenceZ;
     haze.upperFalloff = kHazeFalloff;
@@ -128,7 +145,7 @@ void DerivedLayers(const FrameInputs& in, const Config& cfg, const FogParams& p,
     ground.g = kGroundG;
     ground.isotropic = kGroundIsotropic;
     Scale(fogColor, kGroundAmbient * cfg.ambient, ground.emissive);
-    Scale(p.lightColor, kGroundSun * sunScatter, ground.diffuse);
+    Scale(p.sunScatterColor, kGroundSun * sunScatter, ground.diffuse);
     ground.exponent = 1.0f;
     ground.upperHeight = p.referenceZ;
     ground.upperFalloff = kGroundFalloff;
@@ -221,7 +238,7 @@ void DistanceLayer(const FrameInputs& in, const Config& cfg, const FogParams& p,
     out.skyFalloff = kFarSkyFalloff;
     out.endDistance = p.farLimit;
     Scale(fogColor, kFarAmbient * cfg.ambient, out.emissive);
-    Scale(p.lightColor, kFarSun * sunScatter, out.diffuse);
+    Scale(p.sunScatterColor, kFarSun * sunScatter, out.diffuse);
     Unshadowed(out);
 }
 
@@ -346,6 +363,7 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
     UnpackColor(in.lightIsMoon ? in.directColor : in.sunColor, p.rayColor);
     Encode(fogColor, p.linear);
     Encode(p.lightColor, p.linear);
+    SunScatterColor(fogColor, p.lightColor, p.sunScatterColor);
 
     float elevation = SmoothStep(-0.03f, 0.10f, in.toLight[2]);
     p.lightVisibility = elevation * (in.lightIsMoon ? kMoonLightScale : 1.0f);

@@ -63,6 +63,7 @@ struct FogParams
     FogLayer layers[kFogLayers];
     LayerNoise noise[kSceneLayers];
     float lightColor[3];
+    float sunScatterColor[3];
     float rayColor[3];
     float lightVisibility;
     float lightAboveHorizon;
