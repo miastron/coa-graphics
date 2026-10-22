@@ -198,6 +198,7 @@ private:
     IDirect3DQuery9* m_probeCopied = nullptr;
     PendingDepthProbe m_pendingProbe;
     GpuTimer m_gpuTimer{"fog"};
+    WorldShadowInputs m_worldShadows;
     StockFogFit m_stockFogFit;
     GodRayFrame m_lateGodRays;
     UINT m_lowW = 0;

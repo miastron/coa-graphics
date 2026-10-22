@@ -146,16 +146,6 @@ struct Float4
     float x, y, z, w;
 };
 
-struct ScopedWorldShadows
-{
-    WorldShadowInputs inputs;
-
-    ~ScopedWorldShadows()
-    {
-        engine::ReleaseWorldShadows(inputs);
-    }
-};
-
 void LogShaderCaps(IDirect3DDevice9* device, LogLevel level)
 {
     D3DCAPS9 caps = {};
@@ -1358,6 +1348,7 @@ bool Renderer::WithClientStateSaved(IDirect3DDevice9* dev, const SceneDepth& dep
             dev->SetDepthStencilSurface(savedDepth);
             dev->SetStreamSource(0, stream, streamOffset, streamStride);
         }
+        engine::ReleaseWorldShadows(m_worldShadows);
         SafeRelease(stream);
         for (auto*& s : saved)
             SafeRelease(s);
@@ -1582,10 +1573,9 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     float shadowToLight[3];
     ShadowDirection(clientShadowVector, in.toLight, shadowToLight);
 
-    ScopedWorldShadows worldShadows;
     if (cfg.lightShafts && cfg.worldShadows)
-        engine::AcquireWorldShadows(dev, worldShadows.inputs);
-    const WorldShadowInputs& shadows = worldShadows.inputs;
+        engine::AcquireWorldShadows(dev, m_worldShadows);
+    const WorldShadowInputs& shadows = m_worldShadows;
     const bool terrainShadows = UpdateTerrainShadows(dev, in, shadowToLight, cfg);
     const int shadowMode = shadows.count | (shadows.hardwareComparison ? kHardwareShadowModeBit : 0);
 
