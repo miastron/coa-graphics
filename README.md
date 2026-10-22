@@ -1012,8 +1012,10 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A Win32
 cmake --build build --config Release
 ```
 
-Outputs in `build/Release`: `version.dll`, `CoAGraphics.dll` and `vfog_harness.exe`, with `CoAGraphics.ini`, `fogdata.bin`
-and `waterdata.bin` copied beside them.
+Outputs in `build/Release`: `version.dll`, `CoAGraphics.dll`, `CoAGraphicsTest.dll` and `vfog_harness.exe`, with
+`CoAGraphics.ini`, `fogdata.bin` and `waterdata.bin` copied beside them. Both DLLs link the same compiled objects
+(`coa_core`). `CoAGraphics.dll` is the one to install and exports only `vf_loader_anchor`; `CoAGraphicsTest.dll` adds
+the `vf_test_*` entry points (`src/test_exports.cpp`) that the harness calls.
 
 ## Test
 
@@ -1021,7 +1023,8 @@ and `waterdata.bin` copied beside them.
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-This runs the comment check, the CPU-only `interior_fog` transition and INI persistence checks, and `vfog_harness`. The
+This runs the comment, format and evidence checks (`tools/check_comments.py`, `tools/check_format.py`,
+`tools/check_evidence.py`), the CPU-only `interior_fog` transition and INI persistence checks, and `vfog_harness`. The
 harness creates a real D3D9 device through the wrapper with the client's flags (`0x52`, auto depth D24X8), renders a Z-up
 test scene with the client's projection convention, and runs the fog passes through the same entry the hook uses. Its
 checks in `tests/` cover:
