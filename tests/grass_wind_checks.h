@@ -156,10 +156,23 @@ void CheckPassThrough(const StockShaders& stock)
     GrassShaderRewriter other;
     other.UseCompiler(compiler);
     other.Enable(true);
+    const size_t logStart = ReadText(g_harnessLog).size();
     Check(foreign.size() == stock.variants[0].size() && other.Rewrite(foreign.data()) == foreign.data() &&
               other.Foreign() == 1 && other.Failed() == 0 && other.Injected() == 0,
           "another vertex shader of a grass length is recognised as not grass, left alone and not counted as a "
           "failure");
+    const std::string logged = ReadText(g_harnessLog).substr(logStart);
+    Check(logged.find("is not the grass shader (no defc13,0,1,0,0, dcl_normalv1") != std::string::npos,
+          "a vertex shader of a grass length that is not grass logs the signature lines it lacks");
+
+    GrassShaderRewriter lookalikeFirst;
+    lookalikeFirst.UseCompiler(compiler);
+    lookalikeFirst.Enable(true);
+    const bool lookalikeLeftAlone = lookalikeFirst.Rewrite(foreign.data()) == foreign.data();
+    const DWORD* later = lookalikeFirst.Rewrite(original);
+    Check(foreign.size() == stock.variants[0].size() && lookalikeLeftAlone && later != original &&
+              lookalikeFirst.Foreign() == 1 && lookalikeFirst.Injected() == 1,
+          "the grass vertex shader is still rewritten after another shader of its length was seen and left alone");
 
     GrassShaderRewriter noCompiler;
     noCompiler.UseCompiler(ShaderCompiler());

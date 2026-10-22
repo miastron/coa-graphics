@@ -8,6 +8,7 @@
 #include "log.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -36,7 +37,8 @@ constexpr DWORD kCommentLengthMask = 0x7FFF;
 constexpr DWORD kInstructionLengthShift = 24;
 constexpr DWORD kInstructionLengthMask = 0xF;
 constexpr size_t kMaxShaderTokens = 4096;
-constexpr size_t kVersionedKeyShift = 32;
+constexpr uint64_t kContentHashBasis = 14695981039346656037ull;
+constexpr uint64_t kContentHashPrime = 1099511628211ull;
 constexpr const char* kShaderCompilerName = "d3dcompiler_47.dll";
 constexpr const char* kAnchorInstruction = "addr0,r0,c3";
 const char* const kGrassSignature[] = {"defc13,0,1,0,0", "dcl_normalv1", "dcl_colorv2", "dcl_texcoordv3",
@@ -122,9 +124,13 @@ bool StockLength(DWORD version, size_t bytes)
     return false;
 }
 
-uint64_t CacheKey(DWORD version, size_t bytes)
+uint64_t ContentKey(const DWORD* code, size_t tokens)
 {
-    return (static_cast<uint64_t>(version) << kVersionedKeyShift) | bytes;
+    uint64_t hash = kContentHashBasis;
+    for (size_t i = 0; i < tokens; ++i)
+        for (size_t shift = 0; shift < sizeof(DWORD) * CHAR_BIT; shift += CHAR_BIT)
+            hash = (hash ^ ((code[i] >> shift) & 0xFF)) * kContentHashPrime;
+    return hash;
 }
 
 std::string WithoutSpaces(const std::string& line)
@@ -136,13 +142,14 @@ std::string WithoutSpaces(const std::string& line)
     return out;
 }
 
-bool LooksLikeGrass(const std::string& source)
+std::string MissingSignature(const std::string& source)
 {
     const std::string squeezed = WithoutSpaces(source);
+    std::string missing;
     for (const char* needle : kGrassSignature)
         if (squeezed.find(needle) == std::string::npos)
-            return false;
-    return true;
+            missing += (missing.empty() ? "" : ", ") + std::string(needle);
+    return missing;
 }
 
 size_t EndOfAnchorLine(const std::string& source)
@@ -301,12 +308,13 @@ std::vector<DWORD> GrassShaderRewriter::Build(const DWORD* code, size_t tokens, 
     }
     std::string source = BlobText(text);
     text->Release();
-    if (!LooksLikeGrass(source))
+    const std::string missing = MissingSignature(source);
+    if (!missing.empty())
     {
         foreign = true;
-        VF_LOG_INFO("grass wind: a vertex shader of a grass length (0x%08X, %u bytes) is not the grass shader; left "
-                    "alone",
-                    static_cast<unsigned>(code[0]), static_cast<unsigned>(bytes));
+        VF_LOG_INFO("grass wind: a vertex shader of a grass length (0x%08X, %u bytes) is not the grass shader (no %s); "
+                    "left alone",
+                    static_cast<unsigned>(code[0]), static_cast<unsigned>(bytes), missing.c_str());
         return {};
     }
     size_t anchor = EndOfAnchorLine(source);
@@ -356,7 +364,7 @@ const DWORD* GrassShaderRewriter::Rewrite(const DWORD* code)
     const size_t bytes = tokens * sizeof(DWORD);
     if (!tokens || !StockLength(code[0], bytes))
         return code;
-    const uint64_t key = CacheKey(code[0], bytes);
+    const uint64_t key = ContentKey(code, tokens);
     auto cached = m_cache.find(key);
     if (cached == m_cache.end())
     {

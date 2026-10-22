@@ -568,7 +568,10 @@ not needed and must not be loaded at the same time.
   version token of `0xFFFE0200` or `0xFFFE0300` with one of the six first lengths, disassembles it with
   `D3DDisassemble` from the system's `d3dcompiler_47.dll`, inserts the motion block after `add r0, r0, c3` (the view
   transform), reassembles it with `D3DAssemble` and passes the result on. Nothing in the client is patched for this, so
-  it also works on DXVK. A shader that cannot be rewritten stays stock and is logged once with its length. The block
+  it also works on DXVK. A shader that cannot be rewritten stays stock and is logged once with its length. The result
+  is remembered per shader contents, not per length: another vertex shader of a grass length, created first, was once
+  remembered as "not grass" under that length and kept the real grass shader stock for the session (seen in game on
+  2026-10-22, 844 bytes). The block
   uses `sincos` with one source, which vs_3_0 assembles and vs_2_0 does not: on a client that runs the vs_2_0 grass
   shaders the grass stays still and the log says so.
 - **The constants.** `CDetailDoodad::InitializeShaderConstants` (`0x007B15D0`, called only from `0x007B2E25`) clears the
