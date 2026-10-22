@@ -12,6 +12,7 @@
 namespace
 {
 constexpr float kMultiplierSliderMax = 4.0f;
+constexpr float kLayerSliderMax = 2.0f;
 constexpr float kPanelWidthInLines = 30.0f;
 constexpr float kPanelHeightInLines = 42.0f;
 constexpr float kMinPanelWidthInLines = 20.0f;
@@ -84,6 +85,11 @@ bool Slider(const char* label, float& value, float lo, float hi, const char* for
 bool Multiplier(const char* label, float& value, const char* help)
 {
     return Slider(label, value, 0.0f, kMultiplierSliderMax, "%.2f", help);
+}
+
+bool LayerMultiplier(const char* label, float& value, const char* help)
+{
+    return Slider(label, value, 0.0f, kLayerSliderMax, "%.3f", help);
 }
 
 bool Toggle(const char* label, bool& value, const char* help)
@@ -166,9 +172,13 @@ bool DrawDensity(Config& c)
         return false;
     bool changed = Multiplier("Density", c.density,
                               "Fog thickness affects visibility and scattered light. Use Sun scatter for the halo.");
-    changed |= Multiplier("Haze", c.haze, "Distance haze where no Classic data exists");
-    changed |= Multiplier("Ground fog", c.groundFog, "Low ground mist where no Classic data exists");
-    changed |= Multiplier("Distance fog", c.farFog, "The distance fog that replaces the stock fog");
+    changed |= LayerMultiplier("Haze", c.haze, "Distance haze; with Classic data its first layer, the haze");
+    changed |= LayerMultiplier(
+        "Ground fog", c.groundFog,
+        "Low ground mist; with Classic data its third layer, the ground fog (0.6 keeps it as authored)");
+    changed |= LayerMultiplier(
+        "Distance fog", c.farFog,
+        "The distance fog that replaces the stock fog; with Classic data also its far wall layer");
     changed |= Toggle("Replace the stock fog", c.stockFog,
                       "On: the volumetric distance fog replaces the client's linear fog. Off: keep the stock fog");
     changed |= Toggle("Classic fog layers", c.dataMode,
@@ -186,6 +196,41 @@ bool DrawDensity(Config& c)
                       "Drifting fog banks where the Classic layers carry the modern client's noise, mostly in storms; "
                       "it thins those layers to about half their density on average. Off: the density variation "
                       "above applies to them instead");
+    return changed;
+}
+
+bool SkyColour(const char* label, float& value, const char* region)
+{
+    char help[kStatusTextSize];
+    std::snprintf(help, sizeof(help),
+                  "How much the fog in %s takes the hue of the client's current fog colour, which blends the land "
+                  "into the sky and follows the weather, at the fog's own brightness: 1 = that hue, 0 = the colours "
+                  "in fogdata.bin",
+                  region);
+    return Slider(label, value, 0.0f, 1.0f, "%.2f", help);
+}
+
+bool DrawRegions(Config& c)
+{
+    const Section section("Regions", ImGuiTreeNodeFlags_DefaultOpen);
+    if (!section)
+        return false;
+    bool changed = Multiplier("Azeroth density", c.azerothDensity,
+                              "Fog thickness on the old continents, in their dungeons and on every other map, on top "
+                              "of Density");
+    changed |= SkyColour("Azeroth sky colour", c.azerothSkyColor, "Azeroth and on every other map");
+    changed |= Multiplier("Outland density", c.outlandDensity, "Fog thickness in Outland, on top of Density");
+    changed |= Toggle("Outland fog data", c.outlandClassicFog,
+                      "On: Outland's fog layers come from its own client lights, converted into fogdata.bin with the "
+                      "layers of the most alike Classic light. Off: derived layers, with the client's glow and no "
+                      "colour grading");
+    changed |= SkyColour("Outland sky colour", c.outlandSkyColor, "Outland");
+    changed |= Multiplier("Northrend density", c.northrendDensity, "Fog thickness in Northrend, on top of Density");
+    changed |= Toggle("Northrend fog data", c.northrendClassicFog,
+                      "On: Northrend's fog layers come from its own client lights, converted into fogdata.bin with "
+                      "the layers of the most alike Classic light. Off: derived layers, with the client's glow and no "
+                      "colour grading");
+    changed |= SkyColour("Northrend sky colour", c.northrendSkyColor, "Northrend");
     return changed;
 }
 
@@ -559,6 +604,7 @@ bool SettingsPanel::DrawSettings(Config& edited, const FogFrameStatus& fogStatus
     ImGui::PushItemWidth(-labels);
     bool changed = DrawQuality(edited);
     changed |= DrawDensity(edited);
+    changed |= DrawRegions(edited);
     changed |= DrawLight(edited);
     DrawTimeOfDay();
     changed |= DrawGlowAndGrading(edited);

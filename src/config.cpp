@@ -42,6 +42,8 @@ const IntSetting kIntSettings[] = {
     {"DataMode", &Config::dataMode, 0, 1},   {"ColorSpace", &Config::colorSpace, 0, 1},
     {"DebugView", &Config::debugView, 0, 3}, {"LogLevel", &Config::logLevel, 0, 2},
     {"ClassicPhase", &Config::classicPhase, 0, 1},
+    {"OutlandClassicFog", &Config::outlandClassicFog, 0, 1},
+    {"NorthrendClassicFog", &Config::northrendClassicFog, 0, 1},
 };
 
 const IntSetting kLookIntSettings[] = {
@@ -68,6 +70,12 @@ const IntSetting kWaterIntSettings[] = {
 
 const FloatSetting kFloatSettings[] = {
     {"Density", &Config::density, 0.0f, 10.0f},
+    {"AzerothDensity", &Config::azerothDensity, 0.0f, 10.0f},
+    {"OutlandDensity", &Config::outlandDensity, 0.0f, 10.0f},
+    {"NorthrendDensity", &Config::northrendDensity, 0.0f, 10.0f},
+    {"AzerothSkyColor", &Config::azerothSkyColor, 0.0f, 1.0f},
+    {"OutlandSkyColor", &Config::outlandSkyColor, 0.0f, 1.0f},
+    {"NorthrendSkyColor", &Config::northrendSkyColor, 0.0f, 1.0f},
     {"Haze", &Config::haze, 0.0f, 10.0f},
     {"GroundFog", &Config::groundFog, 0.0f, 10.0f},
     {"FarFog", &Config::farFog, 0.0f, 10.0f},

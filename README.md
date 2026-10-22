@@ -4,8 +4,9 @@ Graphics enhancements (volumetric fog and modern water) for the Ascension/CoA 3.
 
 The DLL is a loader, a Direct3D 9 wrapper that makes the depth buffer readable, hooks into the world renderer, a
 ray-marched fog renderer and a water renderer. Fog layers come from the Classic client's own
-`LightDataGlobalVolumeFog` data wherever its lights cover the map, and are derived from the 3.3.5 day/night lighting
-elsewhere (Outland, Northrend, custom maps). Water is shaded like WoW Forever's water, using its liquid presets, wave
+`LightDataGlobalVolumeFog` data wherever its lights cover the map; Outland, Northrend and the other maps Classic never
+had get lights converted from the 3.3.5 client's own light tables, and the remaining maps use layers derived from the
+3.3.5 day/night lighting. Water is shaded like WoW Forever's water, using its liquid presets, wave
 patterns and foam textures.
 
 ## About this project
@@ -64,7 +65,9 @@ after it say how each works and what is checked.
 - **Ground mist** hugging the terrain around the player; zones with short stock fog get more.
 - **Distance fog** replacing the stock linear fog on maps without Classic data. It turns opaque where the stock fog did,
   is lit by the direct light (warm at sunset), and fades into a horizon band on the sky. With Classic layers it returns
-  only across the edge of Classic coverage, and where those layers are too thin to hide the far clip.
+  only across the edge of Classic coverage, and where those layers are too thin to hide the far clip. Sky seen below
+  the horizon, such as the void under the edges of Netherstorm, takes the fog of the sky mirrored above it; levelled
+  to the horizon, its rays crossed the whole fog range and showed a white wall.
 - **Sun scatter colour of the derived layers and the distance fog**: the zone's fog colour at the direct light's
   brightness, with a quarter of the direct light's own colour mixed in. A frame logged in Elwynn at noon (fog
   `FF4C788E`, direct light `FFFE8E40`, day 0.4921, map 0 without Classic data) scattered the raw direct colour, 1.61 0.45
@@ -370,6 +373,38 @@ lighting. It is a compatibility calibration, not a reproduction of the modern re
 Classic data applies on maps where any Classic light has fog, wherever Classic lights hold at least half of the blend
 weight. A light without fog in the active slot counts with zero density, so the fog thins smoothly into it and the
 distance fog hides the far clip there. Other maps use the derived layers.
+
+Classic never had Outland (map 530), Northrend (map 571) or the Burning Crusade and Wrath dungeons, so the kit holds
+no fog for them. `tools/convert_client_lights.py` (ported from Raz0r1337/coa-vfog `st0ny-dev`) adds them to
+`fogdata.bin` from the 3.3.5 client's `Light`, `LightIntBand` and `LightFloatBand` tables (a `DBFilesClient` folder
+or zip):
+
+```powershell
+python tools/convert_client_lights.py data/fogdata.bin <DBFilesClient folder or zip> data/fogdata.bin
+```
+
+Every client light on a map without Classic lights becomes a light of its own (id + 1000000), placed as the client
+places it: world X = 17066.666 − z/36, Y = 17066.666 − x/36, Z = y/36, falloff /36, a light at the origin without
+falloff stays map-wide. 257 Classic lights have a twin with the same id and position in the client table (light 77 at
+the Stormwind harbour: (593586, 0, 931236)/36 → (−8801.0, 578.2), as in the Classic placement). Those with fog in
+their clear slot are the templates: each new light takes the layers of the template whose 3.3.5 lighting is most
+alike, compared every hour over the fog, sky top, sky middle, direct and ambient bands (linear) and the log of the
+fog distance. Per condition slot and template key the layers keep their shape, heights, noise and grading curve; the
+emissive, shadow and noise colours take the hue of the new light's fog band (band 7) at the template's luminance
+scaled by the ratio of the two lights' fog-band luminance (0.5–2), the sun scattering and the direct light likewise
+from the direct band (band 0), and the density follows the ratio of the fog distances (float band 0, 0.5–2, median
+0.87 over Outland and Northrend). The glow is the Forever glow of the template's params in the same slot: the 3.3.5
+`LightParams` glow drives the old client's bloom, is far higher (1.0 in Ashenvale where Forever has 0) and washed the
+colours out when a test build used it on every map. Recipes shared by several lights are written once; the run is
+repeatable on its own output and leaves the Classic lights byte for byte. Run it again after `convert_classic_fog.py`,
+which keeps only the kit's light params. 445 lights on 47 maps come from 194 templates (2.3 MB in all).
+
+`OutlandDensity` and `NorthrendDensity` start at 0.15, as the fog read as too strong there in play, and
+`OutlandClassicFog=0` or `NorthrendClassicFog=0` brings back the derived layers with the client's glow.
+`AzerothSkyColor`, `OutlandSkyColor` and `NorthrendSkyColor` (0 by default) mix the scene layers' emissive and shadow
+colours at run time toward the hue of the client's current stock fog colour, which blends the scene into its sky and
+follows the weather, at each colour's own luminance: the stock colour itself is far darker than the Classic emissive
+(0x282A2A against about 0.5 at dusk in Hellfire Peninsula), so taking it whole would blacken the fog.
 
 The phase of the Classic sun and moon scattering peaks at 1 toward the light. The authored intensities rise as g falls, to
 about 4π for evenly scattering rows, which suggests that the modern lookup is energy-normalised (inferred; it is not in
@@ -1074,7 +1109,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `Overlay` | 1 | In-game settings window; 0 hides it at once, and from the next start leaves the game window alone |
 | `OverlayKey` | Ctrl+F7 | Key that shows and hides the window, with optional `Ctrl+`, `Shift+`, `Alt+` |
 | `Quality` | 2 | 1 quarter resolution / 16 steps, 2 half / 24, 3 half / 32 |
-| `Density`, `Haze`, `GroundFog`, `FarFog` | 1, 1, 0.6, 1 | Density multipliers |
+| `Density`, `Haze`, `GroundFog`, `FarFog` | 1, 1, 0.6, 1 | Density multipliers; with Classic data `Haze`, `FarFog` and `GroundFog` relative to their defaults scale layers 0, 1 and 2 (haze, far wall, ground fog) |
 | `NoiseAmount` | 0.15 | World-space density variation, 0..1; 0 disables it |
 | `NoiseScale` | 0.025 | Inverse feature size of the variation |
 | `NoiseWindSpeed` | 0.5 | Drift of the variation along world +X, in yd/s |
@@ -1082,6 +1117,9 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `StockFog` | 1 | 1 replaces the stock fog with the distance fog; 0 keeps it |
 | `TransparentFog` | 0 | 1 fogs see-through effects at their own distance; 0 at the scene behind them (see Transparent fog) |
 | `DataMode` | 1 | 1 Classic layers where available; 0 derived layers everywhere |
+| `AzerothDensity`, `OutlandDensity`, `NorthrendDensity` | 1, 0.15, 0.15 | Density per region, on top of `Density` |
+| `OutlandClassicFog`, `NorthrendClassicFog` | 1, 1 | 1 the converted client lights there, 0 derived layers |
+| `AzerothSkyColor`, `OutlandSkyColor`, `NorthrendSkyColor` | 0, 0, 0 | Share of the client's fog hue in the layers |
 | `ColorSpace` | 1 | 1 scatters and blends in linear light with a highlight roll-off; 0 uses gamma |
 | `SunScatter`, `Ambient`, `Exposure` | 1, 1, 1 | Light in the fog |
 | `ClassicExposure` | 1 | Brightness of the Classic layers (1 = as authored) |

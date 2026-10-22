@@ -32,6 +32,8 @@ constexpr float kFarSkyFalloff = 10.0f;
 constexpr float kFarExponent = 2.0f;
 
 constexpr float kClassicUnits = 0.01f;
+constexpr int kClassicHazeLayer = 0;
+constexpr int kClassicFarWallLayer = 1;
 constexpr float kFogRangeMargin = 300.0f;
 constexpr uint32_t kFlagShadowed = 0x1;
 constexpr uint32_t kFlagRelativeHeights = 0x2;
@@ -50,6 +52,8 @@ constexpr float kReferenceFarTarget = 200.0f;
 constexpr float kMinFogHueLuminance = 1.0e-4f;
 constexpr float kDirectLightTintShare = 0.25f;
 constexpr float kNoLimit = 1.0e9f;
+constexpr int kOutlandMap = 530;
+constexpr int kNorthrendMap = 571;
 
 float SmoothStep(float e0, float e1, float x)
 {
@@ -176,6 +180,20 @@ LayerNoise AuthoredLayerNoise(const AuthoredNoise& authored, const Config& cfg, 
     return noise;
 }
 
+float ClassicLayerSetting(int classicLayer, const Config& cfg)
+{
+    const Config defaults;
+    switch (classicLayer)
+    {
+    case kClassicHazeLayer:
+        return cfg.haze / defaults.haze;
+    case kClassicFarWallLayer:
+        return cfg.farFog / defaults.farFog;
+    default:
+        return cfg.groundFog / defaults.groundFog;
+    }
+}
+
 void AuthoredLayers(const AuthoredFog& fog, const Config& cfg, const FogParams& p, float sunScatter, FogLayer* out,
                     LayerNoise* noise)
 {
@@ -192,7 +210,7 @@ void AuthoredLayers(const AuthoredFog& fog, const Config& cfg, const FogParams& 
         l.densityVariation = 1.0f - noise[i].alpha;
         const float heightBase = a.flags & kFlagRelativeHeights ? p.referenceZ : 0.0f;
         l.start = std::clamp(a.start, 0.0f, std::max(p.maxDistance - kFogRangeMargin, 0.0f));
-        l.density = a.density * kClassicUnits * cfg.density;
+        l.density = a.density * kClassicUnits * cfg.density * ClassicLayerSetting(i, cfg);
         l.g = std::clamp(a.g, -0.99f, 0.99f);
         l.isotropic = 0.0f;
         Scale(a.emissive, cfg.ambient, l.emissive);
@@ -342,6 +360,51 @@ float ClientToClassicDirectLight(const AuthoredFog& fog, const float* clientDire
         return 1.0f;
     return std::clamp(Luminance(clientDirectLight) / classicLuminance, 0.0f, 1.0f);
 }
+
+float RegionSkyColorShare(const Config& cfg, MapRegion region)
+{
+    switch (region)
+    {
+    case MapRegion::Outland:
+        return cfg.outlandSkyColor;
+    case MapRegion::Northrend:
+        return cfg.northrendSkyColor;
+    default:
+        return cfg.azerothSkyColor;
+    }
+}
+
+void MixTowardHue(float* rgb, const float* hue, float hueLuminance, float share)
+{
+    const float brightness = Luminance(rgb) / hueLuminance;
+    for (int c = 0; c < 3; ++c)
+        rgb[c] += (hue[c] * brightness - rgb[c]) * share;
+}
+
+void TakeClientFogHue(const float* clientFog, float share, FogLayer* layers)
+{
+    const float hueLuminance = Luminance(clientFog);
+    if (!(hueLuminance > kMinFogHueLuminance))
+        return;
+    for (int i = 0; i < kSceneLayers; ++i)
+    {
+        MixTowardHue(layers[i].emissive, clientFog, hueLuminance, share);
+        MixTowardHue(layers[i].shadowEmissive, clientFog, hueLuminance, share);
+    }
+}
+
+float RegionDensity(const Config& cfg, MapRegion region)
+{
+    switch (region)
+    {
+    case MapRegion::Outland:
+        return cfg.outlandDensity;
+    case MapRegion::Northrend:
+        return cfg.northrendDensity;
+    default:
+        return cfg.azerothDensity;
+    }
+}
 }
 
 void UnpackColor(uint32_t argb, float* rgb)
@@ -384,6 +447,9 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
     {
         p.directLightMatch = ClientToClassicDirectLight(*authored, p.lightColor, p.linear);
         AuthoredLayers(*authored, cfg, p, cfg.sunScatter * p.directLightMatch, p.layers, p.noise);
+        const float skyShare = std::clamp(RegionSkyColorShare(cfg, RegionOfMap(in.mapId)), 0.0f, 1.0f);
+        if (skyShare > 0.0f)
+            TakeClientFogHue(fogColor, skyShare, p.layers);
         HaloHue(*authored, p.rayColor);
         DistanceLayer(in, cfg, p, elevationFadedScatter, fogColor, distanceFog);
         const float thinness = ClassicFogThinness(p, *authored, in.camPos[2]);
@@ -396,6 +462,37 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
     }
     ApplyInteriorFog(interiorWeight, cfg, p);
     return p;
+}
+
+MapRegion RegionOfMap(int mapId)
+{
+    if (mapId == kOutlandMap)
+        return MapRegion::Outland;
+    if (mapId == kNorthrendMap)
+        return MapRegion::Northrend;
+    return MapRegion::Azeroth;
+}
+
+bool UsesFogData(const Config& cfg, int mapId)
+{
+    switch (RegionOfMap(mapId))
+    {
+    case MapRegion::Outland:
+        return cfg.outlandClassicFog != 0;
+    case MapRegion::Northrend:
+        return cfg.northrendClassicFog != 0;
+    default:
+        return true;
+    }
+}
+
+Config ConfigForMap(const Config& cfg, int mapId)
+{
+    Config regional = cfg;
+    regional.density = cfg.density * RegionDensity(cfg, RegionOfMap(mapId));
+    if (!UsesFogData(cfg, mapId))
+        regional.dataMode = 0;
+    return regional;
 }
 
 float EnergyNormalisedPhaseScale(float g)

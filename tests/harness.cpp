@@ -190,6 +190,8 @@ constexpr int kGripDragY = 24;
 constexpr int kGripShrink = -2000;
 constexpr float kPanelSizeTolerance = 1.5f;
 constexpr float kBesideShrunkPanelGap = 4.0f;
+constexpr UINT kVoidProbeRows = 120;
+constexpr int kMaxVoidMirrorDifference = 3;
 
 int g_failures = 0;
 
@@ -703,7 +705,7 @@ float ReferenceUnshadowedSkyTransmittance(const FrameInputs& in, const Config& c
     const float* m = in.cameraRelativeView;
     Vec3 dirW = {v.x * m[0] + v.y * m[1] + v.z * m[2], v.x * m[4] + v.y * m[5] + v.z * m[6],
                  v.x * m[8] + v.y * m[9] + v.z * m[10]};
-    const double upward = std::fmax(dirW.z, 0.0f);
+    const double upward = std::fabs(dirW.z);
     double tau = 0.0;
     for (const FogLayer& layer : fog.layers)
     {
@@ -754,6 +756,8 @@ float WeightOf(const AuthoredFog& fog, uint32_t light)
 constexpr int kEasternKingdoms = 0;
 constexpr int kKalimdor = 1;
 constexpr int kMapWithoutClassicData = 9999;
+constexpr int kOutland = 530;
+constexpr int kNorthrend = 571;
 const LightParamsSelection kClearWeather = {};
 constexpr uint32_t kEasternKingdomsGlobalLight = 1;
 constexpr uint32_t kStormwindLight = 77;
@@ -1192,6 +1196,180 @@ void CheckFogThinsIntoFoglessClassicLight(const FogData& data)
     Check(Near(WeightOf(fogs[0], kFoglessBlastedLandsLight), 1.0f) && SceneLayersDensity(params[0]) == 0.0f &&
               params[0].layers[kDistanceFogLayer].density > 0.0f,
           "inside a Classic light without fog only the distance fog hides the far clip");
+}
+
+constexpr uint32_t kFirstClientLight = 1000000;
+constexpr uint32_t kNorthrendGlobalClientLight = kFirstClientLight + 1406;
+
+bool OnlyClientLights(const AuthoredFog& fog)
+{
+    for (int i = 0; i < fog.lightCount; ++i)
+        if (fog.lightIds[i] < kFirstClientLight)
+            return false;
+    return fog.lightCount > 0;
+}
+
+void CheckOutlandAndNorthrendHaveTheirOwnLights(const FogData& data)
+{
+    const float hellfirePeninsula[3] = {-3005.0f, 4469.0f, -18.0f};
+    const float howlingFjord[3] = {1350.0f, -5000.0f, 210.0f};
+    AuthoredFog outland = {};
+    AuthoredFog northrend = {};
+    const bool outlandFog = data.Resolve(kOutland, hellfirePeninsula, kDayFraction1800, kClearWeather, outland);
+    const bool northrendFog = data.Resolve(kNorthrend, howlingFjord, kDayFraction1800, kClearWeather, northrend);
+    std::printf("     Hellfire Peninsula: %d client lights (first %u), coverage %.2f, %d layers; Howling Fjord: light "
+                "%u weight %.2f, %d layers\n",
+                outland.lightCount, outland.lightCount ? outland.lightIds[0] : 0u, outland.coverage,
+                outland.layerCount, northrend.lightCount ? northrend.lightIds[0] : 0u,
+                WeightOf(northrend, kNorthrendGlobalClientLight), northrend.layerCount);
+    Check(outlandFog && OnlyClientLights(outland) && outland.lightCount > 1 &&
+              std::fabs(outland.coverage - 1.0f) < 1e-4f && outland.layerCount > 0,
+          "Hellfire Peninsula blends its own client lights, converted from the 3.3.5 Light table");
+    Check(northrendFog && OnlyClientLights(northrend) &&
+              std::fabs(WeightOf(northrend, kNorthrendGlobalClientLight) - 1.0f) < 1e-4f && northrend.layerCount > 0,
+          "Northrend's global client light covers Howling Fjord away from its sphere lights");
+}
+
+void CheckRegionalFogSettings()
+{
+    Check(Config().azerothDensity == 1.0f && Config().outlandDensity == 0.15f && Config().northrendDensity == 0.15f,
+          "Outland and Northrend start at density 0.15, as testers found their converted fog too strong");
+    Config cfg = {};
+    cfg.density = 0.8f;
+    cfg.azerothDensity = 1.5f;
+    cfg.outlandDensity = 0.5f;
+    cfg.northrendDensity = 0.25f;
+    const Config azeroth = ConfigForMap(cfg, kEasternKingdoms);
+    const Config dungeon = ConfigForMap(cfg, kMapWithoutClassicData);
+    const Config outland = ConfigForMap(cfg, kOutland);
+    const Config northrend = ConfigForMap(cfg, kNorthrend);
+    std::printf("     density 0.8 by region: Azeroth %.2f, other map %.2f, Outland %.2f, Northrend %.2f\n",
+                azeroth.density, dungeon.density, outland.density, northrend.density);
+    Check(std::fabs(azeroth.density - 1.2f) < 1e-5f && std::fabs(dungeon.density - 1.2f) < 1e-5f &&
+              std::fabs(outland.density - 0.4f) < 1e-5f && std::fabs(northrend.density - 0.2f) < 1e-5f,
+          "each region scales Density by its own density: Azeroth on every map but Outland and Northrend");
+    Check(outland.dataMode == 1 && northrend.dataMode == 1 && UsesFogData(cfg, kOutland) &&
+              UsesFogData(cfg, kNorthrend),
+          "Outland and Northrend borrow the Classic fog by default");
+
+    cfg.outlandClassicFog = 0;
+    Check(ConfigForMap(cfg, kOutland).dataMode == 0 && !UsesFogData(cfg, kOutland) &&
+              ConfigForMap(cfg, kNorthrend).dataMode == 1 && ConfigForMap(cfg, kEasternKingdoms).dataMode == 1,
+          "OutlandClassicFog=0 gives Outland the derived layers and leaves Northrend and Azeroth alone");
+    cfg.outlandClassicFog = 1;
+    cfg.northrendClassicFog = 0;
+    Check(ConfigForMap(cfg, kNorthrend).dataMode == 0 && !UsesFogData(cfg, kNorthrend) &&
+              ConfigForMap(cfg, kOutland).dataMode == 1 && UsesFogData(cfg, kEasternKingdoms),
+          "NorthrendClassicFog=0 gives Northrend the derived layers and leaves Outland and Azeroth alone");
+    cfg.dataMode = 0;
+    Check(ConfigForMap(cfg, kOutland).dataMode == 0, "DataMode=0 keeps the derived layers in every region");
+}
+
+void CheckOutlandDensityThinsTheConvertedFog(const FogData& data)
+{
+    const Vec3 hellfirePeninsula = {-3005.0f, 4469.0f, -18.0f};
+    const Vec3 toSun = {0.607f, 0.607f, 0.513f};
+    const float evening = 0.7279f;
+    const FrameInputs frame = ContinentFrame(kOutland, hellfirePeninsula, evening, toSun, false);
+    AuthoredFog fog = {};
+    const bool resolved = data.Resolve(kOutland, frame.camPos, evening, kClearWeather, fog);
+    Config full = {};
+    full.outlandDensity = 1.0f;
+    Config halved = full;
+    halved.outlandDensity = 0.5f;
+    const FogParams fullParams = BuildFogParams(frame, ConfigForMap(full, kOutland), &fog);
+    const FogParams halvedParams = BuildFogParams(frame, ConfigForMap(halved, kOutland), &fog);
+    const float fullDensity = SceneLayersDensity(fullParams);
+    const float halvedDensity = SceneLayersDensity(halvedParams);
+    std::printf("     Hellfire Peninsula at dusk: scene layer density %.6f at OutlandDensity 1, %.6f at 0.5\n",
+                fullDensity, halvedDensity);
+    Check(resolved && fullDensity > 0.0f && std::fabs(halvedDensity - 0.5f * fullDensity) < 1e-6f,
+          "OutlandDensity 0.5 halves the converted layers in Hellfire Peninsula");
+}
+
+void CheckLayerSlidersScaleTheClassicLayers(const FogData& data)
+{
+    const Vec3 hellfirePeninsula = {-3005.0f, 4469.0f, -18.0f};
+    const Vec3 toSun = {0.607f, 0.607f, 0.513f};
+    const float evening = 0.7279f;
+    const FrameInputs frame = ContinentFrame(kOutland, hellfirePeninsula, evening, toSun, false);
+    AuthoredFog fog = {};
+    const bool resolved = data.Resolve(kOutland, frame.camPos, evening, kClearWeather, fog);
+    const Config defaults;
+    Config moved = defaults;
+    moved.haze = 2.0f * defaults.haze;
+    moved.farFog = 0.0f;
+    moved.groundFog = 0.5f * defaults.groundFog;
+    const FogParams authored = BuildFogParams(frame, defaults, &fog);
+    const FogParams changed = BuildFogParams(frame, moved, &fog);
+    std::printf("     Hellfire Peninsula layers haze/far wall/ground: %.6f %.6f %.6f by default, %.6f %.6f %.6f with "
+                "Haze x2, Distance fog 0, Ground fog x0.5\n",
+                authored.layers[0].density, authored.layers[1].density, authored.layers[2].density,
+                changed.layers[0].density, changed.layers[1].density, changed.layers[2].density);
+    Check(resolved && fog.layerCount == kSceneLayers &&
+              Near(authored.layers[0].density, fog.layers[0].density * 0.01f * defaults.density) &&
+              Near(changed.layers[0].density, 2.0f * authored.layers[0].density) &&
+              changed.layers[1].density == 0.0f && authored.layers[1].density > 0.0f &&
+              Near(changed.layers[2].density, 0.5f * authored.layers[2].density),
+          "Haze, Distance fog and Ground fog scale the Classic haze, far wall and ground layers relative to their "
+          "defaults, which keep the layers as authored");
+}
+
+void CheckOutlandSkyColourTintsTheConvertedFog(const FogData& data)
+{
+    const Vec3 hellfirePeninsula = {-3005.0f, 4469.0f, -18.0f};
+    const Vec3 toSun = {0.607f, 0.607f, 0.513f};
+    const float evening = 0.7279f;
+    FrameInputs frame = ContinentFrame(kOutland, hellfirePeninsula, evening, toSun, false);
+    frame.fogColor = 0xFF7A3A2Au;
+    AuthoredFog fog = {};
+    const bool resolved = data.Resolve(kOutland, frame.camPos, evening, kClearWeather, fog);
+    Config asConverted = {};
+    asConverted.outlandSkyColor = 0.0f;
+    Config sky = asConverted;
+    sky.outlandSkyColor = 1.0f;
+    Config half = asConverted;
+    half.outlandSkyColor = 0.5f;
+    const FogParams converted = BuildFogParams(frame, ConfigForMap(asConverted, kOutland), &fog);
+    const FogParams own = BuildFogParams(frame, ConfigForMap(sky, kOutland), &fog);
+    const FogParams mixed = BuildFogParams(frame, ConfigForMap(half, kOutland), &fog);
+    float clientFog[3];
+    UnpackColor(frame.fogColor, clientFog);
+    for (float& c : clientFog)
+        c = std::pow(c, 2.2f);
+    bool takesClientFog = true;
+    bool halfway = true;
+    const auto luminance = [](const float* rgb) { return 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2]; };
+    const auto hasClientHue = [&](const float* rgb) {
+        const float scale = luminance(rgb) / luminance(clientFog);
+        return std::fabs(rgb[0] - clientFog[0] * scale) < 1e-4f && std::fabs(rgb[1] - clientFog[1] * scale) < 1e-4f &&
+               std::fabs(rgb[2] - clientFog[2] * scale) < 1e-4f;
+    };
+    for (int i = 0; i < fog.layerCount; ++i)
+    {
+        takesClientFog = takesClientFog && hasClientHue(own.layers[i].emissive) &&
+                         hasClientHue(own.layers[i].shadowEmissive) &&
+                         std::fabs(luminance(own.layers[i].emissive) - luminance(converted.layers[i].emissive)) < 1e-4f;
+        for (int c = 0; c < 3; ++c)
+            halfway = halfway && std::fabs(mixed.layers[i].emissive[c] - 0.5f * (converted.layers[i].emissive[c] +
+                                                                                    own.layers[i].emissive[c])) < 1e-5f;
+    }
+    std::printf("     Hellfire Peninsula layer 1 emissive: converted %.3f %.3f %.3f, client fog hue %.3f %.3f %.3f\n",
+                converted.layers[1].emissive[0], converted.layers[1].emissive[1], converted.layers[1].emissive[2],
+                own.layers[1].emissive[0], own.layers[1].emissive[1], own.layers[1].emissive[2]);
+    Check(resolved && fog.layerCount > 0 && takesClientFog && halfway &&
+              std::fabs(converted.layers[1].emissive[0] - own.layers[1].emissive[0]) > 0.01f,
+          "OutlandSkyColor mixes the layers' ambient colours toward the hue of the client's fog colour at their own "
+          "brightness: 1 takes that hue, 0.5 lands halfway, 0 keeps the converted colours");
+
+    FrameInputs stormwind = ContinentFrame(kEasternKingdoms, {-8565.21f, 993.46f, 104.96f}, evening, toSun, false);
+    stormwind.fogColor = frame.fogColor;
+    AuthoredFog classic = {};
+    data.Resolve(kEasternKingdoms, stormwind.camPos, evening, kClearWeather, classic);
+    const FogParams plain = BuildFogParams(stormwind, ConfigForMap(asConverted, kEasternKingdoms), &classic);
+    const FogParams tinted = BuildFogParams(stormwind, ConfigForMap(sky, kEasternKingdoms), &classic);
+    Check(std::memcmp(plain.layers, tinted.layers, sizeof(plain.layers)) == 0,
+          "the sky colour settings leave the Classic fog of the old continents as authored");
 }
 
 float BoxMean7x7(const Image& img, UINT cx, UINT cy, int ch)
@@ -1976,6 +2154,40 @@ void CheckBypassesAreWarnedOnce(Harness& h)
           "is bypassed");
 }
 
+void CheckVoidBelowTheHorizonMirrorsTheSky(Harness& h, const Config& cfg, Vec3 eye, const float* proj,
+                                           const D3DVIEWPORT9& world)
+{
+    Config transmittanceView = cfg;
+    transmittanceView.temporal = 0.0f;
+    transmittanceView.godRays = 0.0f;
+    transmittanceView.debugView = 2;
+    transmittanceView.dataMode = 0;
+    transmittanceView.noiseAmount = 0.0f;
+    vf_test_set_config(&transmittanceView);
+    const Vec3 level = Add(eye, {100.0f, 0.0f, 0.0f});
+    float view[16];
+    CameraRelativeLookAt(eye, level, view);
+    FrameInputs in = MakeInputs(view, proj, eye, level, world);
+    h.BeginFrame();
+    const char* skip = "";
+    const bool rendered = vf_test_render(&in, &skip) != 0;
+    const Image t = Capture(h.dev);
+    h.dev->EndScene();
+    vf_test_set_config(&cfg);
+    const UINT horizonRow = world.Y + world.Height / 2;
+    int worst = 0;
+    for (UINT rows : {kVoidProbeRows, 2 * kVoidProbeRows})
+        worst = std::max(worst, std::abs(static_cast<int>(t.At(world.Width / 2, horizonRow - rows)[2]) -
+                                         t.At(world.Width / 2, horizonRow + rows)[2]));
+    std::printf("     no geometry in view: sky transmittance %d/255 %u rows above the horizon, %d/255 below; largest "
+                "mirror difference %d/255\n",
+                t.At(world.Width / 2, horizonRow - kVoidProbeRows)[2], kVoidProbeRows,
+                t.At(world.Width / 2, horizonRow + kVoidProbeRows)[2], worst);
+    Check(rendered && worst <= kMaxVoidMirrorDifference,
+          "sky below the horizon, such as the void under Netherstorm's edges, thins the fog as the sky above does "
+          "instead of a level ray through the whole fog range");
+}
+
 int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstring& iniPath,
         const std::string& waterDataPath, bool cpuOnly = false)
 {
@@ -1984,6 +2196,11 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     FogData classic;
     Check(classic.Load(dataPath), "Classic fog data loads");
     CheckClassicData(classic);
+    CheckOutlandAndNorthrendHaveTheirOwnLights(classic);
+    CheckRegionalFogSettings();
+    CheckOutlandDensityThinsTheConvertedFog(classic);
+    CheckOutlandSkyColourTintsTheConvertedFog(classic);
+    CheckLayerSlidersScaleTheClassicLayers(classic);
     CheckNegligibleLightsLeaveTheLightLogAlone();
     CheckStormBlendsLayersByClassicIndex(classic);
     CheckScreenEffectLightSlot(classic);
@@ -2241,6 +2458,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
 
     CheckLinearComposite(h, cfg, eye, at, proj, world);
     CheckDisabledTemporalIsStable(h, cfg, eye, at, proj, world);
+    CheckVoidBelowTheHorizonMirrorsTheSky(h, cfg, eye, proj, world);
     forever_look_checks::CheckColourGrading(h, world, classic);
     image_quality_checks::CheckSharpening(h, world);
     image_quality_checks::CheckAntialiasing(h, world);
@@ -2736,7 +2954,7 @@ void ReferenceUnshadowedLayerOpticalDepths(const FogParams& fog, float camZ, Vec
     float horizon = sky ? 1.0f : SmoothStep(fog.horizonStart, fog.farClip, z);
     z = z + (fog.maxDistance - z) * horizon;
     float tMax = std::fmin(z * rayLen, fog.maxDistance);
-    float up = std::fmax(dirW.z, 0.0f);
+    float up = sky ? std::fabs(dirW.z) : std::fmax(dirW.z, 0.0f);
     float dirZ = dirW.z + (up - dirW.z) * horizon;
     const float dt = tMax / kReferenceIntegrationSteps;
     for (int j = 0; j < kFogLayers; ++j)

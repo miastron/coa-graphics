@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "d3d9_wrap.h"
+#include "fog_model.h"
 #include "log.h"
 #include "status_log.h"
 
@@ -15,6 +16,7 @@ namespace
 {
 constexpr float kGlowByteScale = 255.0f;
 constexpr unsigned kDebugSummaryFrames = 600;
+constexpr int kNoClassicLightMap = -1;
 constexpr const char* kGradingOff = "off";
 constexpr const char* kGhostEffect = "ghost effect";
 constexpr const char* kCameraUnderWater = "camera under water";
@@ -75,14 +77,15 @@ bool LookNeeded(const Config& cfg)
     return cfg.foreverGlow != 0 || cfg.colorGrading > 0.0f;
 }
 
-ForeverLook ResolveForeverLook()
+ForeverLook ResolveForeverLook(const Config& cfg)
 {
     ForeverLook look;
     engine::ClassicLightInputs light;
     if (!GlobalFogData().Loaded() || !engine::ReadClassicLightInputs(light))
         return look;
     AuthoredFog fog = {};
-    GlobalFogData().Resolve(light.mapId, light.camPos, light.dayFraction, light.lightParams, fog);
+    const int lightMap = UsesFogData(cfg, light.mapId) ? light.mapId : kNoClassicLightMap;
+    GlobalFogData().Resolve(lightMap, light.camPos, light.dayFraction, light.lightParams, fog);
     look.valid = std::isfinite(fog.coverage) && std::isfinite(fog.glow);
     look.coverage = fog.coverage;
     look.hasGlow = fog.hasGlow;
@@ -98,7 +101,7 @@ ForeverLookFrame GameForeverLookFrame(const Config& cfg)
     frame.effects = engine::ReadScreenEffects();
     frame.cameraInLiquid = engine::CameraInLiquid();
     if (LookNeeded(cfg))
-        frame.look = ResolveForeverLook();
+        frame.look = ResolveForeverLook(cfg);
     return frame;
 }
 

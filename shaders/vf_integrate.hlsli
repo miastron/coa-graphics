@@ -306,7 +306,7 @@ float4 IntegrateFogAtDepth(float2 pixel, float depth, float jitter)
     float3 cameraWorld = CameraPositionWorld();
     float3 directionWorld = ViewToWorldDirection(viewDirection);
     float cosToLight = dot(DirectionToLightView(), viewDirection);
-    float upward = max(directionWorld.z, 0);
+    float upward = skyMask > 0 ? abs(directionWorld.z) : max(directionWorld.z, 0);
     float riseLevelledAtHorizon = lerp(directionWorld.z, upward, horizonBlend);
     MarchRay ray = {viewDirection, directionWorld, cameraWorld.z, riseLevelledAtHorizon};
     ChordCoverage lightCoverage = {0, false, 0, LocalLightCount()};

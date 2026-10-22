@@ -1371,7 +1371,7 @@ bool Renderer::Render(IDirect3DDevice9* dev, const SceneDepth& depth, const Fram
     if (!EnsureShaders(dev) || !EnsureStateBlock(dev))
         return false;
     return WithClientStateSaved(dev, depth, [&](IDirect3DSurface9* target, const D3DSURFACE_DESC& depthDesc) {
-        return RenderPasses(dev, depth, target, depthDesc, in, cfg, pass);
+        return RenderPasses(dev, depth, target, depthDesc, in, ConfigForMap(cfg, in.mapId), pass);
     });
 }
 

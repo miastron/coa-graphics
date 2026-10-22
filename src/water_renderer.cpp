@@ -1023,7 +1023,7 @@ bool WaterRenderer::Begin(IDirect3DDevice9* dev, const SceneDepth& depth, const 
     ArmStencilWrites(dev);
     m_in = in;
     m_water = water;
-    m_cfg = cfg;
+    m_cfg = ConfigForMap(cfg, in.mapId);
     std::fill(std::begin(m_draws), std::end(m_draws), 0u);
     m_armed = true;
     return true;
