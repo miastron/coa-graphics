@@ -1064,6 +1064,9 @@ Scenes for looking at the output:
   shafts are timed with the screen-space trace alone. On an AMD Radeon 780M at 1080p it added 0.6 ms at `Quality=1`,
   0.8–1.1 ms at 2 and 1.6–1.9 ms at 3, without point lights. It also times the harbour in a full storm and the colour
   grading pass. `--samples 4` creates a 4x device.
+- `vfog_harness --scene water-performance --water-data data/waterdata.bin` times the water pass on the basin scene (1280×688
+  world viewport) with the shipped settings and with one setting changed at a time, and prints `case,median_ms` of the
+  water pass's own GPU time over 90 frames.
 
 ## Install
 

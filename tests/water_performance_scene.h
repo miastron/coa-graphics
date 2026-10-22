@@ -1,0 +1,115 @@
+#pragma once
+
+namespace water_performance
+{
+constexpr int kWarmupFrames = 24;
+constexpr int kMeasuredFrames = 90;
+constexpr int kShippedLogLevel = 1;
+constexpr double kClockStepSeconds = 1.0 / 60.0;
+constexpr double kStartSeconds = 60.0;
+constexpr const char* kGpuMarker = "water gpu ";
+
+struct WaterCase
+{
+    const char* name;
+    void (*apply)(Config&);
+};
+
+void Shipped(Config&) {}
+void QualityOne(Config& cfg) { cfg.waterQuality = 1; }
+void QualityThree(Config& cfg) { cfg.waterQuality = 3; }
+void FlatWaves(Config& cfg) { cfg.waterWaves = 0.0f; }
+void SmallWaves(Config& cfg) { cfg.waterWaves = 0.1f; }
+void NoReflections(Config& cfg) { cfg.waterReflections = 0.0f; }
+void NoFoam(Config& cfg)
+{
+    cfg.waterFoam = 0.0f;
+    cfg.waterShoreFoam = 0.0f;
+}
+void NoSpecular(Config& cfg) { cfg.waterSpecular = 0.0f; }
+void FlatNoReflections(Config& cfg)
+{
+    FlatWaves(cfg);
+    NoReflections(cfg);
+}
+void QualityOneFlatNoReflections(Config& cfg)
+{
+    QualityOne(cfg);
+    FlatNoReflections(cfg);
+}
+
+constexpr WaterCase kCases[] = {
+    {"shipped", Shipped},
+    {"quality1", QualityOne},
+    {"quality3", QualityThree},
+    {"waves0", FlatWaves},
+    {"waves0.1", SmallWaves},
+    {"reflections0", NoReflections},
+    {"foam0", NoFoam},
+    {"specular0", NoSpecular},
+    {"waves0-reflections0", FlatNoReflections},
+    {"quality1-waves0-reflections0", QualityOneFlatNoReflections},
+};
+
+double LastWaterGpuMs(const std::string& log)
+{
+    const size_t at = log.rfind(kGpuMarker);
+    return at == std::string::npos ? -1.0 : std::atof(log.c_str() + at + std::strlen(kGpuMarker));
+}
+
+bool MeasureCase(water_checks::BasinClient& client, const Config& base, const WaterCase& item)
+{
+    Config cfg = water_checks::WaterConfig(base);
+    cfg.logLevel = kShippedLogLevel;
+    item.apply(cfg);
+    vf_test_set_config(&cfg);
+    const size_t logStart = ReadText(runtime_cost::FogLogBesideTheFogDll()).size();
+    bool shaded = true;
+    for (int frame = 0; frame < kWarmupFrames + kMeasuredFrames; ++frame)
+    {
+        vf_test_set_water_seconds(kStartSeconds + frame * kClockStepSeconds);
+        shaded = client.Render({}).shaded && shaded;
+        if (frame == kWarmupFrames - 1)
+            vf_test_force_water_summary();
+    }
+    vf_test_force_water_summary();
+    const std::string log = runtime_cost::LogWrittenSince(logStart);
+    std::printf("%s,%.3f\n", item.name, LastWaterGpuMs(log));
+    return shaded;
+}
+
+int RunWaterPerformance(const std::string& waterDataPath)
+{
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"vfog_water_performance";
+    RegisterClassW(&wc);
+    Config startup;
+    startup.overlay = false;
+    vf_test_set_config(&startup);
+    Harness h;
+    bool ok = ripple_scene::CreateSceneDevice(h, wc.lpszClassName) &&
+              vf_test_load_water_data(waterDataPath.c_str()) != 0;
+    if (ok)
+    {
+        water_checks::BasinClient client(h, water_checks::DefaultWaterView());
+        std::printf("water benchmark, %ux%u world viewport; median water GPU ms of the last %d frames\n",
+                    client.View().world.Width, client.View().world.Height, kMeasuredFrames);
+        std::printf("case,median_ms\n");
+        for (const WaterCase& item : kCases)
+            ok = MeasureCase(client, startup, item) && ok;
+        vf_test_set_water_seconds(water_checks::kRealTime);
+    }
+    h.ReleaseEngineObjects();
+    if (h.dev)
+        h.dev->Release();
+    if (h.d3d)
+        h.d3d->Release();
+    if (h.window)
+        DestroyWindow(h.window);
+    CoUninitialize();
+    return ok ? 0 : 1;
+}
+}

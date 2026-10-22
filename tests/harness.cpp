@@ -3288,6 +3288,7 @@ int RunHarbour(const std::wstring& outDir, const std::string& dataPath, const Ha
 namespace
 {
 #include "performance_scene.h"
+#include "water_performance_scene.h"
 }
 
 int wmain(int argc, wchar_t** argv)
@@ -3352,11 +3353,14 @@ int wmain(int argc, wchar_t** argv)
         return RunPerformance(samples);
     if (scene == L"ripples")
         return ripple_scene::RunRippleScene(out, waterData);
+    if (scene == L"water-performance")
+        return water_performance::RunWaterPerformance(waterData);
     if (scene == L"cpu")
         return Run(out, data, ini, waterData, true);
     if (!scene.empty())
     {
-        std::printf("unknown scene %ls (known: cpu, harbour, performance, ripples)\n", scene.c_str());
+        std::printf("unknown scene %ls (known: cpu, harbour, performance, ripples, water-performance)\n",
+                    scene.c_str());
         return 2;
     }
     return Run(out, data, ini, waterData);
