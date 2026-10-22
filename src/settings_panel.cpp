@@ -35,6 +35,9 @@ const char* const kLogLevelNames[] = {"Errors", "Info", "Debug"};
 const char* const kWaterQualityNames[] = {"Low: 128 waves, sky reflections only",
                                           "Medium: 256 waves, scene reflections",
                                           "High: 256 waves, finer scene reflections"};
+const char* const kWaveRateNames[] = {"Every frame", "60 per second", "30 per second", "20 per second",
+                                      "15 per second"};
+const int kWaveRates[] = {0, 60, 30, 20, 15};
 const char* const kAnisotropyNames[] = {"Off: the game's filtering", "2x", "4x", "8x", "16x"};
 const int kAnisotropyLevels[] = {0, 2, 4, 8, 16};
 const char* const kWaterDebugViewNames[] = {"Off",        "Normals",      "Foam",   "Transmittance",
@@ -387,6 +390,21 @@ bool DrawAntialiasing(Config& c)
     return changed;
 }
 
+bool DrawWaveRate(Config& c)
+{
+    int index = 0;
+    for (int i = 0; i < static_cast<int>(std::size(kWaveRates)); ++i)
+        if (kWaveRates[i] == c.waterWaveRate)
+            index = i;
+    const bool changed =
+        ImGui::Combo("Wave updates", &index, kWaveRateNames, static_cast<int>(std::size(kWaveRateNames)));
+    ImGui::SetItemTooltip("%s", "How often the waves are recomputed; the water keeps the last wave shape in between, "
+                                "which saves GPU time. Every frame = no saving");
+    if (changed)
+        c.waterWaveRate = kWaveRates[index];
+    return changed;
+}
+
 bool DrawWater(Config& c)
 {
     const Section section("Water");
@@ -397,6 +415,7 @@ bool DrawWater(Config& c)
                           "depth while it is drawn. Off: the client's own water");
     changed |= Choice("Water quality", c.waterQuality, 1, kWaterQualityNames,
                       "Size of the wave simulation and detail of the reflections");
+    changed |= DrawWaveRate(c);
     changed |= Slider("Waves", c.waterWaves, 0.0f, 2.0f, "%.2f", "Wave height, 0 = flat water");
     changed |= Slider("Wind", c.waterWind, 0.5f, 10.0f, "%.2f",
                       "Wind that drives the waves; stronger wind makes longer, rougher waves");

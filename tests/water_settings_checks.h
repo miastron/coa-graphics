@@ -98,7 +98,7 @@ void CheckShippedWaterDefaults(const std::wstring& shippedIni)
     Check(Config().waterRipples == 0.5f && store.Get().waterRipples == 0.5f,
           "WaterRipples defaults to 0.5, in the code and in the shipped INI");
     const std::vector<std::string> lines = IniLines(ReadText(shippedIni));
-    const char* const shippedLines[] = {"Water=1",          "WaterQuality=2",     "WaterWaves=1.0",
+    const char* const shippedLines[] = {"Water=1",          "WaterQuality=2",     "WaterWaveRate=0", "WaterWaves=1.0",
                                         "WaterWind=2.0",    "WaterFoam=1.0",      "WaterShoreFoam=1.0",
                                         "WaterShoreWaves=1.0", "WaterReflections=1.0",
                                         "WaterSpecular=1.0", "WaterClarity=1.0", "WaterZoneColors=0.5",

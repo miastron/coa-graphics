@@ -134,6 +134,8 @@ public:
                  uint32_t tileMask);
     bool Run(IDirect3DDevice9* dev, const WaterFftSettings& settings, const std::vector<WaterFftTile>& tiles,
              double seconds, float deltaSeconds);
+    bool HoldsCurrentMaps(const WaterFftSettings& settings) const;
+    void KeepMaps();
     void LogPlan();
 
     IDirect3DTexture9* Surface(int tile) const;

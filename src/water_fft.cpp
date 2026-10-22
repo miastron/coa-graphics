@@ -713,6 +713,21 @@ bool WaterFft::Run(IDirect3DDevice9* dev, const WaterFftSettings& settings, cons
     return true;
 }
 
+bool WaterFft::HoldsCurrentMaps(const WaterFftSettings& settings) const
+{
+    if (!m_prepared || m_activeCount == 0 || m_simulatedResolution != settings.resolution)
+        return false;
+    for (int slot = 0; slot < m_activeCount; ++slot)
+        if (m_created[slot] || !m_tiles[m_active[slot]].simulated)
+            return false;
+    return true;
+}
+
+void WaterFft::KeepMaps()
+{
+    m_prepared = false;
+}
+
 bool WaterFft::Simulate(IDirect3DDevice9* dev, const WaterFftSettings& settings, const std::vector<WaterFftTile>& tiles,
                         uint32_t tileMask, double seconds, float deltaSeconds)
 {

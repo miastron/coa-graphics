@@ -62,6 +62,7 @@ constexpr float kShoreDistancePerDepth = 4.0f;
 constexpr float kSwashFrontFoamPerShoreFoam = 2.0f;
 constexpr float kMinStockFogRange = 1e-3f;
 constexpr double kMaxFoamStepSeconds = 0.1;
+constexpr double kWaveRateSlack = 0.9;
 constexpr double kSummarySeconds = 60.0;
 constexpr size_t kSummaryTextSize = 96;
 constexpr int kLowQuality = 1;
@@ -485,6 +486,7 @@ void WaterRenderer::ReleaseDefaultPool()
     m_armed = false;
     m_stencilArmed = false;
     m_lastSeconds = -1.0;
+    m_lastWaveRunSeconds = -1.0;
     m_fft.ReleaseDefaultPool();
     m_ripples.ReleaseDefaultPool();
     m_contacts.Reset();
@@ -1080,10 +1082,27 @@ bool WaterRenderer::PrepareWaves(IDirect3DDevice9* dev)
     return m_wavesAttempted && m_fft.Prepare(dev, m_waveSettings, GlobalWaterData().Tiles(), m_waveTiles);
 }
 
+bool WaterRenderer::WaveMapsStillCurrent(double seconds) const
+{
+    if (m_cfg.waterWaveRate <= 0 || m_lastWaveRunSeconds < 0.0 || seconds < m_lastWaveRunSeconds)
+        return false;
+    const double interval = kWaveRateSlack / m_cfg.waterWaveRate;
+    return seconds - m_lastWaveRunSeconds < interval && m_fft.HoldsCurrentMaps(m_waveSettings);
+}
+
 bool WaterRenderer::SimulateWaves(IDirect3DDevice9* dev, double seconds)
 {
-    const double step = m_lastSeconds < 0.0 ? 0.0 : std::clamp(seconds - m_lastSeconds, 0.0, kMaxFoamStepSeconds);
-    return m_fft.Run(dev, m_waveSettings, GlobalWaterData().Tiles(), seconds, static_cast<float>(step));
+    if (WaveMapsStillCurrent(seconds))
+    {
+        m_fft.KeepMaps();
+        return true;
+    }
+    const double previous = m_cfg.waterWaveRate > 0 ? m_lastWaveRunSeconds : m_lastSeconds;
+    const double step = previous < 0.0 ? 0.0 : std::clamp(seconds - previous, 0.0, kMaxFoamStepSeconds);
+    const bool ran = m_fft.Run(dev, m_waveSettings, GlobalWaterData().Tiles(), seconds, static_cast<float>(step));
+    if (ran)
+        m_lastWaveRunSeconds = seconds;
+    return ran;
 }
 
 bool WaterRenderer::RippleContinuityBroken(double seconds) const

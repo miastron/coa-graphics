@@ -87,6 +87,7 @@ struct Config
     int logLevel = 1;
     bool water = true;
     int waterQuality = 2;
+    int waterWaveRate = 0;
     float waterWaves = 1.0f;
     float waterWind = 2.0f;
     float waterFoam = 1.0f;

@@ -1191,6 +1191,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `LogLevel` | 1 | 0 errors, 1 info (frame summary with the fog's GPU time, depth probe; see Log), 2 debug |
 | `Water` | 1 | Modern water; 0 = the client's own water |
 | `WaterQuality` | 2 | 1 128² waves, sky reflections only; 2 256², scene reflections; 3 256², finer reflections |
+| `WaterWaveRate` | 0 | Wave updates per second, 0..120; 0 = every frame. The water keeps the last wave shape between updates. On the basin benchmark one wave update costs about 2.5 ms of the 4.7 ms water pass, so 30 saves about 1.2 ms on average |
 | `WaterWaves` | 1 | Wave height 0..2; 0 = flat water |
 | `WaterWind` | 2 | Wind driving the waves, 0.5..10 |
 | `WaterFoam`, `WaterReflections` | 1, 1 | Crest foam and reflection strength, 0..2 |

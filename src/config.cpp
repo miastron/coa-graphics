@@ -65,6 +65,7 @@ const FloatSetting kImageFloatSettings[] = {
 
 const IntSetting kWaterIntSettings[] = {
     {"WaterQuality", &Config::waterQuality, 1, 3},
+    {"WaterWaveRate", &Config::waterWaveRate, 0, 120},
     {"WaterDebugView", &Config::waterDebugView, 0, 6},
 };
 

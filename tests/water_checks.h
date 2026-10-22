@@ -1679,6 +1679,44 @@ WaterFrameResult RenderAfterFoamClock(BasinClient& client, const WaterFrame& fra
     return client.Render(frame);
 }
 
+constexpr int kSlowWaveRate = 10;
+constexpr double kWaveRateStartSeconds = 300.0;
+constexpr double kWithinWaveInterval = 0.04;
+constexpr double kBeyondWaveInterval = 0.15;
+
+WaterFrameResult RenderWavesAt(BasinClient& client, const Config& cfg, double seconds)
+{
+    vf_test_set_config(&cfg);
+    vf_test_set_water_seconds(seconds);
+    return client.Render(WaterFrame());
+}
+
+void CheckWaveRateReusesTheWaves(BasinClient& client, const Config& base)
+{
+    const bool assigned = AssignWaterData(MakeSyntheticWaterData());
+    Config every = WaterConfig(base);
+    every.waterWaveRate = 0;
+    every.waterShoreWaves = 0.0f;
+    every.waterDebugView = kNormalDebugView;
+    Config slow = every;
+    slow.waterWaveRate = kSlowWaveRate;
+    const double start = kWaveRateStartSeconds;
+    const WaterFrameResult first = RenderWavesAt(client, every, start);
+    const WaterFrameResult next = RenderWavesAt(client, every, start + kWithinWaveInterval);
+    const WaterFrameResult slowFirst = RenderWavesAt(client, slow, start + 1.0);
+    const WaterFrameResult slowWithin = RenderWavesAt(client, slow, start + 1.0 + kWithinWaveInterval);
+    const WaterFrameResult slowBeyond = RenderWavesAt(client, slow, start + 1.0 + kBeyondWaveInterval);
+    vf_test_set_water_seconds(kFrameSeconds);
+    const Config on = WaterConfig(base);
+    vf_test_set_config(&on);
+    Check(assigned && first.began && !SameImage(first.image, next.image),
+          "with WaterWaveRate=0 the waves move between two frames 0.04 s apart");
+    Check(slowFirst.began && SameImage(slowFirst.image, slowWithin.image),
+          "with WaterWaveRate=10 a frame 0.04 s after a wave update keeps the last wave shape");
+    Check(!SameImage(slowFirst.image, slowBeyond.image),
+          "with WaterWaveRate=10 a frame 0.15 s after a wave update recomputes the waves");
+}
+
 void CheckFlatWaterHasNoCrestFoam(BasinClient& client, const Config& base)
 {
     const bool assigned = AssignWaterData(WaveFoamOnlyLake());
@@ -2683,6 +2721,7 @@ void CheckWaterPass(Harness& h, const std::wstring& outDir, const std::string& w
     CheckFaultedFirstBeginReleasesItsResources(client, base);
     CheckFailedFoamMaskUploadsRetry(client, base);
     CheckFlatWaterHasNoCrestFoam(client, base);
+    CheckWaveRateReusesTheWaves(client, base);
     CheckShoreFoamWidthFollowsTheSlope(h, base);
     CheckShoreFoamFollowsItsOwnSetting(h, base);
     CheckShallowFoamIgnoresTheCameraAngle(h, base);
