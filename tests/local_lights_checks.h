@@ -221,10 +221,15 @@ void LinkPointLightTable(PointLightTable& table)
 }
 
 template <typename Table>
+LocalLightCapture CaptureTableFrom(Table& table, const LocalLightCamera& camera, LocalLightInputs& out)
+{
+    return engine::CapturePointLightTable(reinterpret_cast<uintptr_t>(&table.sceneSlot), camera, {}, out);
+}
+
+template <typename Table>
 LocalLightCapture CaptureTable(Table& table, LocalLightInputs& out)
 {
-    const LocalLightCamera camera;
-    return engine::CapturePointLightTable(reinterpret_cast<uintptr_t>(&table.sceneSlot), camera, {}, out);
+    return CaptureTableFrom(table, LocalLightCamera{}, out);
 }
 
 bool CapturedAs(PointLightTable& table, LocalLightCapture expected, uint32_t lights)
@@ -347,6 +352,30 @@ void CheckInteriorInputsSurviveAnIncompleteWalk()
           "damaged table, exterior when their reads disagree, and exterior with the lights kept on a read fault");
 }
 
+constexpr size_t kLastTableBucket = kTableBucketCount - 1;
+constexpr float kCameraInLastCell[3] = {1270.0f, 1270.0f, 0.0f};
+constexpr float kLightBesideCamera[3] = {1275.0f, 1270.0f, 0.0f};
+
+void CheckTruncatedWalkKeepsLightsNearTheCamera()
+{
+    auto table = std::make_unique<LongPointLightTable>();
+    LinkLongPointLightTable(*table);
+    TablePointLight beside;
+    std::memcpy(beside.position, kLightBesideCamera, sizeof(beside.position));
+    beside.scene = table->sceneSlot;
+    beside.previousLink = reinterpret_cast<uintptr_t>(&table->buckets[kLastTableBucket]);
+    table->buckets[kLastTableBucket] = reinterpret_cast<uintptr_t>(&beside);
+
+    LocalLightCamera camera;
+    std::memcpy(camera.position, kCameraInLastCell, sizeof(camera.position));
+    LocalLightInputs walked;
+    const LocalLightCapture capture = CaptureTableFrom(*table, camera, walked);
+    Check(capture == LocalLightCapture::TableTruncated && walked.pointLightCount == kMaxLocalPointLights &&
+              walked.pointLights[0].nativeId == reinterpret_cast<uintptr_t>(&beside),
+          "a table beyond 8192 nodes is walked outward from the camera's own grid cell, so the light beside the "
+          "camera survives the truncation even in the last bucket");
+}
+
 void CheckPointLightTableCapture()
 {
     auto table = std::make_unique<PointLightTable>();
@@ -392,6 +421,8 @@ void CheckPointLightTableCapture()
               truncatedWalk.pointLightCount == kMaxLocalPointLights &&
               truncatedWalk.candidateCount == kLocalLightCandidatePool,
           "a table beyond 8192 nodes is truncated, not rejected: the lights walked so far stay usable");
+
+    CheckTruncatedWalkKeepsLightsNearTheCamera();
 
     void* unmapped = VirtualAlloc(nullptr, 65536, MEM_RESERVE, PAGE_NOACCESS);
     LinkPointLightTable(*table);

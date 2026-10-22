@@ -561,9 +561,14 @@ not needed and must not be loaded at the same time.
   a thunk that runs the original and writes c14 to c21 of that structure: the camera, the player, the cone and radius,
   two waves and the blade variance. Their guards are the entry `55 8B EC 81 EC 5C 01 00 00 56 6A 00 68 70 01 00`, the
   clear `6A 00 68 70 01 00 00 68 18 C5 D1 00` at `0x007B15DA` and the upload above.
-- **The player.** The object manager's active player GUID is at `+0xC0` (`8B 81 C0 00 00 00 8B 91 C4 00 00 00` at
-  `0x004D37AE`); the player's position is read from the visible object list as the water contacts read it, from the
-  unit position or, on a transport, the world entity position. Without a player the grass is not parted.
+- **The player.** `CGWorldFrame::UpdateDayNight` `0x4F8410` copies the active player's `GetPosition()` into
+  `DNInfo.m_playerPos` `[0xD38B0C]` every frame the player exists (`8B 08 89 4E 0C 8B 50 04 89 56 10 8B 40 08 89 46 14`
+  at `0x4F8555`, `ESI` being the `GetInfo` result `0x7ECEF0`, `B8 00 8B D3 00`). `CGUnit_C::GetPosition` `0x6E6EF0` is
+  the movement's `CPassenger::GetPosition`, the world position also on a transport, so the grass reads that float
+  triple instead of walking the visible object list. `DayNight::LoadMap` zeroes it and it is not cleared when the
+  player leaves, so out of the world the grass is parted around a stale point nobody sees. The earlier walk, replaced
+  here, matched the active player GUID (`+0xC0` of the object manager) in the visible list. The harness cannot read
+  client memory, so this read has no check; the first in-game look is a transport passenger.
 - **Settings.** `GrassWind*` and `GrassParting*` in `CoAGraphics.ini` and the Grass section of the settings window. The
   shader rewrite is made when the game creates its shaders, so it needs `GrassWind=1` or `GrassParting=1` at start; with
   it in place the keys apply within a second and 0 stops the motion.
@@ -888,6 +893,15 @@ Engine notes behind the code:
   logged once. The interior inputs are read after the walk whatever it returned and kept when their reads were
   consistent; a read fault leaves them exterior. An unsupported client or an out-of-range camera gives an empty
   result. `LocalLights=0` skips the point-light walk.
+- Light grid. The 4096 buckets at the scene's `+0x24` are the 64 by 64 `CM2Scene::m_lightGrid`: a light's bucket is
+  `x + 64·y` with `x`, `y` = `floor(position·0.05) & 63` (`M2Light.cpp:150`, `s_lightGridScale`; the client's own
+  `CM2Scene::SelectLights` `0x81E400` visits the cells around a model's sphere with the same cell formula and wraps at
+  64). The walk visits every cell in rings around the camera's cell, nearest ring first, so the 8192-node limit drops
+  the lights farthest from the camera, not those in the later buckets. It still covers all 4096 cells, because a light's
+  reach (up to 200 yd) lights surfaces far from the camera. Candidates are ranked by a priority computed once when the
+  candidate is ranked, not at each comparison. `CM2Light::Link` `0x834C70` multiplies both coordinates by `[0xAF59D4]`
+  (`0.05`, `CD CC 4C 3D`; `D8 0D D4 59 AF 00`), floors them, masks with 63 (`83 E7 3F C1 E7 06`, `83 E1 3F`) and adds
+  `64·y` to `x` (`03 F9`).
 - Water pass. `0x77F020` jumps to `0x790A80`, which calls the liquid renderer `0x8A2240` at `0x790AA2`
   (`E8 99 17 11 00`) with ECX = `[0xCD8610]` (`0x790A91`), the camera `0xCD8F5C` and pass 1 (`0x790A9B`, `6A 01`);
   it is a thiscall that returns with `ret 8` (`0x8A2376`). The same `0x77F020` runs from `0x4F9170` (camera above

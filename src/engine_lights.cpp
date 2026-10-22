@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <vector>
 
 namespace
 {
@@ -17,7 +18,10 @@ constexpr uintptr_t kScenePointLightBuckets = 0x24;
 constexpr uintptr_t kSceneFrameStamp = 0x14;
 constexpr uint32_t kHiddenModelFrames = 2;
 constexpr float kHiddenLightViewInset = 2.0f;
-constexpr uint32_t kPointLightBucketCount = 4096;
+constexpr uint32_t kLightGridSide = 64;
+constexpr uint32_t kLightGridMask = kLightGridSide - 1;
+constexpr uint32_t kPointLightBucketCount = kLightGridSide * kLightGridSide;
+constexpr float kLightGridScale = 0.05f;
 constexpr uint32_t kMaxPointLightBucketNodes = 512;
 constexpr uint32_t kMaxPointLightNodes = 8192;
 constexpr uint32_t kNativePointLightType = 1;
@@ -92,10 +96,8 @@ float LinearChannel(float channel, float peak)
 
 bool Precedes(const LocalPointLight& a, const LocalPointLight& b, const float cameraPosition[3])
 {
-    const double aPriority = engine::LocalLightPriority(a, cameraPosition);
-    const double bPriority = engine::LocalLightPriority(b, cameraPosition);
-    if (aPriority != bPriority)
-        return aPriority > bPriority;
+    if (a.rankPriority != b.rankPriority)
+        return a.rankPriority > b.rankPriority;
     const double aDistance = SquaredDistance(a.position, cameraPosition);
     const double bDistance = SquaredDistance(b.position, cameraPosition);
     if (aDistance != bDistance)
@@ -126,6 +128,35 @@ bool InsertRankedLight(LocalPointLight* list, uint32_t& count, uint32_t capacity
     list[index] = candidate;
     count = newCount;
     return true;
+}
+
+struct GridOffset
+{
+    int dx;
+    int dy;
+};
+
+const std::vector<GridOffset>& GridOffsetsNearestFirst()
+{
+    static const std::vector<GridOffset> offsets = [] {
+        std::vector<GridOffset> list;
+        list.reserve(kPointLightBucketCount);
+        const int half = static_cast<int>(kLightGridSide / 2);
+        for (int ring = 0; ring <= half; ++ring)
+            for (int dy = -half; dy < half; ++dy)
+                for (int dx = -half; dx < half; ++dx)
+                    if (std::max(std::abs(dx), std::abs(dy)) == ring)
+                        list.push_back({dx, dy});
+        return list;
+    }();
+    return offsets;
+}
+
+uint32_t LightGridCell(float coordinate)
+{
+    if (!std::isfinite(coordinate) || std::fabs(coordinate) > kMaxWorldCoordinate)
+        return 0;
+    return static_cast<uint32_t>(static_cast<int32_t>(std::floor(coordinate * kLightGridScale))) & kLightGridMask;
 }
 
 struct ViewPlane
@@ -271,8 +302,13 @@ LocalLightCapture CapturePointLightsUnsafe(uintptr_t sceneSlot, const LocalLight
     if (!ValidPointer(buckets, kPointLightBucketCount * sizeof(uintptr_t)))
         return LocalLightCapture::DamagedTable;
     uint32_t nodeCount = 0;
-    for (uint32_t bucket = 0; bucket < kPointLightBucketCount; ++bucket)
+    const uint32_t cameraX = LightGridCell(camera.position[0]);
+    const uint32_t cameraY = LightGridCell(camera.position[1]);
+    for (const GridOffset& offset : GridOffsetsNearestFirst())
     {
+        const uint32_t x = (cameraX + static_cast<uint32_t>(offset.dx)) & kLightGridMask;
+        const uint32_t y = (cameraY + static_cast<uint32_t>(offset.dy)) & kLightGridMask;
+        const uint32_t bucket = x + kLightGridSide * y;
         uintptr_t previousLink = buckets + bucket * sizeof(uintptr_t);
         uintptr_t address = Read<uintptr_t>(previousLink);
         uint32_t bucketNodes = 0;
@@ -400,8 +436,10 @@ bool BoundCandidate(const LocalPointLight& light, const PointLightUpload& upload
 
 bool RankCandidate(LocalLightInputs& out, const LocalPointLight& candidate, const float cameraPosition[3])
 {
-    InsertRankedLight(out.candidates, out.candidateCount, kLocalLightCandidatePool, candidate, cameraPosition);
-    return InsertRankedLight(out.pointLights, out.pointLightCount, kMaxLocalPointLights, candidate, cameraPosition);
+    LocalPointLight ranked = candidate;
+    ranked.rankPriority = engine::LocalLightPriority(ranked, cameraPosition);
+    InsertRankedLight(out.candidates, out.candidateCount, kLocalLightCandidatePool, ranked, cameraPosition);
+    return InsertRankedLight(out.pointLights, out.pointLightCount, kMaxLocalPointLights, ranked, cameraPosition);
 }
 }
 

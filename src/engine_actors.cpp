@@ -17,7 +17,6 @@ constexpr uint32_t kClientTimestamp = 0x4C2452FE;
 constexpr uintptr_t kClientConnection = 0x00C79CE0;
 constexpr uintptr_t kConnectionObjectManager = 0x2ED0;
 constexpr uintptr_t kObjectManagerSize = 0xD8;
-constexpr uintptr_t kManagerActivePlayerGuid = 0xC0;
 constexpr uintptr_t kManagerVisibleLinkOffset = 0xA4;
 constexpr uintptr_t kManagerVisibleHead = 0xA8;
 constexpr uintptr_t kManagerVisibleFirst = 0xAC;
@@ -52,6 +51,7 @@ constexpr float kMaxCollisionHeight = 100.0f;
 constexpr float kMinClientRippleDepthLimit = 1.0f;
 constexpr float kClientRippleDepthLimitPerHeight = 2.0f;
 constexpr size_t kMaxGuardBytes = 20;
+constexpr uintptr_t kDayNightPlayerPosition = 0x00D38B0C;
 
 struct GuardBytes
 {
@@ -87,7 +87,9 @@ const GuardBytes kWaterContactLayout[] = {
 };
 
 const GuardBytes kActivePlayerLayout[] = {
-    {"active player guid", 0x004D37AE, 12, {0x8B, 0x81, 0xC0, 0x00, 0x00, 0x00, 0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00}},
+    {"day and night info address", 0x007ECEF0, 5, {0xB8, 0x00, 0x8B, 0xD3, 0x00}},
+    {"day and night player position store", 0x004F8555, 17,
+     {0x8B, 0x08, 0x89, 0x4E, 0x0C, 0x8B, 0x50, 0x04, 0x89, 0x56, 0x10, 0x8B, 0x40, 0x08, 0x89, 0x46, 0x14}},
 };
 
 bool FiniteWithin(float value, float minimum, float maximum)
@@ -280,36 +282,12 @@ bool ReadObjectManager(uintptr_t& manager)
     }
 }
 
-bool ReadUnitPositionUnsafe(uintptr_t object, float out[3])
-{
-    const uintptr_t entity = Read<uintptr_t>(object + kObjectWorldEntity);
-    const bool onTransport = Read<uint64_t>(object + kUnitTransportGuid) != 0;
-    if (onTransport && !ValidPointer(entity, kEntitySize))
-        return false;
-    const uintptr_t position = onTransport ? entity + kEntityWorldPosition : object + kUnitPosition;
-    std::memcpy(out, reinterpret_cast<const void*>(position), sizeof(float) * 3);
-    return true;
-}
-
-bool ReadActivePlayerPositionUnsafe(uintptr_t manager, float out[3])
-{
-    const uint64_t guid = Read<uint64_t>(manager + kManagerActivePlayerGuid);
-    bool truncated = false;
-    bool found = false;
-    const bool walked = WalkVisibleObjectsUnsafe(manager, truncated, [&](uintptr_t object) {
-        if (Read<uint64_t>(object + kObjectGuid) != guid || !IsUnit(object))
-            return false;
-        found = ReadUnitPositionUnsafe(object, out);
-        return true;
-    });
-    return guid && walked && found;
-}
-
-bool ReadActivePlayerPositionGuarded(uintptr_t manager, float out[3])
+bool ReadActivePlayerPositionGuarded(float out[3])
 {
     __try
     {
-        return ReadActivePlayerPositionUnsafe(manager, out);
+        ReadFloats(kDayNightPlayerPosition, out, 3);
+        return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -378,10 +356,8 @@ bool ActivePlayerSupported()
 
 bool ReadActivePlayerPosition(float out[3])
 {
-    uintptr_t manager = 0;
     float position[3];
-    if (!ActivePlayerSupported() || !ReadObjectManager(manager) || !manager ||
-        !ReadActivePlayerPositionGuarded(manager, position) || !ValidCentre(position))
+    if (!ActivePlayerSupported() || !ReadActivePlayerPositionGuarded(position) || !ValidCentre(position))
         return false;
     std::memcpy(out, position, sizeof(position));
     return true;
