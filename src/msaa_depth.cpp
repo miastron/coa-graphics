@@ -631,10 +631,11 @@ bool DepthCopy::Copy(IDirect3DDevice9* dev) const
 bool SceneDepth::Refresh(IDirect3DDevice9* dev, DepthRefreshSite site) const
 {
     const bool written = !writtenSinceRefresh || *writtenSinceRefresh;
-    const bool refreshed = !copy || copy->Copy(dev);
+    const bool copyNeeded = copy && written;
+    const bool refreshed = !copyNeeded || copy->Copy(dev);
     if (refreshed && writtenSinceRefresh)
         *writtenSinceRefresh = false;
-    GlobalFrameCopies().CountDepthRefresh(site, written, copy && refreshed);
+    GlobalFrameCopies().CountDepthRefresh(site, written, copyNeeded && refreshed);
     return refreshed;
 }
 

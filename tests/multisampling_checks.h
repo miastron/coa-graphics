@@ -319,6 +319,73 @@ bool CopiedDepthMatches(const FogFrame& f)
            std::fabs(f.copied[1] - kFarQuadDepth) <= kCopiedDepthTolerance;
 }
 
+constexpr float kNearerQuadDepth = 0.1f;
+constexpr float kBehindFarQuadDepth = 0.05f;
+constexpr int kFogRefreshSite = static_cast<int>(DepthRefreshSite::Fog);
+
+FrameCopyCounts RefreshDepth(int times)
+{
+    FrameCopyCounts discarded;
+    vf_test_take_frame_copies(&discarded);
+    for (int i = 0; i < times; ++i)
+        vf_test_refresh_scene_depth();
+    FrameCopyCounts counts;
+    vf_test_take_frame_copies(&counts);
+    return counts;
+}
+
+bool CopyHolds(float nearTexel, float farTexel)
+{
+    const DepthTexel texels[2] = {kNearQuadTexel, kFarQuadTexel};
+    float read[2] = {};
+    return vf_test_read_scene_depth(texels, 2, read) != 0 && std::fabs(read[0] - nearTexel) <= kCopiedDepthTolerance &&
+           std::fabs(read[1] - farTexel) <= kCopiedDepthTolerance;
+}
+
+void CheckUnchangedDepthIsNotCopiedAgain(Harness& m)
+{
+    const WorldCamera camera;
+    m.BeginFrame();
+    m.dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+    m.dev->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    m.DrawScene(camera.eye, camera.view, camera.proj, camera.world);
+    DrawDepthQuads(m);
+    const FrameCopyCounts first = RefreshDepth(1);
+    const FrameCopyCounts repeated = RefreshDepth(2);
+    const bool firstCopied = first.depthCopies[kFogRefreshSite] == 1 && CopyHolds(kNearQuadDepth, kFarQuadDepth);
+    const bool repeatSkipped = repeated.depthRefreshes[kFogRefreshSite] == 2 &&
+                               repeated.depthRefreshesUnwritten[kFogRefreshSite] == 2 &&
+                               repeated.depthCopies[kFogRefreshSite] == 0 && CopyHolds(kNearQuadDepth, kFarQuadDepth);
+
+    m.DrawPretransformedQuadAtRawDepth(680.0f, kQuadTop, 1240.0f, kQuadBottom, kNearerQuadDepth);
+    const FrameCopyCounts afterDraw = RefreshDepth(1);
+    const bool drawCopied = afterDraw.depthCopies[kFogRefreshSite] == 1 && CopyHolds(kNearQuadDepth, kNearerQuadDepth);
+
+    m.dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    m.DrawPretransformedQuadAtRawDepth(680.0f, kQuadTop, 1240.0f, kQuadBottom, kBehindFarQuadDepth);
+    m.dev->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    const FrameCopyCounts withoutWrites = RefreshDepth(1);
+    const bool noWriteSkipped =
+        withoutWrites.depthCopies[kFogRefreshSite] == 0 && CopyHolds(kNearQuadDepth, kNearerQuadDepth);
+
+    m.dev->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+    const FrameCopyCounts afterClear = RefreshDepth(1);
+    const bool clearCopied = afterClear.depthCopies[kFogRefreshSite] == 1 && CopyHolds(1.0f, 1.0f);
+    m.dev->EndScene();
+    m.dev->Present(nullptr, nullptr, nullptr, nullptr);
+    std::printf("     4x depth refresh: first %u copies, repeated twice %u, after a draw %u, draw without depth writes "
+                "%u, after a clear %u\n",
+                first.depthCopies[kFogRefreshSite], repeated.depthCopies[kFogRefreshSite],
+                afterDraw.depthCopies[kFogRefreshSite], withoutWrites.depthCopies[kFogRefreshSite],
+                afterClear.depthCopies[kFogRefreshSite]);
+    Check(firstCopied && repeatSkipped,
+          "on a 4x device the first depth refresh copies the multisampled depth and repeating it with no client depth "
+          "write issues no copy while the INTZ depth stays what the scene drew");
+    Check(drawCopied && noWriteSkipped && clearCopied,
+          "on a 4x device a draw with depth writes or a depth clear makes the next refresh copy again, and a draw "
+          "with depth writes off does not");
+}
+
 void PrintFogFrame(const char* when, const FogFrame& f)
 {
     std::printf("     %s: fog %s%s, copied depth %.7f / %.7f (drawn %.2f / %.2f), mean luma change %.4f\n", when,
@@ -1193,6 +1260,8 @@ void CheckMultisampledDevice(Harness& m, const DepthCopyProbe& probe, const std:
     Check(FogFrameDrawn(fog), "fog draws on a 4x device and its INTZ copy equals the depth the scene drew");
     Check(fog.statesKept && fog.depthFunction == kClientDepthFunction && fog.stencilKept,
           "on a 4x device the fog restores render, sampler, shader, constant, target, depth-test and stencil state");
+    if (KeptBy(status, probe))
+        CheckUnchangedDepthIsNotCopiedAgain(m);
     const DepthTexel quadTexels[2] = {kNearQuadTexel, kFarQuadTexel};
     const float quadDepths[2] = {kNearQuadDepth, kFarQuadDepth};
     transparent_fog_checks::CheckEarlyCompositeOnMultisampledDevice(m, WorldCamera().world, quadTexels, quadDepths,
