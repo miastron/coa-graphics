@@ -749,7 +749,7 @@ Engine notes behind the code:
   `OverlayWindowProc` and the `Present` hook never run concurrently. The only other threads the reconstruction creates
   are asynchronous file reads, the model cache, URL downloads, sound and a Steelseries HID thread.
 - Pure device. The client requests `D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_PUREDEVICE | D3DCREATE_FPU_PRESERVE`
-  (`CGxDeviceD3d.cpp:2606`) and calls only `GetBackBuffer`, `GetCreationParameters`, `GetDepthStencilSurface` and
+  (`CGxDeviceD3d.cpp:2609`) and calls only `GetBackBuffer`, `GetCreationParameters`, `GetDepthStencilSurface` and
   `GetRenderTarget` on its device, all valid on a pure device. The wrapper removes the flag because the DLL itself calls
   `GetRenderState`, `GetStreamSource`, `GetViewport`, `GetScissorRect`, `GetTexture`, `GetPixelShader`,
   `GetVertexShader`, `GetVertexDeclaration`, `GetFVF` and `GetIndices` on the real device in nine source files.
@@ -824,9 +824,9 @@ Engine notes behind the code:
   `0x4F712D`; values above 7 become −1) and `0x7ECEE0` clears it. In CoA's `ScreenEffect.dbc` the ghost effect
   (ID 1) and the other death-style effects use slot 4; a few event effects force slots 0, 1, 2, 3 or 5.
 - Current map. `DayNight::s_mapId` `[0xD38AC4]` is stored by `DayNight::LoadMap` `0x7F2790` (`A3 C4 8A D3 00` at
-  `0x7F27A1`, the argument of `CMap::LoadMap` `Map.cpp:3033`), the same map the light tables are loaded for, and
+  `0x7F27A1`, the argument of `CMap::LoadMap` `Map.cpp:3040`), the same map the light tables are loaded for, and
   is not cleared on unload. `World::QueryMapId` `0x77F080` returns the map's own copy `[0xADFBC4]`
-  (`A1 C4 FB AD 00 C3`), which `Map.cpp:702` resets to −1 on unload. The earlier source `[0xAB63BC]` is the
+  (`A1 C4 FB AD 00 C3`), which `Map.cpp:709` resets to −1 on unload. The earlier source `[0xAB63BC]` is the
   loading screen's `s_simpleMapID`: the world-transfer loading screen `0x40AD50` stores its map argument there
   (`0x40AD56`, `A3 BC 63 AB 00`) and `0x40AE0A` and `0x40AECF` set it to −1 for the ship and zeppelin screens, so
   it is not the world's map. Bytes checked in the 12340 image (timestamp `0x4C2452FE`). In-game logs showed map 0
@@ -1010,7 +1010,7 @@ Engine notes behind the code:
   clock writes the minute, hour, fractional minutes (`+0x34`), running flag and base minute each `Present`; resuming
   calls `GameTimeSetTime` once with the pinned time. The server's `SMSG_GAME_TIME_UPDATE` ticks the clock through
   `GameTimeSync`, so the pin is rewritten every frame. Maps with a time of day override and ghosts in the spirit realm
-  ignore the clock (`CGWorldFrame` at `WorldFrame.cpp:1579-1600`).
+  ignore the clock (`CGWorldFrame` at `WorldFrame.cpp:1588-1609`).
 - Not used. `0xD38B98` is fog group 0's exponent, which Extensions.dll overrides (group 0's end is `0xD38B94`), and
   `0xD38C9C` is a near-constant model lighting direction, not the visible sun, so the fog's light direction
   follows the sprite positions.
