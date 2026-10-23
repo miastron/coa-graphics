@@ -177,7 +177,7 @@ function(coa_object_library name testing)
         target_compile_definitions(${name} PRIVATE VF_TESTING)
     endif()
     target_compile_options(${name} PRIVATE /W4 /WX /permissive- /wd4100 /arch:SSE2 /fp:fast /GS)
-    target_compile_options(${name} PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_compile_options(${name} PRIVATE $<$<CONFIG:Release>:/Zi /GL>)
     target_link_libraries(${name} PRIVATE imgui)
 endfunction()
 
@@ -190,7 +190,7 @@ set(COA_TEST_OBJECTS $<TARGET_OBJECTS:coa_modules_test> $<TARGET_OBJECTS:coa_run
 
 add_library(CoAGraphics SHARED ${COA_OBJECTS} src/CoAGraphics.def)
 target_link_libraries(CoAGraphics PRIVATE kernel32 user32 imgui)
-target_link_options(CoAGraphics PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
+target_link_options(CoAGraphics PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF /LTCG>)
 
 add_library(CoAGraphicsTest SHARED ${COA_TEST_OBJECTS} src/test_exports.cpp src/CoAGraphicsTest.def)
 add_dependencies(CoAGraphicsTest vf_shaders)
@@ -198,6 +198,7 @@ target_include_directories(CoAGraphicsTest PRIVATE src ${SHADER_OUT} ${smaa_SOUR
 target_compile_definitions(CoAGraphicsTest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS VF_TESTING)
 target_compile_options(CoAGraphicsTest PRIVATE /W4 /WX /permissive- /wd4100 /arch:SSE2 /fp:fast /GS)
 target_link_libraries(CoAGraphicsTest PRIVATE kernel32 user32 imgui)
+target_link_options(CoAGraphicsTest PRIVATE $<$<CONFIG:Release>:/LTCG>)
 
 add_library(version SHARED proxy/version_proxy.cpp proxy/version.def)
 target_link_libraries(version PRIVATE CoAGraphics)
@@ -209,6 +210,7 @@ target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CR
                            GRASS_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders")
 target_compile_options(vfog_harness PRIVATE /W4 /WX /permissive- /wd4100 /wd4456)
 target_link_libraries(vfog_harness PRIVATE CoAGraphicsTest user32 ole32 windowscodecs)
+target_link_options(vfog_harness PRIVATE $<$<CONFIG:Release>:/LTCG>)
 add_custom_command(TARGET CoAGraphics POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/CoAGraphics.ini
             ${CMAKE_CURRENT_SOURCE_DIR}/data/fogdata.bin ${CMAKE_CURRENT_SOURCE_DIR}/data/waterdata.bin
