@@ -3,6 +3,7 @@
 #include "client_ripple_sprites.h"
 #include "grass_wind.h"
 #include "log.h"
+#include "test_seams.h"
 #include "msaa_depth.h"
 #include "overlay.h"
 #include "renderer.h"
@@ -1071,7 +1072,7 @@ bool FogDevice::CreateDepth()
         backBuffer->GetDesc(&desc);
         backBuffer->Release();
     }
-    if (!g_depthCreationRefused && desc.Width &&
+    if (!Seam<bool>(g_depthCreationRefused, false) && desc.Width &&
         SUCCEEDED(m_real->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_DEPTHSTENCIL, kIntz, D3DPOOL_DEFAULT,
                                         &m_depthTexture, nullptr)) &&
         SUCCEEDED(m_depthTexture->GetSurfaceLevel(0, &m_depthSurface)) &&
@@ -1281,10 +1282,12 @@ void RunAtFirstDevice(void (*startup)())
     g_startupAtFirstDevice = startup;
 }
 
+#ifdef VF_TESTING
 void RefuseFogDepthCreation(bool refused)
 {
     g_depthCreationRefused = refused;
 }
+#endif
 
 FogDevice* LatestFogDevice()
 {

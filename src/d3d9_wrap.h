@@ -20,7 +20,9 @@ void RunAtFirstDevice(void (*startup)());
 
 class FogDevice;
 FogDevice* LatestFogDevice();
+#ifdef VF_TESTING
 void RefuseFogDepthCreation(bool refused);
+#endif
 MultisamplingStatus CurrentMultisamplingStatus();
 bool ReadSceneDepth(FogDevice* device, const DepthTexel* texels, int count, float* values);
 FogDevice* WrapperOrLatestFogDevice(void* gameDevice);

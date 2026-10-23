@@ -17,10 +17,12 @@
 #include <string>
 #include <vector>
 
-void OverrideWaterSeconds(double seconds);
 double WaterClockSeconds();
+#ifdef VF_TESTING
+void OverrideWaterSeconds(double seconds);
 void DisableWaveSimulation(bool disabled);
 void ForcePackedWaterDepth(bool forced);
+#endif
 
 enum class WaterFaultStage
 {
@@ -29,10 +31,12 @@ enum class WaterFaultStage
     End,
 };
 
+#ifdef VF_TESTING
 void InjectWaterFault(WaterFaultStage stage);
 void FailWaterMaskUploads(int count);
 void ForceWaterShadingVariant(int variant);
 void ForceWaterSummary();
+#endif
 
 constexpr int kWaterQualityLevels = 3;
 constexpr int kWaterSkyBands = 5;

@@ -3,6 +3,7 @@
 #include "d3d_util.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
+#include "test_seams.h"
 
 #include "ps_depth_check.h"
 #include "vs_fullscreen.h"
@@ -490,7 +491,7 @@ bool RunTestRounds(IDirect3DDevice9* dev, const DepthCopy& copy, IDirect3DSurfac
 
 bool DepthCopyMethodForced()
 {
-    return g_forcedMethod != kDepthCopyMethodFromDriver;
+    return Seam(g_forcedMethod, kDepthCopyMethodFromDriver) != kDepthCopyMethodFromDriver;
 }
 
 DepthCopyProbe ForcedProbe()
@@ -536,10 +537,12 @@ const char* DepthCopyMethodName(DepthCopyMethod method)
     }
 }
 
+#ifdef VF_TESTING
 void ForceDepthCopyMethod(int method)
 {
     g_forcedMethod = method;
 }
+#endif
 
 bool SameSampleCount(const D3DSURFACE_DESC& target, const D3DSURFACE_DESC& depth)
 {

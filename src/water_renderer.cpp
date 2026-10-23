@@ -4,6 +4,7 @@
 #include "fog_model.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
+#include "test_seams.h"
 #include "renderer.h"
 #include "water_classify.h"
 #include "water_data.h"
@@ -144,9 +145,19 @@ int g_failingMaskUploads = 0;
 int g_forcedShadingVariant = -1;
 bool g_summaryForced = false;
 
+bool PackedDepthForced()
+{
+    return Seam(g_packedDepthForced, false);
+}
+
+int ForcedShadingVariant()
+{
+    return Seam(g_forcedShadingVariant, -1);
+}
+
 void RaiseInjectedFault(WaterFaultStage stage)
 {
-    if (g_injectedFault != stage)
+    if (Seam(g_injectedFault, WaterFaultStage::None) != stage)
         return;
     g_injectedFault = WaterFaultStage::None;
     RaiseException(kInjectedWaterFault, 0, 0, nullptr);
@@ -166,7 +177,7 @@ double QpcSeconds()
 
 double WaterSeconds()
 {
-    return g_secondsOverride >= 0.0 ? g_secondsOverride : QpcSeconds();
+    return Seam(g_secondsOverride, -1.0) >= 0.0 ? g_secondsOverride : QpcSeconds();
 }
 
 bool CreateTarget(IDirect3DDevice9* dev, UINT w, UINT h, D3DFORMAT format, IDirect3DTexture9** out)
@@ -353,7 +364,7 @@ IDirect3DTexture9* CreateMaskStaging(IDirect3DDevice9* dev, const WaterMaskLevel
 
 bool TakeInjectedMaskUploadFailure()
 {
-    if (g_failingMaskUploads <= 0)
+    if (Seam(g_failingMaskUploads, 0) <= 0)
         return false;
     --g_failingMaskUploads;
     return true;
@@ -433,6 +444,7 @@ double WaterClockSeconds()
     return WaterSeconds();
 }
 
+#ifdef VF_TESTING
 void OverrideWaterSeconds(double seconds)
 {
     g_secondsOverride = seconds;
@@ -467,6 +479,7 @@ void ForceWaterSummary()
 {
     g_summaryForced = true;
 }
+#endif
 
 WaterRenderer::~WaterRenderer()
 {
@@ -610,7 +623,7 @@ bool WaterRenderer::EnsureStateBlock(IDirect3DDevice9* dev)
 
 bool WaterRenderer::EnsureCopies(IDirect3DDevice9* dev, IDirect3DSurface9* target, UINT w, UINT h)
 {
-    if (m_sceneColour && m_copyW == w && m_copyH == h && m_packedDepthForcedCopies == g_packedDepthForced)
+    if (m_sceneColour && m_copyW == w && m_copyH == h && m_packedDepthForcedCopies == PackedDepthForced())
         return true;
     SafeRelease(m_sceneColour);
     SafeRelease(m_sceneDepth);
@@ -622,7 +635,7 @@ bool WaterRenderer::EnsureCopies(IDirect3DDevice9* dev, IDirect3DSurface9* targe
     target->GetDesc(&desc);
     const bool colour = CreateTarget(dev, w, h, desc.Format, &m_sceneColour) ||
                         CreateTarget(dev, w, h, D3DFMT_A8R8G8B8, &m_sceneColour);
-    m_packedDepth = g_packedDepthForced || !CreateTarget(dev, w, h, D3DFMT_R32F, &m_sceneDepth) ||
+    m_packedDepth = PackedDepthForced() || !CreateTarget(dev, w, h, D3DFMT_R32F, &m_sceneDepth) ||
                     !CreateTarget(dev, w, h, D3DFMT_R32F, &m_waterDepth);
     bool depth = !m_packedDepth;
     if (m_packedDepth)
@@ -643,7 +656,7 @@ bool WaterRenderer::EnsureCopies(IDirect3DDevice9* dev, IDirect3DSurface9* targe
     }
     m_copyW = w;
     m_copyH = h;
-    m_packedDepthForcedCopies = g_packedDepthForced;
+    m_packedDepthForcedCopies = PackedDepthForced();
     const bool newCopies = w != m_loggedCopyW || h != m_loggedCopyH || m_packedDepth != m_loggedPackedDepth;
     m_loggedCopyW = w;
     m_loggedCopyH = h;
@@ -1082,7 +1095,7 @@ bool WaterRenderer::PrepareWaves(IDirect3DDevice9* dev)
     m_waveSettings.windDirection[0] = kWindDirection[0];
     m_waveSettings.windDirection[1] = kWindDirection[1];
     m_waveSettings.amplitudeScale = m_cfg.waterWaves * m_cfg.waterWaves;
-    m_wavesAttempted = !g_waveSimulationDisabled && m_waveTiles != 0 && m_cfg.waterWaves > 0.0f;
+    m_wavesAttempted = !Seam(g_waveSimulationDisabled, false) && m_waveTiles != 0 && m_cfg.waterWaves > 0.0f;
     return m_wavesAttempted && m_fft.Prepare(dev, m_waveSettings, GlobalWaterData().Tiles(), m_waveTiles);
 }
 
@@ -1442,8 +1455,8 @@ void WaterRenderer::ShadeClasses(IDirect3DDevice9* dev, IDirect3DSurface9* targe
     dev->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
     dev->SetRenderState(D3DRS_STENCILMASK, kStencilAllBits);
     dev->SetRenderState(D3DRS_STENCILWRITEMASK, 0);
-    m_shadingVariant = g_forcedShadingVariant >= 0 && g_forcedShadingVariant < kWaterQualityLevels
-                           ? g_forcedShadingVariant
+    m_shadingVariant = ForcedShadingVariant() >= 0 && ForcedShadingVariant() < kWaterQualityLevels
+                           ? ForcedShadingVariant()
                            : ShadingVariant(m_cfg);
     dev->SetPixelShader(m_shade[m_shadingVariant]);
     dev->SetPixelShaderConstantF(0, &m_common[0][0], kCommonConstants);
@@ -1513,7 +1526,7 @@ void WaterRenderer::LogSummaryWhenDue(IDirect3DDevice9* dev)
     const double now = QpcSeconds();
     if (m_summaryStart < 0.0)
         m_summaryStart = now;
-    if (!g_summaryForced && now - m_summaryStart < kSummarySeconds)
+    if (!Seam(g_summaryForced, false) && now - m_summaryStart < kSummarySeconds)
         return;
     g_summaryForced = false;
     m_summaryStart = now;

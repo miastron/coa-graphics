@@ -13,7 +13,9 @@
 
 #include <d3d9.h>
 
+#ifdef VF_TESTING
 void ForceFogParams(const FogParams* fog);
+#endif
 enum FogResourceKind : unsigned
 {
     kFogShaders = 1,
@@ -21,8 +23,10 @@ enum FogResourceKind : unsigned
     kFogNoise = 4,
 };
 
+#ifdef VF_TESTING
 void FailFogResourceCreation(unsigned kinds);
 unsigned FogResourceCreationAttempts(FogResourceKind kind);
+#endif
 FogParams FogParamsFor(const FrameInputs& in, const Config& cfg, const AuthoredFog* authored);
 uint32_t LoggedLightsSignature(const AuthoredFog& fog);
 
@@ -39,7 +43,9 @@ public:
     void ReleaseManagedPool();
     void ReleaseAll();
 
+#ifdef VF_TESTING
     static void InjectPassFault(bool faulting);
+#endif
     bool Render(IDirect3DDevice9* dev, const SceneDepth& depth, const FrameInputs& in, const Config& cfg,
                 FogPass pass = FogPass::WholeFrame);
     bool RenderGodRaysAfterWorld(IDirect3DDevice9* dev, const SceneDepth& depth);

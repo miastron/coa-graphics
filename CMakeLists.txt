@@ -168,28 +168,34 @@ set(COA_RUNTIME_SOURCES
     src/msaa_depth.cpp src/overlay.cpp src/renderer.cpp src/settings_panel.cpp src/time_of_day.cpp
     src/water_renderer.cpp)
 
-function(coa_object_library name)
+function(coa_object_library name testing)
     add_library(${name} OBJECT ${ARGN})
     add_dependencies(${name} vf_shaders)
     target_include_directories(${name} PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
     target_compile_definitions(${name} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    if(testing)
+        target_compile_definitions(${name} PRIVATE VF_TESTING)
+    endif()
     target_compile_options(${name} PRIVATE /W4 /WX /permissive- /wd4100 /arch:SSE2 /fp:fast /GS)
     target_compile_options(${name} PRIVATE $<$<CONFIG:Release>:/Zi>)
     target_link_libraries(${name} PRIVATE imgui)
 endfunction()
 
-coa_object_library(coa_modules ${COA_MODULE_SOURCES})
-coa_object_library(coa_runtime ${COA_RUNTIME_SOURCES})
+coa_object_library(coa_modules FALSE ${COA_MODULE_SOURCES})
+coa_object_library(coa_runtime FALSE ${COA_RUNTIME_SOURCES})
+coa_object_library(coa_modules_test TRUE ${COA_MODULE_SOURCES})
+coa_object_library(coa_runtime_test TRUE ${COA_RUNTIME_SOURCES})
 set(COA_OBJECTS $<TARGET_OBJECTS:coa_modules> $<TARGET_OBJECTS:coa_runtime>)
+set(COA_TEST_OBJECTS $<TARGET_OBJECTS:coa_modules_test> $<TARGET_OBJECTS:coa_runtime_test>)
 
 add_library(CoAGraphics SHARED ${COA_OBJECTS} src/CoAGraphics.def)
 target_link_libraries(CoAGraphics PRIVATE kernel32 user32 imgui)
 target_link_options(CoAGraphics PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
 
-add_library(CoAGraphicsTest SHARED ${COA_OBJECTS} src/test_exports.cpp src/CoAGraphicsTest.def)
+add_library(CoAGraphicsTest SHARED ${COA_TEST_OBJECTS} src/test_exports.cpp src/CoAGraphicsTest.def)
 add_dependencies(CoAGraphicsTest vf_shaders)
 target_include_directories(CoAGraphicsTest PRIVATE src ${SHADER_OUT} ${smaa_SOURCE_DIR}/Textures)
-target_compile_definitions(CoAGraphicsTest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+target_compile_definitions(CoAGraphicsTest PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS VF_TESTING)
 target_compile_options(CoAGraphicsTest PRIVATE /W4 /WX /permissive- /wd4100 /arch:SSE2 /fp:fast /GS)
 target_link_libraries(CoAGraphicsTest PRIVATE kernel32 user32 imgui)
 
@@ -197,9 +203,9 @@ add_library(version SHARED proxy/version_proxy.cpp proxy/version.def)
 target_link_libraries(version PRIVATE CoAGraphics)
 target_compile_definitions(version PRIVATE WIN32_LEAN_AND_MEAN)
 
-add_executable(vfog_harness tests/harness.cpp $<TARGET_OBJECTS:coa_modules>)
+add_executable(vfog_harness tests/harness.cpp $<TARGET_OBJECTS:coa_modules_test>)
 target_include_directories(vfog_harness PRIVATE src ${SHADER_OUT})
-target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS
+target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS VF_TESTING
                            GRASS_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders")
 target_compile_options(vfog_harness PRIVATE /W4 /WX /permissive- /wd4100 /wd4456)
 target_link_libraries(vfog_harness PRIVATE CoAGraphicsTest user32 ole32 windowscodecs)

@@ -74,6 +74,8 @@ void RetargetModelAnimateThunks(uintptr_t full, uintptr_t simple, const float* c
                                 const void*& simpleThunk);
 void RetargetParticleRenderThunks(uintptr_t target, uintptr_t worldSceneSlot, const void*& single,
                                   const void*& batched);
+#ifdef VF_TESTING
 void ReuseWaterPassBeginArgumentSlot(bool reuse);
+#endif
 bool TagHookedWaterDraw(const void* liquidSettings);
 void UntagHookedWaterDraw();

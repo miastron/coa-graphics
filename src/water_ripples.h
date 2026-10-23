@@ -23,7 +23,9 @@ enum class WaterRippleFault
     MapCreation,
 };
 
+#ifdef VF_TESTING
 void InjectWaterRippleFault(WaterRippleFault fault);
+#endif
 
 struct WaterRippleSchedule
 {

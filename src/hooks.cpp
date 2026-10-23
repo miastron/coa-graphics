@@ -9,6 +9,7 @@
 #include "grass_wind.h"
 #include "image_quality.h"
 #include "log.h"
+#include "test_seams.h"
 #include "spell_lights.h"
 #include "texture_tint.h"
 #include "transparent_fog.h"
@@ -1219,7 +1220,7 @@ extern "C" void __cdecl vf_on_water_pass_begin(const void* liquidRenderer)
     {
         FailWater();
     }
-    if (g_waterPassBeginReusesArgumentSlot)
+    if (Seam(g_waterPassBeginReusesArgumentSlot, false))
         *static_cast<const void* volatile*>(&liquidRenderer) = nullptr;
 }
 
@@ -1257,7 +1258,7 @@ extern "C" void __cdecl vf_on_model_animate(void* instance)
     __try
     {
         float camera[3];
-        if (g_testTreeWindCamera)
+        if (Seam<const float*>(g_testTreeWindCamera, nullptr))
             std::memcpy(camera, g_testTreeWindCamera, sizeof(camera));
         else
             engine::ReadCameraPosition(camera);
@@ -1278,16 +1279,17 @@ extern "C" void __cdecl vf_on_grass_constants()
     __try
     {
         float camera[3];
-        if (g_testTreeWindCamera)
+        if (Seam<const float*>(g_testTreeWindCamera, nullptr))
             std::memcpy(camera, g_testTreeWindCamera, sizeof(camera));
         else
             engine::ReadCameraPosition(camera);
         float player[3];
-        const bool havePlayer = !g_grassConstantsDestination && engine::ReadActivePlayerPosition(player);
+        const bool havePlayer =
+            !Seam<float*>(g_grassConstantsDestination, nullptr) && engine::ReadActivePlayerPosition(player);
         const GrassConstants constants =
             GrassFrameConstants(GlobalGrassWind().Settings(), camera, havePlayer ? player : nullptr, GetTickCount());
         float* destination =
-            g_grassConstantsDestination
+            Seam<float*>(g_grassConstantsDestination, nullptr)
                 ? g_grassConstantsDestination
                 : reinterpret_cast<float*>(engine::kDetailDoodadShaderConstants) +
                       engine::kDetailDoodadFirstFreeRegister * 4;
@@ -1657,10 +1659,12 @@ const void* RetargetWaterPassThunk(uintptr_t target)
     return reinterpret_cast<const void*>(&WaterPassThunk);
 }
 
+#ifdef VF_TESTING
 void ReuseWaterPassBeginArgumentSlot(bool reuse)
 {
     g_waterPassBeginReusesArgumentSlot = reuse;
 }
+#endif
 
 template <uintptr_t Render>
 static void __fastcall WaterMaterialRenderHook(void* material, void*, void* environment, void* geometry, void* aux,

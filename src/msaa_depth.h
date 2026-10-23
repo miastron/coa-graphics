@@ -20,7 +20,9 @@ struct DepthCopyProbe
 };
 
 DepthCopyProbe ProbeDepthCopy(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type);
+#ifdef VF_TESTING
 void ForceDepthCopyMethod(int method);
+#endif
 
 class DepthCopyProbes
 {

@@ -3,6 +3,7 @@
 #include "client_memory.h"
 #include "engine.h"
 #include "log.h"
+#include "test_seams.h"
 #include "shadow_light.h"
 
 #include <algorithm>
@@ -203,14 +204,16 @@ bool AcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out)
     return acquired;
 }
 
+#ifdef VF_TESTING
 void OverrideClientShadowVector(const float* vector)
 {
     g_overriddenShadowVector = vector;
 }
+#endif
 
 void ReadClientShadowVector(float* out)
 {
-    if (g_overriddenShadowVector)
+    if (Seam<const float*>(g_overriddenShadowVector, nullptr))
         std::copy_n(g_overriddenShadowVector, 3, out);
     else if (!TryReadClientShadowVector(out))
         std::fill_n(out, 3, 0.0f);

@@ -3,6 +3,7 @@
 #include "d3d_util.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
+#include "test_seams.h"
 
 #include "ps_vw_ripple_step.h"
 #include "vs_fullscreen.h"
@@ -92,10 +93,12 @@ bool OutsideWindow(const float from[2], const float to[2], float radius, int tex
 }
 }
 
+#ifdef VF_TESTING
 void InjectWaterRippleFault(WaterRippleFault fault)
 {
     g_injectedRippleFault = fault;
 }
+#endif
 
 WaterRipples::~WaterRipples()
 {
@@ -165,7 +168,7 @@ bool WaterRipples::CheckCapabilities(IDirect3DDevice9* dev)
         }
     d3d->Release();
     const char* unsupported = nullptr;
-    if (g_injectedRippleFault == WaterRippleFault::Unsupported)
+    if (Seam(g_injectedRippleFault, WaterRippleFault::None) == WaterRippleFault::Unsupported)
         unsupported = kWithheldByHarness;
     else if (caps.PixelShaderVersion < D3DPS_VERSION(3, 0) || caps.VertexShaderVersion < D3DVS_VERSION(3, 0))
         unsupported = "shader model 3 unavailable";
@@ -209,7 +212,7 @@ bool WaterRipples::EnsureMaps(IDirect3DDevice9* dev, int texels)
     ReleaseDefaultPool();
     const UINT side = static_cast<UINT>(texels);
     for (IDirect3DTexture9*& map : m_maps)
-        if (g_injectedRippleFault == WaterRippleFault::MapCreation ||
+        if (Seam(g_injectedRippleFault, WaterRippleFault::None) == WaterRippleFault::MapCreation ||
             FAILED(dev->CreateTexture(side, side, 1, D3DUSAGE_RENDERTARGET, m_format, D3DPOOL_DEFAULT, &map,
                                       nullptr)))
         {

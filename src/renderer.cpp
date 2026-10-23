@@ -9,6 +9,7 @@
 #include "fullscreen_triangle.h"
 #include "noise_volume.h"
 #include "log.h"
+#include "test_seams.h"
 
 #include "ps_composite_low.h"
 #include "ps_composite_mid.h"
@@ -293,8 +294,15 @@ FogParams g_forcedFogParams = {};
 
 bool AttemptCreation(FogResourceKind kind)
 {
-    ++g_resourceCreationAttempts[kind];
-    return (g_failedResourceKinds & kind) == 0;
+    if constexpr (kTestSeams)
+    {
+        ++g_resourceCreationAttempts[kind];
+        return (g_failedResourceKinds & kind) == 0;
+    }
+    else
+    {
+        return true;
+    }
 }
 
 const char* DrawnNoiseState(const LayerNoise& drawn, const Config& cfg)
@@ -438,9 +446,10 @@ uint32_t LoggedLightsSignature(const AuthoredFog& fog)
 
 FogParams FogParamsFor(const FrameInputs& in, const Config& cfg, const AuthoredFog* authored)
 {
-    return g_fogParamsForced ? g_forcedFogParams : BuildFogParams(in, cfg, authored);
+    return Seam(g_fogParamsForced, false) ? g_forcedFogParams : BuildFogParams(in, cfg, authored);
 }
 
+#ifdef VF_TESTING
 void ForceFogParams(const FogParams* fog)
 {
     g_fogParamsForced = fog != nullptr;
@@ -456,6 +465,7 @@ unsigned FogResourceCreationAttempts(FogResourceKind kind)
 {
     return g_resourceCreationAttempts[kind];
 }
+#endif
 
 Renderer::~Renderer()
 {
@@ -1269,15 +1279,17 @@ volatile bool g_injectedPassFault = false;
 
 void FaultWhenInjected()
 {
-    if (g_injectedPassFault)
+    if (Seam<bool>(g_injectedPassFault, false))
         RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
 }
 }
 
+#ifdef VF_TESTING
 void Renderer::InjectPassFault(bool faulting)
 {
     g_injectedPassFault = faulting;
 }
+#endif
 
 template <typename Passes>
 bool Renderer::WithClientStateSaved(IDirect3DDevice9* dev, const SceneDepth& depth, Passes passes)
