@@ -184,7 +184,7 @@ private:
     void LogWaveState();
     void ShadeClasses(IDirect3DDevice9* dev, IDirect3DSurface9* target, IDirect3DSurface9* depthSurface,
                       double seconds);
-    void BindClassTextures(IDirect3DDevice9* dev, const WaterPreset& preset);
+    void BindClassTextures(IDirect3DDevice9* dev, const WaterPreset& preset, bool samplersConfigured);
     void FillClassConstants(ShadingConstants& c, const WaterPreset& preset, WaterClass waterClass,
                             double seconds) const;
     bool ShadeTaggedWater(IDirect3DDevice9* dev, const SceneDepth& depth);

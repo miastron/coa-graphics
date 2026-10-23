@@ -230,10 +230,19 @@ bool WaterFftPasses::EnsureTables(IDirect3DDevice9* dev)
     return true;
 }
 
-bool WaterFftPasses::EnsureAtlas(IDirect3DDevice9* dev, int slots)
+int WaterFftPasses::AtlasSlotsFor(int needed) const
 {
-    if (m_atlas[0] && m_atlas[1] && m_slots >= slots)
+    const int fitsAnyPreset = std::min(kWaterPresetTiles, MaxSlots());
+    if (needed <= fitsAnyPreset && m_slots == 0)
+        return fitsAnyPreset;
+    return MaxSlots();
+}
+
+bool WaterFftPasses::EnsureAtlas(IDirect3DDevice9* dev, int needed)
+{
+    if (m_atlas[0] && m_atlas[1] && m_slots >= needed)
         return true;
+    const int slots = AtlasSlotsFor(needed);
     SafeRelease(m_atlas[0]);
     SafeRelease(m_atlas[1]);
     SafeRelease(m_previousDisplacement);
@@ -331,6 +340,8 @@ void WaterFftPasses::Begin(IDirect3DDevice9* dev)
     for (int index = 0; index < 2; ++index)
     {
         m_boundTargets[index] = nullptr;
+        m_boundTargetTextures[index] = nullptr;
+        m_boundTargetLevels[index] = 0;
         m_targetKnown[index] = false;
     }
     for (int stage = 0; stage < kSamplerStages; ++stage)
@@ -384,6 +395,9 @@ void WaterFftPasses::BindTexture(DWORD stage, IDirect3DBaseTexture9* texture)
 
 void WaterFftPasses::BindTarget(DWORD index, IDirect3DTexture9* texture, UINT level)
 {
+    if (texture && m_targetKnown[index] && m_boundTargetTextures[index] == texture &&
+        m_boundTargetLevels[index] == level)
+        return;
     IDirect3DSurface9* surface = nullptr;
     if (texture && FAILED(texture->GetSurfaceLevel(level, &surface)))
         return;
@@ -393,6 +407,8 @@ void WaterFftPasses::BindTarget(DWORD index, IDirect3DTexture9* texture, UINT le
         m_boundTargets[index] = surface;
         m_targetKnown[index] = true;
     }
+    m_boundTargetTextures[index] = texture;
+    m_boundTargetLevels[index] = level;
     SafeRelease(surface);
 }
 

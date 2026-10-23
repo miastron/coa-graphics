@@ -81,7 +81,8 @@ private:
     bool CheckCapabilities(IDirect3DDevice9* dev);
     bool EnsureShaders(IDirect3DDevice9* dev);
     bool EnsureTables(IDirect3DDevice9* dev);
-    bool EnsureAtlas(IDirect3DDevice9* dev, int slots);
+    int AtlasSlotsFor(int needed) const;
+    bool EnsureAtlas(IDirect3DDevice9* dev, int needed);
     bool EnsurePreviousDisplacement();
     bool EnsureMapScratch();
     void ReleaseResolutionResources();
@@ -125,6 +126,8 @@ private:
     RECT m_callerScissor = {};
     IDirect3DPixelShader9* m_boundShader = nullptr;
     IDirect3DSurface9* m_boundTargets[2] = {};
+    IDirect3DTexture9* m_boundTargetTextures[2] = {};
+    UINT m_boundTargetLevels[2] = {};
     bool m_targetKnown[2] = {};
     IDirect3DBaseTexture9* m_boundTextures[kSamplerStages] = {};
     bool m_samplerKnown[kSamplerStages] = {};

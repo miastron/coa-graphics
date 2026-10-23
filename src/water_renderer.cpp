@@ -1403,25 +1403,28 @@ void WaterRenderer::BuildReflectionFog()
     m_reflectionFog.range = {fog.maxDistance, fog.maxDistance, 0.0f, kReflectionFogActive};
 }
 
-void WaterRenderer::BindClassTextures(IDirect3DDevice9* dev, const WaterPreset& preset)
+void WaterRenderer::BindClassTextures(IDirect3DDevice9* dev, const WaterPreset& preset, bool samplersConfigured)
 {
+    const auto bind = [&](DWORD stage, IDirect3DBaseTexture9* texture, D3DTEXTUREFILTERTYPE mipFilter) {
+        if (samplersConfigured)
+            dev->SetTexture(stage, texture);
+        else
+            BindSampler(dev, stage, texture, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, mipFilter);
+    };
     for (int k = 0; k < kWaterPresetTiles; ++k)
     {
         const int32_t tile = preset.tiles[k];
         IDirect3DTexture9* surface = m_wavesSimulated && tile >= 0 ? m_fft.Surface(tile) : nullptr;
         IDirect3DTexture9* foam = m_wavesSimulated && tile >= 0 ? m_fft.Foam(tile) : nullptr;
-        BindSampler(dev, kFirstSurfaceStage + k, surface ? surface : m_flat, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
-                    D3DTEXF_LINEAR);
-        BindSampler(dev, kFirstFoamStateStage + k, foam ? foam : m_flat, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
-                    D3DTEXF_NONE);
+        bind(kFirstSurfaceStage + k, surface ? surface : m_flat, D3DTEXF_LINEAR);
+        bind(kFirstFoamStateStage + k, foam ? foam : m_flat, D3DTEXF_NONE);
     }
     const FoamMaskTexture* wave = WaveFoamMasks(preset);
     IDirect3DTexture9* shore = MaskTexture(preset.masks[kShoreFoamSlot]);
     IDirect3DTexture9* depth = MaskTexture(preset.masks[kDepthFoamSlot]);
-    BindSampler(dev, kWaveFoamMaskStage, wave ? wave->texture : m_flat, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
-                D3DTEXF_LINEAR);
-    BindSampler(dev, kShoreFoamMaskStage, shore ? shore : m_flat, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_LINEAR);
-    BindSampler(dev, kDepthFoamMaskStage, depth ? depth : m_flat, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_LINEAR);
+    bind(kWaveFoamMaskStage, wave ? wave->texture : m_flat, D3DTEXF_LINEAR);
+    bind(kShoreFoamMaskStage, shore ? shore : m_flat, D3DTEXF_LINEAR);
+    bind(kDepthFoamMaskStage, depth ? depth : m_flat, D3DTEXF_LINEAR);
 }
 
 void WaterRenderer::ShadeClasses(IDirect3DDevice9* dev, IDirect3DSurface9* target, IDirect3DSurface9* depthSurface,
@@ -1466,7 +1469,7 @@ void WaterRenderer::ShadeClasses(IDirect3DDevice9* dev, IDirect3DSurface9* targe
         FillClassConstants(constants, *preset, waterClass, seconds);
         dev->SetPixelShaderConstantF(kShadingFirstConstant, &constants.light.x,
                                      sizeof(constants) / sizeof(Float4));
-        BindClassTextures(dev, *preset);
+        BindClassTextures(dev, *preset, m_shadedClasses > 0);
         dev->SetRenderState(D3DRS_STENCILREF, static_cast<DWORD>(index));
         DrawFullscreenTriangle(dev);
         ++m_shadedClasses;

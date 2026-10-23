@@ -649,6 +649,27 @@ void CheckFoamOdeReachesEquilibrium()
           "water foam update is the explicit Euler step and settles at rate*injection/(rate*injection+decay)");
 }
 
+void CheckAtlasGrowsAtMostTwice(IDirect3DDevice9* dev)
+{
+    WaterFftPasses passes;
+    int recreations = 0;
+    IDirect3DTexture9* previous = nullptr;
+    bool ran = true;
+    for (int slots = 1; slots <= 5 && ran; ++slots)
+    {
+        ran = passes.Prepare(dev, kWaterFftLowResolution, slots);
+        if (ran && passes.Spectrum() != previous)
+            ++recreations;
+        previous = passes.Spectrum();
+        ran = ran && passes.Slots() >= slots;
+    }
+    std::printf("     atlas recreated %d times for 1 to 5 tiles, %d slots\n", recreations, passes.Slots());
+    Check(ran && recreations == 2 && passes.Slots() == passes.MaxSlots(),
+          "the wave atlas holds the four tiles of any one preset from the start and then grows once to the largest "
+          "size, so a changing set of drawn tiles recreates it at most twice");
+    passes.ReleaseAll();
+}
+
 void CheckGpuButterfliesInvertTheDft(IDirect3DDevice9* dev)
 {
     struct Layout
@@ -1751,6 +1772,7 @@ void CheckWaterFft(IDirect3DDevice9* dev)
     probe.ReleaseAll();
     if (supported)
     {
+        CheckAtlasGrowsAtMostTwice(dev);
         CheckGpuButterfliesInvertTheDft(dev);
         CheckGpuSingleMode(dev);
         CheckGpuMatchesReference(dev);
