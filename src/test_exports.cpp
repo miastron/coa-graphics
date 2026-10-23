@@ -359,6 +359,11 @@ extern "C" void __cdecl vf_test_clear_transparent_fog_failure()
     ClearTransparentFogFailure();
 }
 
+extern "C" void __cdecl vf_test_keep_surface_lights_in_target(int keep)
+{
+    KeepSurfaceLightsInTheTarget(keep != 0);
+}
+
 extern "C" void __cdecl vf_test_force_fog_params(const FogParams* fog)
 {
     ForceFogParams(fog);

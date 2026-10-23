@@ -16,6 +16,7 @@
 
 #ifdef VF_TESTING
 void ForceFogParams(const FogParams* fog);
+void KeepSurfaceLightsInTheTarget(bool keep);
 #endif
 enum FogResourceKind : unsigned
 {
@@ -107,9 +108,11 @@ private:
     template <typename Passes>
     bool WithClientStateSaved(IDirect3DDevice9* dev, const SceneDepth& depth, Passes passes);
     void PrepareFullscreenPasses(IDirect3DDevice9* dev);
-    void LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
-                       const SurfaceLightFrame& frame);
-    void CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp);
+    bool LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
+                       const SurfaceLightFrame& frame, bool intoLitScene);
+    bool EnsureLitScene(IDirect3DDevice9* dev);
+    void CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
+                             bool fromLitScene);
     void DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, const GodRayFrame& rays);
     bool DrawGodRaysOverScene(IDirect3DDevice9* dev, const SceneDepth& depth, IDirect3DSurface9* target,
                               const D3DSURFACE_DESC& depthDesc, const GodRayFrame& rays);
@@ -186,6 +189,7 @@ private:
     IDirect3DTexture9* m_historyDepth = nullptr;
     IDirect3DTexture9* m_rays[2] = {};
     IDirect3DTexture9* m_sceneCopy = nullptr;
+    IDirect3DTexture9* m_litScene = nullptr;
     IDirect3DTexture9* m_localLightData = nullptr;
     IDirect3DVolumeTexture9* m_densityNoise = nullptr;
     IDirect3DVolumeTexture9* m_authoredNoise = nullptr;

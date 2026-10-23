@@ -273,6 +273,7 @@ constexpr UINT kMinViewportSize = 16;
 constexpr float kMinGodRayStrength = 0.005f;
 
 bool g_fogParamsForced = false;
+bool g_surfaceLightsKeptInTarget = false;
 unsigned g_failedResourceKinds = 0;
 unsigned g_resourceCreationAttempts[kFogNoise + 1] = {};
 FogParams g_forcedFogParams = {};
@@ -441,6 +442,11 @@ void ForceFogParams(const FogParams* fog)
     g_forcedFogParams = fog ? *fog : FogParams{};
 }
 
+void KeepSurfaceLightsInTheTarget(bool keep)
+{
+    g_surfaceLightsKeptInTarget = keep;
+}
+
 void FailFogResourceCreation(unsigned kinds)
 {
     g_failedResourceKinds = kinds;
@@ -466,6 +472,7 @@ void Renderer::ReleaseDefaultPool()
     SafeRelease(m_rays[0]);
     SafeRelease(m_rays[1]);
     SafeRelease(m_sceneCopy);
+    SafeRelease(m_litScene);
     m_targetRetry.Reset();
     m_authoredNoiseRetry.Reset();
     m_densityNoiseRetry.Reset();
@@ -930,6 +937,7 @@ bool Renderer::EnsureSceneCopy(IDirect3DDevice9* dev, IDirect3DSurface9* target,
     if (m_sceneCopy && m_sceneCopyW == w && m_sceneCopyH == h)
         return true;
     SafeRelease(m_sceneCopy);
+    SafeRelease(m_litScene);
     m_sceneCopyW = m_sceneCopyH = 0;
     if (m_sceneCopyFailed)
         return false;
@@ -945,6 +953,15 @@ bool Renderer::EnsureSceneCopy(IDirect3DDevice9* dev, IDirect3DSurface9* target,
     m_sceneCopyW = w;
     m_sceneCopyH = h;
     return true;
+}
+
+bool Renderer::EnsureLitScene(IDirect3DDevice9* dev)
+{
+    if (m_litScene)
+        return true;
+    D3DSURFACE_DESC desc = {};
+    return m_sceneCopy && SUCCEEDED(m_sceneCopy->GetLevelDesc(0, &desc)) &&
+           CreateTarget(dev, m_sceneCopyW, m_sceneCopyH, desc.Format, &m_litScene);
 }
 
 bool Renderer::CopyWorldViewport(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
@@ -1394,14 +1411,54 @@ void Renderer::PrepareFullscreenPasses(IDirect3DDevice9* dev)
     dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 }
 
-void Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
-                             const SurfaceLightFrame& frame)
+namespace
+{
+constexpr float kInvisibleLightShare = 0.03f;
+constexpr float kFullLightShare = 0.1f;
+constexpr float kSunShareOfIlluminant = 0.5f;
+constexpr float kDarkestIlluminant = 0.02f;
+constexpr float kLumaRed = 0.2126f;
+constexpr float kLumaGreen = 0.7152f;
+constexpr float kLumaBlue = 0.0722f;
+
+float LinearLuma(uint32_t packed)
+{
+    float rgb[3];
+    UnpackColor(packed, rgb);
+    return kLumaRed * std::pow(rgb[0], kSurfaceDisplayGamma) + kLumaGreen * std::pow(rgb[1], kSurfaceDisplayGamma) +
+           kLumaBlue * std::pow(rgb[2], kSurfaceDisplayGamma);
+}
+
+float SurfaceLightVisibility(const Float4* lightData, uint32_t count, uint32_t ambient, uint32_t direct)
+{
+    float brightest = 0.0f;
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        const Float4& colour = lightData[i * 3 + 1];
+        brightest = std::max(brightest, std::max(colour.x, std::max(colour.y, colour.z)));
+    }
+    const float illuminant =
+        std::max(LinearLuma(ambient) + kSunShareOfIlluminant * LinearLuma(direct), kDarkestIlluminant);
+    const float share = brightest / illuminant;
+    const float t = std::clamp((share - kInvisibleLightShare) / (kFullLightShare - kInvisibleLightShare), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+}
+
+bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
+                             const SurfaceLightFrame& frame, bool intoLitScene)
 {
     if (!CopyWorldViewport(dev, target, frame.viewport, ColourCopySite::SurfaceLights))
-        return;
-    const RECT world = ViewportRect(frame.viewport);
-    dev->SetRenderTarget(0, target);
-    dev->SetViewport(&frame.viewport);
+        return false;
+    IDirect3DSurface9* litSurface = nullptr;
+    const bool toTexture = intoLitScene && !Seam(g_surfaceLightsKeptInTarget, false) && EnsureLitScene(dev) &&
+                           SUCCEEDED(m_litScene->GetSurfaceLevel(0, &litSurface));
+    const D3DVIEWPORT9 textureViewport = {0, 0, frame.viewport.Width, frame.viewport.Height, 0.0f, 1.0f};
+    const D3DVIEWPORT9& drawnViewport = toTexture ? textureViewport : frame.viewport;
+    const RECT world = ViewportRect(drawnViewport);
+    dev->SetRenderTarget(0, toTexture ? litSurface : target);
+    SafeRelease(litSurface);
+    dev->SetViewport(&drawnViewport);
     dev->SetScissorRect(&world);
     dev->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
     dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
@@ -1409,7 +1466,7 @@ void Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
                         D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE);
     dev->SetPixelShader(m_surfaceLights);
     Float4 constants[kSurfaceLightRegisters] = {
-        {frame.strength, frame.reach, 0.0f, 0.0f},
+        {frame.strength, frame.reach, toTexture ? 1.0f : 0.0f, 0.0f},
         {},
         {},
         {frame.toLightInView[0], frame.toLightInView[1], frame.toLightInView[2], 0.0f},
@@ -1429,18 +1486,27 @@ void Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
     BindTexture(dev, kLocalLightStage, m_localLightData, false);
     DrawFullscreenTriangle(dev);
     ++m_surfaceLightDraws;
+    return toTexture;
 }
 
-void Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp)
+void Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
+                                   bool fromLitScene)
 {
     IDirect3DSurface9* raySurface = nullptr;
+    IDirect3DSurface9* litSurface = nullptr;
     const RECT world = ViewportRect(vp);
-    if (SUCCEEDED(m_rays[0]->GetSurfaceLevel(0, &raySurface)))
+    const RECT litWorld = {0, 0, static_cast<LONG>(vp.Width), static_cast<LONG>(vp.Height)};
+    if (SUCCEEDED(m_rays[0]->GetSurfaceLevel(0, &raySurface)) &&
+        (!fromLitScene || SUCCEEDED(m_litScene->GetSurfaceLevel(0, &litSurface))))
     {
-        if (SUCCEEDED(dev->StretchRect(target, &world, raySurface, nullptr, D3DTEXF_LINEAR)))
+        IDirect3DSurface9* const source = litSurface ? litSurface : target;
+        const RECT* const sourceRect = litSurface ? &litWorld : &world;
+        const bool copied = SUCCEEDED(dev->StretchRect(source, sourceRect, raySurface, nullptr, D3DTEXF_LINEAR));
+        if (copied)
             GlobalFrameCopies().CountColourCopy(ColourCopySite::GodRaySource);
-        raySurface->Release();
     }
+    SafeRelease(litSurface);
+    SafeRelease(raySurface);
 }
 
 void Renderer::DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, const GodRayFrame& rays)
@@ -1703,17 +1769,26 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     IDirect3DTexture9* const fogResult =
         temporalFiltering ? FilterWithHistory(dev, depthTexture, reproj, historyValid, cfg.temporal) : m_marchTarget;
 
-    if (pointLightCount > 0 && cfg.surfaceLights > 0.0f)
+    const bool compositeBlendsInShader = fog.linear || raysNow;
+    const float surfaceLightStrength =
+        pointLightCount > 0 ? cfg.surfaceLights * SurfaceLightVisibility(localConstants, pointLightCount,
+                                                                         in.ambientColor, in.directColor)
+                            : 0.0f;
+    const bool litSceneReady =
+        surfaceLightStrength > 0.0f &&
         LightSurfaces(dev, depthTexture, target,
-                      {vp, cfg.surfaceLights, marchLightLimit, in.ambientColor, in.directColor,
-                       {toLightInView[0], toLightInView[1], toLightInView[2]}});
+                      {vp, surfaceLightStrength, marchLightLimit, in.ambientColor, in.directColor,
+                       {toLightInView[0], toLightInView[1], toLightInView[2]}},
+                      compositeBlendsInShader);
     if (rays)
-        CopySceneForGodRays(dev, target, vp);
+        CopySceneForGodRays(dev, target, vp, litSceneReady);
     if (raysNow)
         DrawGodRayMask(dev, depthTexture, godRays);
 
     FogBlend blend = FogBlend::GammaFixedFunction;
-    if (fog.linear)
+    if (litSceneReady)
+        blend = fog.linear ? FogBlend::LinearOverSceneCopy : FogBlend::GammaOverSceneCopy;
+    else if (fog.linear)
         blend = CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite) ? FogBlend::LinearOverSceneCopy
                                                                                 : FogBlend::LinearFixedFunction;
     else if (raysNow && CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite))
@@ -1758,7 +1833,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     BindTexture(dev, 0, depthTexture, false);
     BindTexture(dev, 1, fogResult, false);
     BindTexture(dev, 2, m_rays[1], true);
-    BindTexture(dev, 3, sceneBlend ? m_sceneCopy : nullptr, false);
+    BindTexture(dev, 3, sceneBlend ? (litSceneReady ? m_litScene : m_sceneCopy) : nullptr, false);
     BindTexture(dev, 4, m_marchTarget, false);
     if (splitSamples)
         DrawCompositeBySampleDepth(dev, depth.bound, vp, compositeChoice, sceneBlend);

@@ -16,6 +16,8 @@ static const float kFadeSharpness = 4.0;
 static const float kFaintestLight = 1.0 / 1024.0;
 static const float kSmallestScene = 1e-6;
 static const float kMaxEstimatedAlbedo = 0.5;
+static const float kWhitestSurface = 1.0;
+static const float kAlreadyLitSurface = 2.0;
 
 float SurfaceLightStrength()
 {
@@ -25,6 +27,11 @@ float SurfaceLightStrength()
 float SurfaceLightReach()
 {
     return cSurfaceLight.y;
+}
+
+bool DrawsToSceneTexture()
+{
+    return cSurfaceLight.z > 0.5;
 }
 
 float3 ViewPositionAt(float2 pixel)
@@ -69,24 +76,36 @@ float3 PointLightOnSurface(int index, float3 position, float3 normal)
 float3 EstimatedAlbedo(float3 sceneLinear, float3 normal)
 {
     float3 illuminant = cSurfaceAmbient.rgb + cSurfaceDirect.rgb * saturate(dot(normal, cSurfaceToLight.xyz));
-    return min(sceneLinear / max(illuminant, kDarkestIlluminant), kMaxEstimatedAlbedo);
+    float3 albedo = sceneLinear / max(illuminant, kDarkestIlluminant);
+    float brightest = max(albedo.r, max(albedo.g, albedo.b));
+    float explainedByTheSky = 1 - smoothstep(kWhitestSurface, kAlreadyLitSurface, brightest);
+    return min(albedo, kMaxEstimatedAlbedo) * explainedByTheSky;
+}
+
+float4 Unlit(float4 scene)
+{
+    clip(DrawsToSceneTexture() ? 1 : -1);
+    return scene;
 }
 
 float4 main(float2 pixelIndex : VPOS) : COLOR0
 {
-    float2 pixel = pixelIndex + 0.5;
+    float2 pixel = pixelIndex + 0.5 + (DrawsToSceneTexture() ? ViewportOrigin() : 0);
+    float2 viewportUv = (pixel - ViewportOrigin()) / ViewportSize();
+    float4 scene = tex2Dlod(sSceneBeforeLights, float4(viewportUv, 0, 0));
     float depth = SampleDepth(sDepth, pixel);
-    clip(BeyondFarClip(depth) ? -1 : 1);
+    if (BeyondFarClip(depth))
+        return Unlit(scene);
     float3 position = ViewRayAtUnitDepth(pixel) * LinearDepth(depth);
-    clip(SurfaceLightReach() - length(position));
+    if (length(position) > SurfaceLightReach())
+        return Unlit(scene);
     float3 normal = SurfaceNormal(pixel, position);
     float3 light = 0;
     [loop] for (int index = 0; index < LocalLightCount(); ++index)
         light += PointLightOnSurface(index, position, normal);
-    clip(max(light.r, max(light.g, light.b)) - kFaintestLight);
-    float2 viewportUv = (pixel - ViewportOrigin()) / ViewportSize();
-    float3 sceneLinear = pow(max(tex2Dlod(sSceneBeforeLights, float4(viewportUv, 0, 0)).rgb, kSmallestScene),
-                             kDisplayGamma);
+    if (max(light.r, max(light.g, light.b)) < kFaintestLight)
+        return Unlit(scene);
+    float3 sceneLinear = pow(max(scene.rgb, kSmallestScene), kDisplayGamma);
     float3 lit = sceneLinear + EstimatedAlbedo(sceneLinear, normal) * light * SurfaceLightStrength();
     return float4(pow(saturate(lit), 1 / kDisplayGamma), 1);
 }

@@ -256,13 +256,30 @@ to its horizontal and vertical neighbours, so silhouettes do not bend it. Each l
 `colour · falloff · fade · facing`, where the falloff is the march's `1/max(a0 + a1·d + a2·d², 1)`, `fade` is its sphere-edge
 fade, and `facing` is wrapped by 0.25. The light falls on an albedo estimated from the scene in linear light (display gamma
 2.2), divided by the client's own illuminant there: ambient plus direct colour times the facing to the sun or moon (at least
-0.02, with the albedo at most 1). The pixel becomes `scene + albedo·light·SurfaceLights`.
+0.02, with the albedo at most 0.5). The pixel becomes `scene + albedo·light·SurfaceLights`.
+
+A pixel whose estimated albedo in any channel exceeds 1 is brighter than ambient plus sun could make any surface, so the
+client lit it with its own point lights or it glows (a torch, a banner next to a lamp, a character beside a fire). Its
+albedo is faded to nothing between 1 and 2, so it is not lit a second time; before this the estimate was capped at 0.5
+there, and such models took the light on top of the client's own and shifted in brightness with the camera angle (the
+normal comes from the depth differences). Between 0.5 and 1 the cap stays.
+
+The whole pass is scaled by how visible the lights are: the brightest uploaded light colour divided by the daylight
+(linear luma of the ambient colour plus half the direct colour, at least 0.02) is the share a light adds to a surface right
+at it. Below 3% the pass and its scene copy are skipped, above 10% it runs at full strength, with a smoothstep between.
+That follows the client's own light colours, so a dark zone keeps it on at noon and a bright one turns it off sooner.
 
 So ground lit dimly at night takes a point light at nearly its full colour, while in daylight the same light adds to a much
 brighter scene and shows less. The sky, pixels beyond every light sphere, and pixels a light adds under 1/1024 to are
-discarded and keep their colour. Translucent effects drawn after the pass are not lit. Models the client already lights
-with its point lights take this light on top. There are no shadows. With multisampling, a lit pixel writes one colour to all
+discarded and keep their colour. Translucent effects drawn after the pass are not lit. There are no shadows. With multisampling, a lit pixel writes one colour to all
 its samples.
+
+When the composite blends in the shader (linear blending or god rays), the pass writes the whole lit scene into a second
+texture, unlit pixels copied as they are, and the composite reads that texture, so the composite's own copy of the target
+is not made (one full-resolution colour copy fewer in lit frames). The frame is bit-identical to lighting the target and
+copying it again (harness check). Measured with `--scene performance` at 1080p on the Radeon 780M, native: no change
+(within 0.1 ms of 11.4 ms for eight flood lights); under the installed DXVK: about 0.3-0.7 ms less on a 6-15 ms frame
+(four runs each, 5-10% run to run).
 
 **Glow and colour grading.** With `ForeverGlow=1`, the DLL rewrites the glow byte the client hands the glow composite (see
 Glow feed) once per frame, before the fog composite, to `lerp(client byte/255, Forever glow, t)`, where
@@ -1010,7 +1027,10 @@ default, hold Fn (the log names the key that arrived). The window edits every se
 - **Revert** reloads the file. A hand edit of the file also replaces unsaved changes.
 - **Time of day** freezes the game clock at an hour, or drags it to move the sun, moon, sky and light. It is not saved
   and is off after a restart; the server's own time updates cannot move it while frozen. Maps with a fixed time of
-  day ignore it.
+  day ignore it. **Back to live time** returns the clock to the time it would show now had it never been frozen: the
+  live time at the first freeze plus the real seconds since, at the clock's minutes per second (`+0x30`, the 1 game
+  minute per 60 s that the server sends), and sets it running again. It has not been tried in game; the next server time
+  packet corrects any drift. Turning **Freeze time** off instead continues from the hour you set.
 - The window shows whether the fog drew in the last frame, or why it did not, and whether the game's multisampling is
   kept, or why it is off (`Multisampling` applies later, see Settings). It can be moved and resized, and keeps its place
   and size for the session.
@@ -1154,8 +1174,9 @@ Every 60 s a `frame copies over N frames, per frame:` line gives the full-screen
 (water begin, surface lights, god-ray source, fog composite, late god rays, grading, image), then the depth refreshes
 per frame at water begin, water end and fog. Each refresh is followed in brackets by how many of them came with no depth
 write by the client since the previous refresh (a draw with depth writes on or a depth clear counts, whatever the depth
-test; the DLL's own passes do not) and how many issued a multisampled depth copy. Single-sampled devices count the
-refreshes too, though they copy nothing.
+test; the DLL's own passes do not) and how many issued a multisampled depth copy. A multisampled device issues no copy
+for a refresh that follows no client depth write, since the INTZ copy still holds the depth (harness check; the flag is
+set again by any Reset or depth release). Single-sampled devices count the refreshes too, though they copy nothing.
 
 The depth probe logs raw depth, distance and fog opacity at 25 points on frame 60, then every 60 s up to five times (every
 30 s without limit at `LogLevel=2`). Its rows are read back on a later frame. The first reason a fog draw is skipped is

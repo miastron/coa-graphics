@@ -15,6 +15,11 @@ constexpr float kBeyondReach = 5.0f;
 constexpr float kHalfStrength = 0.5f;
 constexpr float kFullStrength = 1.0f;
 constexpr int kLitAtLeast = 8;
+constexpr uint32_t kDarkAmbient = 0xFF060606;
+constexpr uint32_t kBrightAmbient = 0xFFFFFFFF;
+constexpr uint32_t kFullDirectLight = 0xFFFFFFFF;
+constexpr float kFaintLight = 0.2f;
+constexpr uint32_t kNoDirectLight = 0xFF000000;
 
 struct LitFrame
 {
@@ -22,6 +27,8 @@ struct LitFrame
     bool rendered = false;
     bool statesKept = false;
     unsigned draws = 0;
+    unsigned colourCopies = 0;
+    unsigned surfaceLightCopies = 0;
 };
 
 struct Scene
@@ -47,7 +54,7 @@ Config SurfaceConfig(const Config& saved, float strength)
     return config;
 }
 
-FrameInputs SceneInputs(Scene& scene, const Config& config)
+FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1.0f)
 {
     CameraRelativeLookAt(scene.eye, scene.at, scene.view);
     EngineProjection(static_cast<float>(kViewWidth) / kViewHeight, scene.projection);
@@ -57,21 +64,29 @@ FrameInputs SceneInputs(Scene& scene, const Config& config)
     light.position[0] = position.x;
     light.position[1] = position.y;
     light.position[2] = position.z;
-    std::memcpy(light.color, kLightColour, sizeof(light.color));
+    for (int channel = 0; channel < 3; ++channel)
+        light.color[channel] = kLightColour[channel] * lightScale;
     light.attenuation[0] = kLightConstantAttenuation;
     light.attenuation[2] = kLightQuadraticAttenuation;
     engine::SelectLocalPointLight(input.localLights, light, input.camPos, LocalLightUpload(config));
     return input;
 }
 
-LitFrame RenderLit(Harness& h, Scene& scene, const Config& saved, float strength, bool withLight)
+LitFrame RenderLit(Harness& h, Scene& scene, const Config& saved, float strength, bool withLight,
+                   uint32_t ambientColor = 0, uint32_t directColor = 0, float lightScale = 1.0f)
 {
     const Config config = SurfaceConfig(saved, strength);
     vf_test_set_config(&config);
-    FrameInputs input = SceneInputs(scene, config);
+    FrameInputs input = SceneInputs(scene, config, lightScale);
+    if (ambientColor)
+        input.ambientColor = ambientColor;
+    if (directColor)
+        input.directColor = directColor;
     if (!withLight)
         input.localLights.pointLightCount = 0;
     LitFrame frame;
+    FrameCopyCounts counts;
+    vf_test_take_frame_copies(&counts);
     const unsigned before = vf_test_surface_light_draws();
     h.BeginFrame();
     h.DrawScene(scene.eye, scene.view, scene.projection, scene.world);
@@ -90,6 +105,10 @@ LitFrame RenderLit(Harness& h, Scene& scene, const Config& saved, float strength
     h.dev->EndScene();
     h.dev->Present(nullptr, nullptr, nullptr, nullptr);
     frame.draws = vf_test_surface_light_draws() - before;
+    vf_test_take_frame_copies(&counts);
+    for (unsigned copies : counts.colourCopies)
+        frame.colourCopies += copies;
+    frame.surfaceLightCopies = counts.colourCopies[static_cast<int>(ColourCopySite::SurfaceLights)];
     return frame;
 }
 
@@ -150,8 +169,76 @@ void CheckLightsOnSurfaces(Harness& h)
     Check(farLift == 0, "ground beyond the light's reach is left exactly as it was");
     Check(noLight.draws == 0 && image_quality_checks::SameImage(noLight.image, noLightOff.image),
           "without point lights in view the surface pass is not drawn and the frame is unchanged");
+    vf_test_keep_surface_lights_in_target(1);
+    const LitFrame kept = RenderLit(h, scene, saved, kFullStrength, true);
+    vf_test_keep_surface_lights_in_target(0);
+    const LitFrame handed = RenderLit(h, scene, saved, kFullStrength, true);
+    std::printf("     colour copies in the frame: %u with the lit scene handed to the composite, %u with the lights "
+                "written into the target\n",
+                handed.colourCopies, kept.colourCopies);
+    Check(handed.draws == 1 && kept.draws == 1 && handed.surfaceLightCopies == 1 && kept.surfaceLightCopies == 1 &&
+              image_quality_checks::SameImage(handed.image, kept.image),
+          "the fog composite reading the lit scene texture draws exactly the frame that lighting the target and "
+          "copying it again draws");
+    Check(handed.colourCopies + 1 == kept.colourCopies,
+          "handing the lit scene to the composite saves the composite's own full-viewport colour copy");
     Check(full.statesKept, "the surface light pass restores render, sampler, texture, shader, constant, stream, "
                            "viewport, scissor, render target and depth state");
+    vf_test_set_config(&saved);
+}
+
+void CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(Harness& h)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Scene scene;
+    SceneInputs(scene, SurfaceConfig(saved, kFullStrength));
+    UINT x = 0;
+    UINT y = 0;
+    if (!GroundPixel(scene, kLightAhead, x, y))
+    {
+        Check(false, "the ground under the light is in view");
+        return;
+    }
+    const LitFrame plausibleOff = RenderLit(h, scene, saved, 0.0f, true);
+    const LitFrame plausible = RenderLit(h, scene, saved, kFullStrength, true);
+    const LitFrame settled = RenderLit(h, scene, saved, kFullStrength, true);
+    const LitFrame darkOff = RenderLit(h, scene, saved, 0.0f, true, kDarkAmbient, kNoDirectLight);
+    const LitFrame dark = RenderLit(h, scene, saved, kFullStrength, true, kDarkAmbient, kNoDirectLight);
+    const int plausibleLift = GreenLift(settled.image, plausibleOff.image, x, y);
+    const int darkLift = GreenLift(dark.image, darkOff.image, x, y);
+    std::printf("     ground under the light: green lift %d where the lighting explains its brightness, %d where it "
+                "is far brighter than that\n",
+                plausibleLift, darkLift);
+    Check(plausible.draws == 1 && dark.draws == 1 && plausibleLift >= kLitAtLeast && darkLift == 0,
+          "a surface far brighter than the sky's ambient and sun light can explain, because the client lit it "
+          "already or it glows, gets no second light from SurfaceLights, while the same ground under a plausible "
+          "ambient does");
+    vf_test_set_config(&saved);
+}
+
+void CheckSurfaceLightsFadeOutInDaylight(Harness& h)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Scene scene;
+    SceneInputs(scene, SurfaceConfig(saved, kFullStrength));
+    RenderLit(h, scene, saved, kFullStrength, true);
+    const LitFrame dayFaint = RenderLit(h, scene, saved, kFullStrength, true, kBrightAmbient, kFullDirectLight,
+                                        kFaintLight);
+    const LitFrame dayStrong =
+        RenderLit(h, scene, saved, kFullStrength, true, kBrightAmbient, kFullDirectLight, 1.0f);
+    const LitFrame nightFaint =
+        RenderLit(h, scene, saved, kFullStrength, true, kDarkAmbient, kNoDirectLight, kFaintLight);
+    std::printf("     surface passes: faint light in daylight %u, strong light in daylight %u, faint light at night "
+                "%u\n",
+                dayFaint.draws, dayStrong.draws, nightFaint.draws);
+    Check(dayFaint.draws == 0 && dayFaint.surfaceLightCopies == 0 && dayStrong.surfaceLightCopies == 1,
+          "a light too faint against the daylight to change a surface by more than a few per cent costs no surface "
+          "pass and no copy of the scene for it");
+    Check(dayStrong.draws == 1 && nightFaint.draws == 1,
+          "a strong light in daylight and the same faint light at night are still drawn on surfaces");
+    RenderLit(h, scene, saved, kFullStrength, false);
     vf_test_set_config(&saved);
 }
 
