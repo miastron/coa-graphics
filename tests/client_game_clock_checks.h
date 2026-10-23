@@ -61,6 +61,22 @@ void CheckGameClockGuards()
           "functions matches");
 }
 
+void CheckAdvancedMinuteOfDay()
+{
+    const float noon = 12.0f * kMinutesPerHour;
+    const float lateEvening = 23.0f * kMinutesPerHour + 50.0f;
+    Check(std::fabs(engine::AdvancedMinuteOfDay(noon, kStockMinutesPerSecond, 0.0) - noon) < 1e-4f &&
+              std::fabs(engine::AdvancedMinuteOfDay(noon, kStockMinutesPerSecond, 600.0) - (noon + 10.0f)) < 1e-3f,
+          "the live time a freeze would have reached advances by the elapsed seconds at the clock's minutes per "
+          "second");
+    const float wrapped = engine::AdvancedMinuteOfDay(lateEvening, kStockMinutesPerSecond, 1200.0);
+    const double threeDaysAndAMinute = 3.0 * kMinutesPerDay * 60.0 + 60.0;
+    const float manyDays = engine::AdvancedMinuteOfDay(noon, kStockMinutesPerSecond, threeDaysAndAMinute);
+    Check(std::fabs(wrapped - 10.0f) < 1e-2f && std::fabs(manyDays - (noon + 1.0f)) < 1e-2f && wrapped >= 0.0f &&
+              wrapped < kMinutesPerDay,
+          "the live time wraps past midnight and over whole days");
+}
+
 void CheckPinnedClockHoldsTheTime()
 {
     std::vector<unsigned char> clock(kGameClockBytes, 0);
@@ -93,6 +109,7 @@ void CheckPinnedClockHoldsTheTime()
 void CheckGameClock()
 {
     CheckGameClockGuards();
+    CheckAdvancedMinuteOfDay();
     CheckPinnedClockHoldsTheTime();
 }
 }

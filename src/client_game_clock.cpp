@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cmath>
 #include <cstring>
 
 namespace
@@ -41,6 +42,12 @@ void PinGameClock(unsigned char* clock, float minuteOfDay)
     Store<float>(clock, kGameClockFractionalMinutes, 0.0f);
     Store<uint8_t>(clock, kGameClockRunning, 0);
     Store<float>(clock, kGameClockBaseMinuteOfDay, minuteOfDay);
+}
+
+float AdvancedMinuteOfDay(float minuteOfDay, float minutesPerSecond, double elapsedSeconds)
+{
+    const double advanced = std::fmod(minuteOfDay + elapsedSeconds * minutesPerSecond, kMinutesPerDay);
+    return static_cast<float>(advanced < 0.0 ? advanced + kMinutesPerDay : advanced);
 }
 
 bool ResumeGameClock(unsigned char* clock)

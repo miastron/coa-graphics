@@ -36,4 +36,5 @@ namespace engine
 bool GameClockLayoutMatches(const ClientCodeView& code);
 void PinGameClock(unsigned char* clock, float minuteOfDay);
 bool ResumeGameClock(unsigned char* clock);
+float AdvancedMinuteOfDay(float minuteOfDay, float minutesPerSecond, double elapsedSeconds);
 }

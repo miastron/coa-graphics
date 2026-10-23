@@ -5,6 +5,8 @@
 #include "engine.h"
 #include "log.h"
 
+#include <windows.h>
+
 #include <cmath>
 
 namespace
@@ -18,6 +20,9 @@ struct TimeOfDayState
     bool available = false;
     bool frozen = false;
     float minuteOfDay = 0.0f;
+    bool anchored = false;
+    float anchorMinuteOfDay = 0.0f;
+    ULONGLONG anchorTickMs = 0;
 };
 
 TimeOfDayState g_state;
@@ -49,6 +54,24 @@ float LiveHours()
 {
     return Read<float>(kDayFraction) * kHoursPerDay;
 }
+
+float MinutesPerSecond()
+{
+    return Read<float>(kGameClock + kGameClockMinutesPerSecond);
+}
+
+void AnchorLiveTime()
+{
+    g_state.anchored = true;
+    g_state.anchorMinuteOfDay = LiveHours() * kMinutesPerHour;
+    g_state.anchorTickMs = GetTickCount64();
+}
+
+float LiveMinuteOfDayNow()
+{
+    const double elapsedSeconds = (GetTickCount64() - g_state.anchorTickMs) * 0.001;
+    return engine::AdvancedMinuteOfDay(g_state.anchorMinuteOfDay, MinutesPerSecond(), elapsedSeconds);
+}
 }
 
 TimeOfDayStatus CurrentTimeOfDay()
@@ -65,6 +88,8 @@ void FreezeTimeOfDay(float hours)
 {
     if (!Available())
         return;
+    if (!g_state.frozen)
+        AnchorLiveTime();
     g_state.frozen = true;
     g_state.minuteOfDay = WrapMinuteOfDay(hours * kMinutesPerHour);
     HoldTimeOfDay();
@@ -75,8 +100,19 @@ void ResumeTimeOfDay()
     if (!g_state.frozen)
         return;
     g_state.frozen = false;
+    g_state.anchored = false;
     if (!engine::ResumeGameClock(GameClock()))
         VF_LOG_ERROR("time of day: could not restart the client's game clock");
+}
+
+void RestoreLiveTimeOfDay()
+{
+    if (!g_state.frozen)
+        return;
+    if (g_state.anchored)
+        engine::PinGameClock(GameClock(), LiveMinuteOfDayNow());
+    g_state.anchored = false;
+    ResumeTimeOfDay();
 }
 
 void HoldTimeOfDay()

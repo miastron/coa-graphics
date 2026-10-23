@@ -582,6 +582,12 @@ void DrawTimeOfDay()
     if (Slider("Hour", hours, 0.0f, kHoursPerDay, "%.2f",
                "Move the sun and moon, the sky and the light; dragging it freezes the clock"))
         FreezeTimeOfDay(hours);
+    ImGui::BeginDisabled(!status.frozen);
+    if (ImGui::Button("Back to live time"))
+        RestoreLiveTimeOfDay();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Return the clock to the time it would show now had you not touched it, and let it run");
 }
 
 bool DrawDebug(Config& c)

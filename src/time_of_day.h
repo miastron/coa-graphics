@@ -10,4 +10,5 @@ struct TimeOfDayStatus
 TimeOfDayStatus CurrentTimeOfDay();
 void FreezeTimeOfDay(float hours);
 void ResumeTimeOfDay();
+void RestoreLiveTimeOfDay();
 void HoldTimeOfDay();
