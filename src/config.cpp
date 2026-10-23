@@ -1,5 +1,6 @@
 #include "config.h"
 
+#include "ini_section.h"
 #include "log.h"
 
 #include <windows.h>
@@ -292,32 +293,30 @@ bool IsNotANumber(float value)
     return (bits & kExponentMask) == kExponentMask && (bits & kMantissaMask) != 0;
 }
 
-float ReadFloat(const std::string& path, const char* key, float fallback, float lo, float hi)
+float ReadFloat(const IniSection& ini, const char* key, float fallback, float lo, float hi)
 {
-    char buf[64];
-    GetPrivateProfileStringA(kSection, key, "", buf, sizeof(buf), path.c_str());
-    if (!buf[0])
+    std::string text;
+    if (!ini.Find(key, text) || text.empty())
         return fallback;
     char* end = nullptr;
-    float v = std::strtof(buf, &end);
-    if (end == buf || IsNotANumber(v))
+    float v = std::strtof(text.c_str(), &end);
+    if (end == text.c_str() || IsNotANumber(v))
         return fallback;
     return std::clamp(v, lo, hi);
 }
 
-int ReadInt(const std::string& path, const char* key, int fallback, int lo, int hi)
+int ReadInt(const IniSection& ini, const char* key, int fallback, int lo, int hi)
 {
-    int v = static_cast<int>(GetPrivateProfileIntA(kSection, key, fallback, path.c_str()));
-    return std::clamp(v, lo, hi);
+    return std::clamp(ini.Int(key, fallback), lo, hi);
 }
 
-Hotkey ReadHotkey(const std::string& path, const char* key, const Hotkey& fallback)
+Hotkey ReadHotkey(const IniSection& ini, const char* key, const Hotkey& fallback)
 {
-    char buf[64];
-    GetPrivateProfileStringA(kSection, key, "", buf, sizeof(buf), path.c_str());
+    std::string text;
+    ini.Find(key, text);
     Hotkey parsed = fallback;
-    if (buf[0] && !ParseHotkey(buf, parsed))
-        VF_LOG_ERROR("%s=%s is not a key; using %s", key, buf, HotkeyName(fallback).c_str());
+    if (!text.empty() && !ParseHotkey(text.c_str(), parsed))
+        VF_LOG_ERROR("%s=%s is not a key; using %s", key, text.c_str(), HotkeyName(fallback).c_str());
     return parsed;
 }
 
@@ -343,14 +342,6 @@ void ClampLiveSettings(Config& c)
     ForEachFloatSetting([&c](const FloatSetting& s) { c.*s.value = ClampedSetting(c.*s.value, s.lo, s.hi); });
     if (c.farClipMax < kEngineFarClipMin)
         c.farClipMax = kFarClipMaxKeepsClientCap;
-}
-
-std::string Trimmed(const std::string& text)
-{
-    const size_t first = text.find_first_not_of(" \t");
-    if (first == std::string::npos)
-        return std::string();
-    return text.substr(first, text.find_last_not_of(" \t") - first + 1);
 }
 
 bool SameText(const std::string& text, const char* name)
@@ -423,7 +414,7 @@ bool ParseHotkey(const char* text, Hotkey& out)
     std::string rest = text ? text : "";
     for (size_t plus = rest.find('+'); plus != std::string::npos; plus = rest.find('+'))
     {
-        const std::string modifier = Trimmed(rest.substr(0, plus));
+        const std::string modifier = TrimmedText(rest.substr(0, plus));
         if (SameText(modifier, "Ctrl") || SameText(modifier, "Control"))
             key.ctrl = true;
         else if (SameText(modifier, "Shift"))
@@ -434,7 +425,7 @@ bool ParseHotkey(const char* text, Hotkey& out)
             return false;
         rest = rest.substr(plus + 1);
     }
-    if (!ParseKeyName(Trimmed(rest), key.virtualKey))
+    if (!ParseKeyName(TrimmedText(rest), key.virtualKey))
         return false;
     out = key;
     return true;
@@ -667,7 +658,7 @@ void ConfigStore::Read()
 Config ConfigStore::ReadFile() const
 {
     Config c;
-    const std::string& p = m_path;
+    const IniSection p(m_path, kSection);
     c.enable = ReadInt(p, "Enable", 1, 0, 1) != 0;
     c.hooks = ReadInt(p, "EngineHooks", 1, 0, 1) != 0;
     c.lightStay = ReadInt(p, "LightStay", 1, 0, 1) != 0;

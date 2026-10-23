@@ -10,6 +10,7 @@
 #include "gpu_timing.h"
 #include "grading_renderer.h"
 #include "image_quality.h"
+#include "ini_section.h"
 #include "local_light_stabiliser.h"
 #include "log.h"
 #include "msaa_depth.h"
@@ -1623,6 +1624,88 @@ void CheckOverlayKeyNames()
           "overlay key names read back as written");
 }
 
+std::string ProfileText(const std::string& path, const std::string& key)
+{
+    char buf[512];
+    GetPrivateProfileStringA("CoAGraphics", key.c_str(), "<missing>", buf, sizeof(buf), path.c_str());
+    return buf;
+}
+
+std::string IniSectionText(const IniSection& ini, const std::string& key)
+{
+    std::string text;
+    return ini.Find(key.c_str(), text) ? text : "<missing>";
+}
+
+void CheckIniSectionMatchesProfileApi(const std::wstring& outDir, const std::wstring& shippedIni)
+{
+    const std::wstring fixture = FullPath(outDir + L"\\profile_fixture.ini");
+    const char fixtureText[] =
+        "[Other]\r\nElsewhere=7\r\nShared=other\r\n"
+        "[CoAGraphics]\r\n"
+        "; Commented=1\r\n"
+        "Plain=1\r\n"
+        "  Spaced  =  42  \r\n"
+        "MiXeD=3\r\n"
+        "Twice=1\r\nTwice=2\r\n"
+        "Quoted=\"0.5\"\r\n"
+        "Single='9'\r\n"
+        "Mismatched=\"4\r\n"
+        "Empty=\r\n"
+        "Negative=-5\r\n"
+        "Decimal=1.5\r\n"
+        "Trailing=12abc\r\n"
+        "Letters=abc\r\n"
+        "Plus=+3\r\n"
+        "Padded=  -7\r\n"
+        "Tabbed=\t8\t\r\n"
+        "Hotkey=Ctrl+F7\r\n"
+        "NoEquals\r\n"
+        "Embedded=a=b\r\n"
+        "[coagraphics]\r\n"
+        "AfterRepeat=1\r\n"
+        "Plain=2\r\n"
+        "[Last]\r\nTail=1";
+    std::FILE* file = _wfopen(fixture.c_str(), L"wb");
+    Check(file != nullptr && std::fwrite(fixtureText, 1, sizeof(fixtureText) - 1, file) == sizeof(fixtureText) - 1,
+          "profile fixture written");
+    if (file)
+        std::fclose(file);
+
+    const std::string path = NarrowPath(fixture);
+    const IniSection ini(path, "CoAGraphics");
+    const char* keys[] = {"Plain",   "spaced",  "MIXED",   "Twice",   "Quoted",    "Single",     "Mismatched",
+                          "Empty",   "Negative", "Decimal", "Trailing", "Letters",  "Plus",       "Padded",
+                          "Tabbed",  "Hotkey",  "NoEquals", "Embedded", "Commented", "Elsewhere", "Shared",
+                          "Missing", "AfterRepeat", "Tail"};
+    std::string differences;
+    constexpr int kFallback = 31337;
+    for (const char* key : keys)
+    {
+        const std::string ours = IniSectionText(ini, key);
+        const std::string theirs = ProfileText(path, key);
+        if (ours != theirs)
+            differences += std::string(differences.empty() ? "" : ", ") + key + " text '" + ours + "' against '" +
+                           theirs + "'";
+        const int ourInt = ini.Int(key, kFallback);
+        const int theirInt = static_cast<int>(GetPrivateProfileIntA("CoAGraphics", key, kFallback, path.c_str()));
+        if (ourInt != theirInt)
+            differences += std::string(differences.empty() ? "" : ", ") + key + " int " + std::to_string(ourInt) +
+                           " against " + std::to_string(theirInt);
+    }
+    if (!differences.empty())
+        std::printf("     INI section differs from the profile API: %s\n", differences.c_str());
+    Check(differences.empty(), "a section read once gives the profile API's text and integers for every key");
+
+    const std::string shipped = NarrowPath(shippedIni);
+    const IniSection shippedSection(shipped, "CoAGraphics");
+    std::string shippedDifferences;
+    for (const std::string& key : SettingKeys())
+        if (IniSectionText(shippedSection, key) != ProfileText(shipped, key))
+            shippedDifferences += (shippedDifferences.empty() ? "" : ", ") + key;
+    Check(shippedDifferences.empty(), "the shipped INI reads the same through the section and the profile API");
+}
+
 constexpr float kShippedFarClipMax = 1583.0f;
 
 void CheckShippedIniMatchesSettingsTable(const std::wstring& shippedIni)
@@ -2285,6 +2368,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     LogOpen(NarrowPath(g_harnessLog).c_str());
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     RUN_GROUP(CheckOverlayKeyNames());
+    RUN_GROUP(CheckIniSectionMatchesProfileApi(outDir, FullPath(iniPath)));
     RUN_GROUP(CheckShippedIniMatchesSettingsTable(FullPath(iniPath)));
     RUN_GROUP(CheckSettingsSaveKeepsTheIni(outDir, FullPath(iniPath)));
     RUN_GROUP(CheckFogDataBounds(outDir, dataPath));
