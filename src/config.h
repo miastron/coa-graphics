@@ -160,6 +160,14 @@ bool SameLiveSettings(const Config& a, const Config& b);
 std::string SettingChanges(const Config& before, const Config& after);
 std::vector<std::string> SettingKeys();
 
+struct SettingRange
+{
+    float lo;
+    float hi;
+};
+
+SettingRange FloatSettingRange(float Config::*member);
+
 class ConfigStore
 {
 public:

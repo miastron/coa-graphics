@@ -468,6 +468,16 @@ bool SameLiveSettings(const Config& a, const Config& b)
            SameValues(kGrassWindBoolSettings, a, b);
 }
 
+SettingRange FloatSettingRange(float Config::*member)
+{
+    SettingRange range = {0.0f, 1.0f};
+    ForEachFloatSetting([&](const FloatSetting& s) {
+        if (s.value == member)
+            range = {s.lo, s.hi};
+    });
+    return range;
+}
+
 std::vector<std::string> SettingKeys()
 {
     std::vector<std::string> keys = {"Enable", "EngineHooks", "LightStay", "Overlay", "OverlayKey"};

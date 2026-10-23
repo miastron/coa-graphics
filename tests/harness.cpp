@@ -1611,6 +1611,13 @@ void CheckShippedIniMatchesSettingsTable(const std::wstring& shippedIni)
         std::printf("     keys missing from the shipped INI: %s\n", missing.c_str());
     Check(missing.empty(), "every key of the settings table is written in the shipped INI");
 
+    const SettingRange temporal = FloatSettingRange(&Config::temporal);
+    const SettingRange phase = FloatSettingRange(&Config::localLightPhase);
+    const SettingRange parting = FloatSettingRange(&Config::grassPartingHeight);
+    Check(temporal.lo == 0.0f && temporal.hi == 0.97f && phase.lo == -0.9f && phase.hi == 0.9f &&
+              parting.lo == 0.01f && parting.hi == 5.0f,
+          "the settings window takes its slider ranges from the settings table");
+
     ConfigStore store;
     store.Load(NarrowPath(shippedIni));
     Config expected;

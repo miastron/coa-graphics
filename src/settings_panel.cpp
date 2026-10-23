@@ -85,6 +85,13 @@ bool Slider(const char* label, float& value, float lo, float hi, const char* for
     return changed;
 }
 
+bool Slider(Config& c, float Config::*member, const char* label, const char* format, const char* help,
+            ImGuiSliderFlags flags = ImGuiSliderFlags_None)
+{
+    const SettingRange range = FloatSettingRange(member);
+    return Slider(label, c.*member, range.lo, range.hi, format, help, flags);
+}
+
 bool Multiplier(const char* label, float& value, const char* help)
 {
     return Slider(label, value, 0.0f, kMultiplierSliderMax, "%.2f", help);
@@ -163,7 +170,7 @@ bool DrawQuality(Config& c)
     if (!section)
         return false;
     bool changed = Choice("Quality", c.quality, 1, kQualityNames, "Resolution and ray-march steps of the fog pass");
-    changed |= Slider("Temporal filter", c.temporal, 0.0f, 0.97f, "%.2f",
+    changed |= Slider(c, &Config::temporal, "Temporal filter", "%.2f",
                       "History weight of the temporal filter, 0 = off");
     return changed;
 }
@@ -187,13 +194,13 @@ bool DrawDensity(Config& c)
     changed |= Toggle("Classic fog layers", c.dataMode,
                       "Use the Classic client's fog layers where its lights cover the map. Off: derived layers "
                       "everywhere");
-    changed |= Slider("Fog range", c.maxDistance, 200.0f, 5000.0f, "%.0f yd",
+    changed |= Slider(c, &Config::maxDistance, "Fog range", "%.0f yd",
                       "How far sky rays are integrated and the scale of the Classic distance curves");
-    changed |= Slider("Density variation", c.noiseAmount, 0.0f, 1.0f, "%.2f",
+    changed |= Slider(c, &Config::noiseAmount, "Density variation", "%.2f",
                       "Spatial variation in haze and ground fog; 0 keeps the authored density smooth");
-    changed |= Slider("Variation scale", c.noiseScale, 0.001f, 1.0f, "%.3f",
+    changed |= Slider(c, &Config::noiseScale, "Variation scale", "%.3f",
                       "Larger values make smaller mist patches", ImGuiSliderFlags_Logarithmic);
-    changed |= Slider("Mist drift", c.noiseWindSpeed, 0.0f, 10.0f, "%.2f yd/s",
+    changed |= Slider(c, &Config::noiseWindSpeed, "Mist drift", "%.2f yd/s",
                       "Speed of drifting mist; 0 keeps it stationary");
     changed |= Toggle("Classic fog noise", c.classicNoise,
                       "Drifting fog banks where the Classic layers carry the modern client's noise, mostly in storms; "
@@ -254,9 +261,9 @@ bool DrawLight(Config& c)
                       "Scatter and blend in linear light like the modern client, with a soft highlight roll-off. "
                       "Off: gamma");
     changed |= Toggle("Local lights", c.localLights, "Scatter point lights in view from the world into the fog");
-    changed |= Slider("Local light intensity", c.localLightIntensity, 0.0f, 8.0f, "%.2f",
+    changed |= Slider(c, &Config::localLightIntensity, "Local light intensity", "%.2f",
                       "Brightness of the point lights in the fog");
-    changed |= Slider("Local light phase", c.localLightPhase, -0.9f, 0.9f, "%.2f",
+    changed |= Slider(c, &Config::localLightPhase, "Local light phase", "%.2f",
                       "How every point light scatters in the fog: 0 evenly in all directions; toward 0.9 mostly in "
                       "the fog between you and the light; below 0 the fog behind the light, steeply brighter toward "
                       "-0.9. The modern client uses one such value for all its lights; 0.3 is a calibration");
@@ -268,9 +275,9 @@ bool DrawLight(Config& c)
                       "hidden, fades out with it");
     changed |= Toggle("Spell lights", c.spellLights,
                       "Glowing spell effects and shields light the fog around them, in their own colour");
-    changed |= Slider("Spell light intensity", c.spellLightIntensity, 0.0f, 8.0f, "%.2f",
+    changed |= Slider(c, &Config::spellLightIntensity, "Spell light intensity", "%.2f",
                       "Brightness of the spell effects in the fog");
-    changed |= Slider("Lights on surfaces", c.surfaceLights, 0.0f, 2.0f, "%.2f",
+    changed |= Slider(c, &Config::surfaceLights, "Lights on surfaces", "%.2f",
                       "Point and spell lights also light the ground, walls and models around them, without shadows, "
                       "from the same eight lights as the fog (needs Local lights). Strongest at night, where the "
                       "world's own light is dim. 0 = off");
@@ -280,7 +287,7 @@ bool DrawLight(Config& c)
     changed |= Toggle("World shadows", c.worldShadows,
                       "Use the client's shadow maps when available, so casters outside the view block the light too; "
                       "needs Light shafts and the client's shadows");
-    changed |= Slider("God rays", c.godRays, 0.0f, 4.0f, "%.2f",
+    changed |= Slider(c, &Config::godRays, "God rays", "%.2f",
                       "Radial rays from the bright sky around the sun, 0 = off");
     changed |= Toggle("Glow compensation", c.glowCompensation,
                       "Pre-compensate the fog for the client's full-screen glow, which otherwise bleaches bright fog "
@@ -298,11 +305,11 @@ bool DrawGlowAndGrading(Config& c)
                           "continent lights, so the full-screen glow mostly disappears there. It replaces the client's "
                           "own amount, Ascension's ambientGlow included, and fades back to it at the edge of Classic "
                           "coverage. Off: the client's glow");
-    changed |= Slider("Colour grading", c.colorGrading, 0.0f, 1.0f, "%.2f",
+    changed |= Slider(c, &Config::colorGrading, "Colour grading", "%.2f",
                       "Strength of the modern client's colour curve for the lights around the camera: brighter "
                       "midtones, and the brightest highlights clipped to white. Names, the interface, the ghost view "
                       "and the view under water are not graded. 0 = off");
-    changed |= Slider("Bloom", c.bloom, 0.0f, 1.0f, "%.2f",
+    changed |= Slider(c, &Config::bloom, "Bloom", "%.2f",
                       "A soft halo of light around the brightest parts of the 3D view (the sun, bright sky, spells "
                       "and lamps) at the end of the world render, before names and the interface. It adds to the "
                       "client's own glow. 0 = off");
@@ -360,9 +367,9 @@ bool DrawWorld(Config& c)
                       "water is drawn");
     changed |= Toggle("Interior-aware fog", c.interiorAware,
                       "Fade outdoor fog and direct sunlight as the camera enters a building or cave");
-    changed |= Slider("Interior density", c.interiorDensity, 0.0f, 1.0f, "%.2f",
+    changed |= Slider(c, &Config::interiorDensity, "Interior density", "%.2f",
                       "Outdoor fog density retained indoors");
-    changed |= Slider("Interior far fog", c.interiorFarFog, 0.0f, 1.0f, "%.2f",
+    changed |= Slider(c, &Config::interiorFarFog, "Interior far fog", "%.2f",
                       "Native distance-fog density retained indoors; outdoor distance fog is unchanged");
     changed |= DrawViewDistance(c);
     return changed;
@@ -376,7 +383,7 @@ bool DrawAntialiasing(Config& c)
     bool changed = Toggle("SMAA antialiasing", c.antialiasing,
                           "Smooth the jagged edges of the 3D view, also those multisampling misses: leaves, grass, "
                           "fences and hair. Runs at the end of the world render, before names and the interface");
-    changed |= Slider("Sharpening", c.sharpening, 0.0f, 1.0f, "%.2f",
+    changed |= Slider(c, &Config::sharpening, "Sharpening", "%.2f",
                       "Contrast-adaptive sharpening of the 3D view at the end of the world render, before names and "
                       "the interface: brings back detail that blurry textures, antialiasing and the fog soften, more "
                       "where the image is flat than at edges. 0 = off");
@@ -416,24 +423,24 @@ bool DrawWater(Config& c)
     changed |= Choice("Water quality", c.waterQuality, 1, kWaterQualityNames,
                       "Size of the wave simulation and detail of the reflections");
     changed |= DrawWaveRate(c);
-    changed |= Slider("Waves", c.waterWaves, 0.0f, 2.0f, "%.2f", "Wave height, 0 = flat water");
-    changed |= Slider("Wind", c.waterWind, 0.5f, 10.0f, "%.2f",
+    changed |= Slider(c, &Config::waterWaves, "Waves", "%.2f", "Wave height, 0 = flat water");
+    changed |= Slider(c, &Config::waterWind, "Wind", "%.2f",
                       "Wind that drives the waves; stronger wind makes longer, rougher waves");
-    changed |= Slider("Foam", c.waterFoam, 0.0f, 2.0f, "%.2f", "Foam on wave crests, 0 = none");
-    changed |= Slider("Shore foam", c.waterShoreFoam, 0.0f, 2.0f, "%.2f",
+    changed |= Slider(c, &Config::waterFoam, "Foam", "%.2f", "Foam on wave crests, 0 = none");
+    changed |= Slider(c, &Config::waterShoreFoam, "Shore foam", "%.2f",
                       "Foam along shores and in shallow water, 0 = none");
-    changed |= Slider("Shore waves", c.waterShoreWaves, 0.0f, 2.0f, "%.2f",
+    changed |= Slider(c, &Config::waterShoreWaves, "Shore waves", "%.2f",
                       "Small waves washing in and out at the waterline, 0 = a still waterline");
-    changed |= Slider("Reflections", c.waterReflections, 0.0f, 2.0f, "%.2f",
+    changed |= Slider(c, &Config::waterReflections, "Reflections", "%.2f",
                       "Reflections of the sky and the scene, 0 = none");
-    changed |= Slider("Sun highlight", c.waterSpecular, 0.0f, 4.0f, "%.2f",
+    changed |= Slider(c, &Config::waterSpecular, "Sun highlight", "%.2f",
                       "Highlight of the sun or moon on the water, 0 = none");
-    changed |= Slider("Clarity", c.waterClarity, 0.25f, 4.0f, "%.2f",
+    changed |= Slider(c, &Config::waterClarity, "Clarity", "%.2f",
                       "How far you see into the water; larger is clearer", ImGuiSliderFlags_Logarithmic);
-    changed |= Slider("Zone colours", c.waterZoneColors, 0.0f, 1.0f, "%.2f",
+    changed |= Slider(c, &Config::waterZoneColors, "Zone colours", "%.2f",
                       "How much the zone's own water colours from the client's lights tint the water, 0 = the modern "
                       "colours only");
-    changed |= Slider("Ripples", c.waterRipples, 0.0f, 2.0f, "%.2f",
+    changed |= Slider(c, &Config::waterRipples, "Ripples", "%.2f",
                       "Wakes of players, creatures, pets and mounts in the water: a thin V behind a unit that runs or "
                       "swims, one ring as it starts or stops, a calm surface while it stands. 0.5 = default, 0 = none");
     changed |= Toggle("Client splashes", c.waterClientSplashes,
@@ -486,11 +493,11 @@ bool DrawTreeWind(Config& c)
     changed |= Toggle("Match tall models", c.treeMatchTallThin,
                       "The model's bounds must be tall and narrow; every enabled test must pass");
     changed |= Toggle("Skip dead trees", c.treeSkipDead, "Leave dead, bare, burnt and felled models still");
-    changed |= Slider("Min height", c.treeMinHeight, 0.0f, 40.0f, "%.1f", "Tall-model test: least height, yards");
-    changed |= Slider("Min aspect", c.treeMinAspect, 0.5f, 6.0f, "%.2f", "Tall-model test: height over width");
-    changed |= Slider("Max height", c.treeMaxHeight, 0.0f, 300.0f, "%.0f",
+    changed |= Slider(c, &Config::treeMinHeight, "Min height", "%.1f", "Tall-model test: least height, yards");
+    changed |= Slider(c, &Config::treeMinAspect, "Min aspect", "%.2f", "Tall-model test: height over width");
+    changed |= Slider(c, &Config::treeMaxHeight, "Max height", "%.0f",
                       "Trees taller than this stay still, yards, 0 = no limit");
-    changed |= Slider("Max distance", c.treeMaxDistance, 0.0f, 500.0f, "%.0f",
+    changed |= Slider(c, &Config::treeMaxDistance, "Max distance", "%.0f",
                       "Trees farther than this stay still, yards, 0 = no limit");
     return changed;
 }
@@ -505,7 +512,7 @@ bool DrawBushWind(Config& c)
     changed |= DrawWindWave(c, false);
     changed |= Toggle("Placed doodads only", c.bushDoodadsOnly, "Only map-placed models, never units or spell effects");
     changed |= Toggle("Skip dead bushes", c.bushSkipDead, "Leave dead and bare bushes still");
-    changed |= Slider("Max distance", c.bushMaxDistance, 0.0f, 500.0f, "%.0f",
+    changed |= Slider(c, &Config::bushMaxDistance, "Max distance", "%.0f",
                       "Bushes farther than this stay still, yards, 0 = no limit");
     return changed;
 }
@@ -518,35 +525,35 @@ bool DrawGrassWind(Config& c)
     bool changed = Toggle("Grass sways", c.grassWind,
                           "Move the client's grass blades with travelling waves of wind. The shader rewrite is made "
                           "when the game starts, so switching this on needs a restart if both grass switches were off");
-    changed |= Slider("Direction", c.grassWindDirection, 0.0f, 360.0f, "%.0f",
+    changed |= Slider(c, &Config::grassWindDirection, "Direction", "%.0f",
                       "Wind heading in the world plane, degrees");
-    changed |= Slider("Speed", c.grassWindSpeed, 0.0f, 20.0f, "%.2f", "How fast the waves travel, yards per second");
-    changed |= Slider("Amplitude", c.grassWindAmplitude, 0.0f, 0.5f, "%.3f",
+    changed |= Slider(c, &Config::grassWindSpeed, "Speed", "%.2f", "How fast the waves travel, yards per second");
+    changed |= Slider(c, &Config::grassWindAmplitude, "Amplitude", "%.3f",
                       "Sway of the primary wave at the blade tip, yards");
-    changed |= Slider("Wavelength", c.grassWindWavelength, 1.0f, 100.0f, "%.1f", "Length of the primary wave, yards");
-    changed |= Slider("Cross amplitude", c.grassWindCrossAmplitude, 0.0f, 0.3f, "%.3f",
+    changed |= Slider(c, &Config::grassWindWavelength, "Wavelength", "%.1f", "Length of the primary wave, yards");
+    changed |= Slider(c, &Config::grassWindCrossAmplitude, "Cross amplitude", "%.3f",
                       "Sway of the secondary swell, yards");
-    changed |= Slider("Cross wavelength", c.grassWindCrossWavelength, 1.0f, 50.0f, "%.1f",
+    changed |= Slider(c, &Config::grassWindCrossWavelength, "Cross wavelength", "%.1f",
                       "Length of the secondary swell, yards");
-    changed |= Slider("Cross angle", c.grassWindCrossAngle, 0.0f, 180.0f, "%.0f",
+    changed |= Slider(c, &Config::grassWindCrossAngle, "Cross angle", "%.0f",
                       "Heading of the secondary swell relative to the primary wave, degrees");
-    changed |= Slider("Lean", c.grassWindLean, 0.0f, 2.0f, "%.2f",
+    changed |= Slider(c, &Config::grassWindLean, "Lean", "%.2f",
                       "Constant downwind lean, a share of the primary amplitude");
-    changed |= Slider("Variance", c.grassWindVariance, 0.0f, 1.0f, "%.2f",
+    changed |= Slider(c, &Config::grassWindVariance, "Variance", "%.2f",
                       "Spread of the sway between blades, 0 = uniform");
-    changed |= Slider("Distance fade", c.grassWindDistanceFade, 0.0f, 0.1f, "%.3f",
+    changed |= Slider(c, &Config::grassWindDistanceFade, "Distance fade", "%.3f",
                       "Sway attenuation per yard of view distance, 0 = none");
-    changed |= Slider("Anchor", c.grassWindAnchor, 0.0f, 0.9f, "%.2f",
+    changed |= Slider(c, &Config::grassWindAnchor, "Anchor", "%.2f",
                       "Share of the blade, from the base, that never moves");
     changed |= Toggle("Grass parts around you", c.grassParting,
                       "Blades lean away from your character as it walks through them");
-    changed |= Slider("Parting radius", c.grassPartingRadius, 0.1f, 10.0f, "%.1f",
+    changed |= Slider(c, &Config::grassPartingRadius, "Parting radius", "%.1f",
                       "Distance around your character that parts the grass, yards");
-    changed |= Slider("Parting force", c.grassPartingForce, 0.0f, 2.0f, "%.2f", "Lean strength at your character");
-    changed |= Slider("Edge force", c.grassPartingEdgeForce, 0.0f, 2.0f, "%.2f", "Lean strength at the radius edge");
-    changed |= Slider("Parting height", c.grassPartingHeight, 0.01f, 5.0f, "%.2f",
+    changed |= Slider(c, &Config::grassPartingForce, "Parting force", "%.2f", "Lean strength at your character");
+    changed |= Slider(c, &Config::grassPartingEdgeForce, "Edge force", "%.2f", "Lean strength at the radius edge");
+    changed |= Slider(c, &Config::grassPartingHeight, "Parting height", "%.2f",
                       "Height above the ground where the lean reaches full weight, yards");
-    changed |= Slider("Min blade height", c.grassPartingMinBladeHeight, 0.0f, 3.0f, "%.2f",
+    changed |= Slider(c, &Config::grassPartingMinBladeHeight, "Min blade height", "%.2f",
                       "Blades shorter than this stay still, yards");
     return changed;
 }
