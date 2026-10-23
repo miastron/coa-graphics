@@ -6,7 +6,6 @@
 #include "test_seams.h"
 
 #include "ps_depth_check.h"
-#include "vs_fullscreen.h"
 
 #include <windows.h>
 
@@ -250,7 +249,7 @@ struct DepthReadback
 
 bool CreateDepthReadback(IDirect3DDevice9* dev, UINT texels, DepthReadback& r)
 {
-    return SUCCEEDED(dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &r.vertexShader)) &&
+    return SUCCEEDED(CreateFullscreenVertexShader(dev, &r.vertexShader)) &&
            SUCCEEDED(dev->CreatePixelShader(reinterpret_cast<const DWORD*>(g_ps_depth_check), &r.pixelShader)) &&
            SUCCEEDED(CreateFullscreenVertexDeclaration(dev, &r.declaration)) &&
            SUCCEEDED(dev->CreateTexture(texels, 1, 1, D3DUSAGE_RENDERTARGET, D3DFMT_R32F, D3DPOOL_DEFAULT, &r.target,

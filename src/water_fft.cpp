@@ -16,7 +16,6 @@
 #include "ps_vw_fft_rows_fused.h"
 #include "ps_vw_fft_surface.h"
 #include "ps_vw_fft_surface_foam.h"
-#include "vs_fullscreen.h"
 
 #include <algorithm>
 #include <cstring>
@@ -35,26 +34,6 @@ struct Float4
 {
     float x, y, z, w;
 };
-
-struct SamplerSetting
-{
-    D3DSAMPLERSTATETYPE state;
-    DWORD value;
-};
-
-const SamplerSetting kPointClampSampler[] = {
-    {D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP}, {D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP},
-    {D3DSAMP_MAGFILTER, D3DTEXF_POINT},    {D3DSAMP_MINFILTER, D3DTEXF_POINT},
-    {D3DSAMP_MIPFILTER, D3DTEXF_POINT},    {D3DSAMP_SRGBTEXTURE, FALSE},
-    {D3DSAMP_MAXMIPLEVEL, 0},              {D3DSAMP_MIPMAPLODBIAS, 0},
-};
-
-bool CreateTarget(IDirect3DDevice9* dev, UINT width, UINT height, UINT levels, D3DFORMAT format,
-                  IDirect3DTexture9** out)
-{
-    return SUCCEEDED(
-        dev->CreateTexture(width, height, levels, D3DUSAGE_RENDERTARGET, format, D3DPOOL_DEFAULT, out, nullptr));
-}
 
 bool UploadTexels(IDirect3DDevice9* dev, UINT width, UINT height, const std::vector<float>& texels,
                   IDirect3DTexture9** out)
@@ -217,7 +196,7 @@ bool WaterFftPasses::EnsureShaders(IDirect3DDevice9* dev)
         {PassShader::Mip, g_ps_vw_fft_mip},
         {PassShader::MipPair, g_ps_vw_fft_mip_pair},
     };
-    HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
+    HRESULT result = CreateFullscreenVertexShader(dev, &m_vs);
     for (const PixelShaderRequest& request : requests)
         if (SUCCEEDED(result))
             result = dev->CreatePixelShader(reinterpret_cast<const DWORD*>(request.code),
@@ -391,8 +370,7 @@ void WaterFftPasses::BindTexture(DWORD stage, IDirect3DBaseTexture9* texture)
 {
     if (!m_samplerKnown[stage])
     {
-        for (const SamplerSetting& setting : kPointClampSampler)
-            m_passDevice->SetSamplerState(stage, setting.state, setting.value);
+        SetPointClampSampler(m_passDevice, stage, D3DTEXF_POINT);
         m_passDevice->SetTexture(stage, texture);
         m_boundTextures[stage] = texture;
         m_samplerKnown[stage] = true;

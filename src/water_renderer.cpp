@@ -14,7 +14,6 @@
 #include "ps_vw_shade_high.h"
 #include "ps_vw_shade_low.h"
 #include "ps_vw_shade_mid.h"
-#include "vs_fullscreen.h"
 
 #include <algorithm>
 #include <cmath>
@@ -178,21 +177,6 @@ double QpcSeconds()
 double WaterSeconds()
 {
     return Seam(g_secondsOverride, -1.0) >= 0.0 ? g_secondsOverride : QpcSeconds();
-}
-
-bool CreateTarget(IDirect3DDevice9* dev, UINT w, UINT h, D3DFORMAT format, IDirect3DTexture9** out)
-{
-    return SUCCEEDED(dev->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, format, D3DPOOL_DEFAULT, out, nullptr));
-}
-
-void SetTarget(IDirect3DDevice9* dev, IDirect3DTexture9* texture)
-{
-    IDirect3DSurface9* surface = nullptr;
-    if (SUCCEEDED(texture->GetSurfaceLevel(0, &surface)))
-    {
-        dev->SetRenderTarget(0, surface);
-        surface->Release();
-    }
 }
 
 void BindSampler(IDirect3DDevice9* dev, DWORD stage, IDirect3DBaseTexture9* texture, D3DTEXTUREADDRESS address,
@@ -562,7 +546,7 @@ bool WaterRenderer::EnsureShaders(IDirect3DDevice9* dev)
         {"ps_vw_shade_high", g_ps_vw_shade_high, &m_shade[2]},
     };
     const char* failedName = "vs_fullscreen";
-    HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
+    HRESULT result = CreateFullscreenVertexShader(dev, &m_vs);
     if (SUCCEEDED(result))
         for (const PixelShaderRequest& shader : pixels)
         {

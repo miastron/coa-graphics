@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vs_fullscreen.h"
+
 #include <d3d9.h>
 
 inline constexpr float kFullscreenTriangleLow = -1.5f;
@@ -22,4 +24,9 @@ inline HRESULT CreateFullscreenVertexDeclaration(IDirect3DDevice9* dev, IDirect3
         D3DDECL_END(),
     };
     return dev->CreateVertexDeclaration(kElements, declaration);
+}
+
+inline HRESULT CreateFullscreenVertexShader(IDirect3DDevice9* dev, IDirect3DVertexShader9** shader)
+{
+    return dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), shader);
 }

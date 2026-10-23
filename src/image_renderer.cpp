@@ -14,7 +14,6 @@
 #include "ps_smaa_blend.h"
 #include "ps_smaa_edges.h"
 #include "ps_smaa_weights.h"
-#include "vs_fullscreen.h"
 
 #include <cstring>
 
@@ -241,7 +240,7 @@ bool ImageRenderer::EnsureShaders(IDirect3DDevice9* dev)
         return Skip("image shaders unsupported");
     if (m_bloomCompositePs)
         return true;
-    HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
+    HRESULT result = CreateFullscreenVertexShader(dev, &m_vs);
     if (SUCCEEDED(result))
         result = dev->CreatePixelShader(reinterpret_cast<const DWORD*>(g_ps_sharpen), &m_sharpen);
     if (SUCCEEDED(result))

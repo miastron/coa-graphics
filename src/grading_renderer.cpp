@@ -5,7 +5,6 @@
 #include "log.h"
 
 #include "ps_grade.h"
-#include "vs_fullscreen.h"
 
 #include <cstring>
 
@@ -130,7 +129,7 @@ bool GradingRenderer::EnsureShaders(IDirect3DDevice9* dev)
         return Skip("grading shader unsupported");
     if (m_ps)
         return true;
-    HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
+    HRESULT result = CreateFullscreenVertexShader(dev, &m_vs);
     if (SUCCEEDED(result))
         result = dev->CreatePixelShader(reinterpret_cast<const DWORD*>(g_ps_grade), &m_ps);
     if (SUCCEEDED(result))

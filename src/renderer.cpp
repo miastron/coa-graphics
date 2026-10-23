@@ -67,7 +67,6 @@
 #include "ps_surface_lights.h"
 #include "ps_temporal.h"
 #include "ps_history_depth.h"
-#include "vs_fullscreen.h"
 
 #include <algorithm>
 #include <cmath>
@@ -192,21 +191,6 @@ double TickSeconds(long long ticks)
         return f;
     }();
     return static_cast<double>(ticks) / static_cast<double>(freq.QuadPart);
-}
-
-bool CreateTarget(IDirect3DDevice9* dev, UINT w, UINT h, D3DFORMAT fmt, IDirect3DTexture9** out)
-{
-    return SUCCEEDED(dev->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, fmt, D3DPOOL_DEFAULT, out, nullptr));
-}
-
-void SetTarget(IDirect3DDevice9* dev, IDirect3DTexture9* tex)
-{
-    IDirect3DSurface9* surface = nullptr;
-    if (SUCCEEDED(tex->GetSurfaceLevel(0, &surface)))
-    {
-        dev->SetRenderTarget(0, surface);
-        surface->Release();
-    }
 }
 
 void Normalize3(float* v)
@@ -696,7 +680,7 @@ bool Renderer::EnsureShaders(IDirect3DDevice9* dev)
     LARGE_INTEGER creationStart;
     QueryPerformanceCounter(&creationStart);
     HRESULT result = AttemptCreation(kFogShaders)
-                         ? dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs)
+                         ? CreateFullscreenVertexShader(dev, &m_vs)
                          : D3DERR_OUTOFVIDEOMEMORY;
     if (SUCCEEDED(result))
         for (const PixelShaderRequest& shader : pixels)

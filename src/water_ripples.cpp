@@ -6,7 +6,6 @@
 #include "test_seams.h"
 
 #include "ps_vw_ripple_step.h"
-#include "vs_fullscreen.h"
 
 #include <algorithm>
 #include <cmath>
@@ -40,35 +39,12 @@ const RenderStateSetting kStepRenderStates[] = {
     {D3DRS_FILLMODE, D3DFILL_SOLID},
 };
 
-struct SamplerSetting
-{
-    D3DSAMPLERSTATETYPE state;
-    DWORD value;
-};
-
-const SamplerSetting kPointClampSampler[] = {
-    {D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP}, {D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP},
-    {D3DSAMP_MAGFILTER, D3DTEXF_POINT},    {D3DSAMP_MINFILTER, D3DTEXF_POINT},
-    {D3DSAMP_MIPFILTER, D3DTEXF_NONE},     {D3DSAMP_SRGBTEXTURE, FALSE},
-    {D3DSAMP_MAXMIPLEVEL, 0},              {D3DSAMP_MIPMAPLODBIAS, 0},
-};
-
 WaterRippleFault g_injectedRippleFault = WaterRippleFault::None;
 
 bool ShaderUnsupported(IDirect3DDevice9* dev, HRESULT result)
 {
     return (result == D3DERR_INVALIDCALL || result == D3DERR_NOTAVAILABLE || result == E_INVALIDARG) &&
            dev->TestCooperativeLevel() == D3D_OK;
-}
-
-void SetTarget(IDirect3DDevice9* dev, IDirect3DTexture9* texture)
-{
-    IDirect3DSurface9* surface = nullptr;
-    if (SUCCEEDED(texture->GetSurfaceLevel(0, &surface)))
-    {
-        dev->SetRenderTarget(0, surface);
-        surface->Release();
-    }
 }
 
 int WindowOrigin(float centre, int texels)
@@ -188,7 +164,7 @@ bool WaterRipples::EnsureShaders(IDirect3DDevice9* dev)
 {
     if (m_step)
         return true;
-    HRESULT result = dev->CreateVertexShader(reinterpret_cast<const DWORD*>(g_vs_fullscreen), &m_vs);
+    HRESULT result = CreateFullscreenVertexShader(dev, &m_vs);
     if (SUCCEEDED(result))
         result = CreateFullscreenVertexDeclaration(dev, &m_decl);
     if (SUCCEEDED(result))
@@ -304,8 +280,7 @@ void WaterRipples::SetStepState(IDirect3DDevice9* dev)
     dev->SetVertexDeclaration(m_decl);
     dev->SetStreamSourceFreq(0, 1);
     dev->SetPixelShader(m_step);
-    for (const SamplerSetting& setting : kPointClampSampler)
-        dev->SetSamplerState(0, setting.state, setting.value);
+    SetPointClampSampler(dev, 0, D3DTEXF_NONE);
 }
 
 WaterRipples::WindowShift WaterRipples::Recentre(IDirect3DDevice9* dev, const float centre[2])
