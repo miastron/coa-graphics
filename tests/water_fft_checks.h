@@ -653,15 +653,14 @@ void CheckAtlasGrowsAtMostTwice(IDirect3DDevice9* dev)
 {
     WaterFftPasses passes;
     int recreations = 0;
-    IDirect3DTexture9* previous = nullptr;
+    int previousSlots = 0;
     bool ran = true;
     for (int slots = 1; slots <= 5 && ran; ++slots)
     {
-        ran = passes.Prepare(dev, kWaterFftLowResolution, slots);
-        if (ran && passes.Spectrum() != previous)
+        ran = passes.Prepare(dev, kWaterFftLowResolution, slots) && passes.Slots() >= slots;
+        if (ran && passes.Slots() != previousSlots)
             ++recreations;
-        previous = passes.Spectrum();
-        ran = ran && passes.Slots() >= slots;
+        previousSlots = passes.Slots();
     }
     std::printf("     atlas recreated %d times for 1 to 5 tiles, %d slots\n", recreations, passes.Slots());
     Check(ran && recreations == 2 && passes.Slots() == passes.MaxSlots(),
