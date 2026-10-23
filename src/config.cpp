@@ -286,7 +286,7 @@ float ClampedSetting(float v, float lo, float hi)
 bool IsNotANumber(float value)
 {
     constexpr uint32_t kExponentMask = 0x7F800000;
-    constexpr uint32_t kMantissaMask = 0x007FFFFF;
+    constexpr uint32_t kMantissaMask = (1u << 23) - 1;
     uint32_t bits;
     std::memcpy(&bits, &value, sizeof(bits));
     return (bits & kExponentMask) == kExponentMask && (bits & kMantissaMask) != 0;

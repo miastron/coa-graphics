@@ -6,7 +6,7 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ('src/engine*.cpp', 'src/engine*.h', 'src/client_*.cpp', 'src/client_*.h')
+SOURCES = ('src/*.cpp', 'src/*.h')
 LOWEST_CLIENT_ADDRESS = 0x400000
 HIGHEST_CLIENT_ADDRESS = 0xFFFFFF
 MAX_RANGE_SPAN = 0x1000

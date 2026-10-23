@@ -864,10 +864,11 @@ Engine notes behind the code:
   `+0x1C` (`0x97EABA`); otherwise the vertex build `0x97E580` grows the bounds over the rendered particles, transforms
   them back to world space and stores the rendered count. The M2 renderer calls it from two sites. The single draw
   `0x8214E0` keeps the scene renderer in ESI and its current element `[esi+0x50]` holds the emitter at `+0x18`
-  (`0x8214E7`, `8B F1 8B 46 50 57 8B 78 18`); the call is at `0x821633` (`E8 28 D4 15 00`, ECX = EDI). The batched
+  (`0x8214E7`, `8B F1 8B 46 50 57 8B 78 18`); the call is at `0x821633` (`E8 28 D4 15 00`, ECX = EDI), guarded from `0x821623` (`8B 56 60 8B 82 74 01 00 00 6A 01 6A
+  00 50 8B CF`, its arguments and ECX). The batched
   draw `0x821100` reuses its third argument slot `[ebp+0x10]` as the cursor into the element index list and indexes
   the element array `[ebp+0xC]` by 0x44 (`0x821411`, `8B 55 10 8B 02 8B 55 0C 8B C8 C1 E1 04 03 C8`) for the emitter
-  at `+0x18` (`0x821420`, `8B 74 8A 18`); the call is at `0x82143F` (`E8 1C D6 15 00`, ECX = ESI). An element's model
+  at `+0x18` (`0x821420`, `8B 74 8A 18`); the call is at `0x82143F` (`E8 1C D6 15 00`, ECX = ESI), guarded from `0x82143C` (`51 8B CE`). An element's model
   is at `+4` (`0x821169`, `8B 4F 04`), a model's scene at `+0x28` (`0x824141`, `8B 56 28`) and its shared data at
   `+0x2C`, whose file name starts at `+0x3C` (`0x8245BE`, `8B 46 2C 53 57 83 C0 3C`). The emitter's blend is at
   `+0xD0` and its material flags at `+0xD4` (`0x8214F0`–`0x8214F9`); the model loader `0x832EA0` maps the file's
