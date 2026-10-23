@@ -6,6 +6,7 @@
 #include "shadow_light.h"
 #include "fog_data.h"
 #include "fog_model.h"
+#include "frame_copies.h"
 #include "fullscreen_triangle.h"
 #include "noise_volume.h"
 #include "log.h"
@@ -946,7 +947,8 @@ bool Renderer::EnsureSceneCopy(IDirect3DDevice9* dev, IDirect3DSurface9* target,
     return true;
 }
 
-bool Renderer::CopyWorldViewport(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp)
+bool Renderer::CopyWorldViewport(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
+                                 ColourCopySite site)
 {
     if (!EnsureSceneCopy(dev, target, vp.Width, vp.Height))
         return false;
@@ -955,6 +957,8 @@ bool Renderer::CopyWorldViewport(IDirect3DDevice9* dev, IDirect3DSurface9* targe
     const bool copied = SUCCEEDED(m_sceneCopy->GetSurfaceLevel(0, &sceneSurface)) &&
                         SUCCEEDED(dev->StretchRect(target, &world, sceneSurface, nullptr, D3DTEXF_POINT));
     SafeRelease(sceneSurface);
+    if (copied)
+        GlobalFrameCopies().CountColourCopy(site);
     return copied;
 }
 
@@ -1393,7 +1397,7 @@ void Renderer::PrepareFullscreenPasses(IDirect3DDevice9* dev)
 void Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
                              const SurfaceLightFrame& frame)
 {
-    if (!CopyWorldViewport(dev, target, frame.viewport))
+    if (!CopyWorldViewport(dev, target, frame.viewport, ColourCopySite::SurfaceLights))
         return;
     const RECT world = ViewportRect(frame.viewport);
     dev->SetRenderTarget(0, target);
@@ -1433,7 +1437,8 @@ void Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* tar
     const RECT world = ViewportRect(vp);
     if (SUCCEEDED(m_rays[0]->GetSurfaceLevel(0, &raySurface)))
     {
-        dev->StretchRect(target, &world, raySurface, nullptr, D3DTEXF_LINEAR);
+        if (SUCCEEDED(dev->StretchRect(target, &world, raySurface, nullptr, D3DTEXF_LINEAR)))
+            GlobalFrameCopies().CountColourCopy(ColourCopySite::GodRaySource);
         raySurface->Release();
     }
 }
@@ -1481,7 +1486,7 @@ bool Renderer::DrawGodRaysOverScene(IDirect3DDevice9* dev, const SceneDepth& dep
     PrepareFullscreenPasses(dev);
     dev->SetPixelShaderConstantF(0, &rays.common[0][0], 9);
     DrawGodRayMask(dev, depth.texture, rays);
-    if (!CopyWorldViewport(dev, target, vp))
+    if (!CopyWorldViewport(dev, target, vp, ColourCopySite::LateGodRays))
         return Skip("no scene copy for the god rays");
     const RECT world = ViewportRect(vp);
     dev->SetRenderTarget(0, target);
@@ -1610,7 +1615,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
 
     if (LogEnabled(LogLevel::Info))
         m_gpuTimer.Begin(dev);
-    if (!depth.Refresh(dev))
+    if (!depth.Refresh(dev, DepthRefreshSite::Fog))
     {
         m_gpuTimer.Cancel();
         return Skip("multisampled depth copy failed");
@@ -1709,8 +1714,9 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
 
     FogBlend blend = FogBlend::GammaFixedFunction;
     if (fog.linear)
-        blend = CopyWorldViewport(dev, target, vp) ? FogBlend::LinearOverSceneCopy : FogBlend::LinearFixedFunction;
-    else if (raysNow && CopyWorldViewport(dev, target, vp))
+        blend = CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite) ? FogBlend::LinearOverSceneCopy
+                                                                                : FogBlend::LinearFixedFunction;
+    else if (raysNow && CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite))
         blend = FogBlend::GammaOverSceneCopy;
     const bool sceneBlend = blend == FogBlend::LinearOverSceneCopy || blend == FogBlend::GammaOverSceneCopy;
     const float blendMode = static_cast<float>(blend);

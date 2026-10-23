@@ -135,10 +135,9 @@ public:
         UINT64 end = 0;
         UINT64 frequency = 0;
         BOOL disjoint = TRUE;
-        if (m_start->GetData(&start, sizeof(start), 0) != S_OK ||
-            m_end->GetData(&end, sizeof(end), 0) != S_OK ||
-            m_frequency->GetData(&frequency, sizeof(frequency), 0) != S_OK ||
-            m_disjoint->GetData(&disjoint, sizeof(disjoint), 0) != S_OK || disjoint || !frequency || end < start)
+        if (!Wait(m_start, &start, sizeof(start)) || !Wait(m_end, &end, sizeof(end)) ||
+            !Wait(m_frequency, &frequency, sizeof(frequency)) || !Wait(m_disjoint, &disjoint, sizeof(disjoint)) ||
+            disjoint || !frequency || end < start)
             return false;
         milliseconds = 1000.0 * static_cast<double>(end - start) / static_cast<double>(frequency);
         return true;
@@ -147,12 +146,14 @@ public:
     const char* Method() const { return m_gpu ? "GPU timestamps" : "event-flushed CPU/GPU elapsed time"; }
 
 private:
-    bool Wait()
+    bool Wait() { return Wait(m_event, nullptr, 0); }
+
+    static bool Wait(IDirect3DQuery9* query, void* data, DWORD size)
     {
         const ULONGLONG started = GetTickCount64();
         for (;;)
         {
-            const HRESULT result = m_event->GetData(nullptr, 0, D3DGETDATA_FLUSH);
+            const HRESULT result = query->GetData(data, size, D3DGETDATA_FLUSH);
             if (result != S_FALSE)
                 return result == S_OK;
             if (GetTickCount64() - started >= kQueryTimeoutMs)

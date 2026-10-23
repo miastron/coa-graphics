@@ -485,6 +485,8 @@ struct WaterFrame
     int fault = kNoWaterFault;
     IDirect3DSurface9* depthAtEnd = nullptr;
     bool otherPass = true;
+    bool depthWriteBeforeFog = false;
+    bool depthClearBeforeFog = false;
 };
 
 struct WaterFrameResult
@@ -597,6 +599,11 @@ public:
         result.stateKept = SameWaterSentinel(before, after, true);
         ReleaseWaterSentinel(before);
         ReleaseWaterSentinel(after);
+        if (frame.depthWriteBeforeFog)
+            m_h.DrawPretransformedQuadAtRawDepth(kOtherPassLeft, kOtherPassTop, kOtherPassRight, kOtherPassBottom,
+                                                 kOtherPassRawDepth, kOtherPassColour);
+        if (frame.depthClearBeforeFog)
+            dev->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
         if (frame.fogDepthView)
         {
             const char* skip = "";
@@ -2675,6 +2682,68 @@ void CheckRealDataViews(Harness& h, const Config& base, const std::string& water
     Check(AssignWaterData(MakeSyntheticWaterData()), "synthetic water data restored after the real-data views");
 }
 
+FrameCopyCounts CountCopiesOfOneFrame(BasinClient& client, const WaterFrame& frame, WaterFrameResult& result)
+{
+    FrameCopyCounts counts;
+    vf_test_take_frame_copies(&counts);
+    result = client.Render(frame);
+    vf_test_take_frame_copies(&counts);
+    return counts;
+}
+
+void PrintDepthRefreshCounts(const char* when, const FrameCopyCounts& c)
+{
+    std::printf("     %s: depth refreshes water begin %u (%u unwritten), water end %u (%u), fog %u (%u); "
+                "multisampled copies %u; colour copies water begin %u, fog composite %u\n",
+                when, c.depthRefreshes[0], c.depthRefreshesUnwritten[0], c.depthRefreshes[1],
+                c.depthRefreshesUnwritten[1], c.depthRefreshes[2], c.depthRefreshesUnwritten[2],
+                c.depthCopies[0] + c.depthCopies[1] + c.depthCopies[2],
+                c.colourCopies[static_cast<int>(ColourCopySite::WaterBegin)],
+                c.colourCopies[static_cast<int>(ColourCopySite::FogComposite)]);
+}
+
+bool RefreshedOnceEach(const FrameCopyCounts& c)
+{
+    return std::all_of(std::begin(c.depthRefreshes), std::end(c.depthRefreshes), [](unsigned n) { return n == 1; });
+}
+
+unsigned UnwrittenAt(const FrameCopyCounts& c, DepthRefreshSite site)
+{
+    return c.depthRefreshesUnwritten[static_cast<int>(site)];
+}
+
+void CheckFrameCopyCounts(BasinClient& client, const Config& base)
+{
+    vf_test_set_config(&base);
+    WaterFrame frame;
+    frame.fogDepthView = true;
+    WaterFrameResult result;
+    const FrameCopyCounts plain = CountCopiesOfOneFrame(client, frame, result);
+    PrintDepthRefreshCounts("water then fog", plain);
+    Check(result.shaded && result.fogRendered && RefreshedOnceEach(plain) &&
+              UnwrittenAt(plain, DepthRefreshSite::WaterBegin) == 0 &&
+              UnwrittenAt(plain, DepthRefreshSite::WaterEnd) == 0 && UnwrittenAt(plain, DepthRefreshSite::Fog) == 1,
+          "a water and fog frame counts one depth refresh at water begin, water end and fog; only the fog's follows "
+          "no client depth write, since the water pass's own draws do not count as one");
+    Check(plain.colourCopies[static_cast<int>(ColourCopySite::WaterBegin)] == 1 &&
+              plain.colourCopies[static_cast<int>(ColourCopySite::FogComposite)] == 1 &&
+              plain.depthCopies[0] + plain.depthCopies[1] + plain.depthCopies[2] == 0,
+          "the same frame counts one colour copy at water begin and one for the fog composite, and no multisampled "
+          "depth copy on a single-sampled device");
+
+    WaterFrame drawn = frame;
+    drawn.depthWriteBeforeFog = true;
+    const FrameCopyCounts afterDraw = CountCopiesOfOneFrame(client, drawn, result);
+    PrintDepthRefreshCounts("depth-writing draw before the fog", afterDraw);
+    WaterFrame cleared = frame;
+    cleared.depthClearBeforeFog = true;
+    const FrameCopyCounts afterClear = CountCopiesOfOneFrame(client, cleared, result);
+    Check(RefreshedOnceEach(afterDraw) && UnwrittenAt(afterDraw, DepthRefreshSite::Fog) == 0 &&
+              RefreshedOnceEach(afterClear) && UnwrittenAt(afterClear, DepthRefreshSite::Fog) == 0,
+          "a client draw with depth writes or a depth clear between the water end and the fog marks the fog's "
+          "refresh as needed");
+}
+
 void CheckWaterPass(Harness& h, const std::wstring& outDir, const std::string& waterDataPath)
 {
     g_harnessOutDir = outDir;
@@ -2725,6 +2794,7 @@ void CheckWaterPass(Harness& h, const std::wstring& outDir, const std::string& w
     }
     vf_test_set_config(&on);
 
+    CheckFrameCopyCounts(client, on);
     CheckSkipsAndUntouchedFrames(h, client, base, stock.image);
     Check(AssignWaterData(MakeSyntheticWaterData()), "synthetic water data re-assigned");
     CheckDepthWriteNesting(h, client);

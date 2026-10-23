@@ -2,6 +2,7 @@
 
 #include "d3d_util.h"
 #include "fog_model.h"
+#include "frame_copies.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
 #include "test_seams.h"
@@ -907,6 +908,8 @@ bool WaterRenderer::CopySceneColour(IDirect3DDevice9* dev, IDirect3DSurface9* ta
     const bool copied = SUCCEEDED(m_sceneColour->GetSurfaceLevel(0, &copy)) &&
                         SUCCEEDED(dev->StretchRect(target, &world, copy, nullptr, D3DTEXF_POINT));
     SafeRelease(copy);
+    if (copied)
+        GlobalFrameCopies().CountColourCopy(ColourCopySite::WaterBegin);
     return copied;
 }
 
@@ -993,7 +996,7 @@ bool WaterRenderer::Begin(IDirect3DDevice9* dev, const SceneDepth& depth, const 
     for (DWORD i = 1; i < kMaxRenderTargets; ++i)
         dev->SetRenderTarget(i, nullptr);
     const bool colourCopied = CopySceneColour(dev, m_saved.colour[0], vp);
-    const bool copied = colourCopied && depth.Refresh(dev);
+    const bool copied = colourCopied && depth.Refresh(dev, DepthRefreshSite::WaterBegin);
     if (copied)
     {
         dev->SetDepthStencilSurface(nullptr);
@@ -1564,7 +1567,7 @@ bool WaterRenderer::ShadeTaggedWater(IDirect3DDevice9* dev, const SceneDepth& de
     CaptureClientState();
     for (DWORD i = 1; i < kMaxRenderTargets; ++i)
         dev->SetRenderTarget(i, nullptr);
-    if (!depth.Refresh(dev))
+    if (!depth.Refresh(dev, DepthRefreshSite::WaterEnd))
     {
         RestoreTargets(dev);
         return Skip("multisampled depth copy failed");

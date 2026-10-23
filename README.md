@@ -1087,6 +1087,11 @@ Scenes for looking at the output:
 - `vfog_harness --scene water-performance --water-data data/waterdata.bin` times the water pass on the basin scene (1280×688
   world viewport) with the shipped settings and with one setting changed at a time, and prints `case,median_ms` of the
   water pass's own GPU time over 90 frames.
+- `vfog_harness --scene copy-cost` times one full-screen colour copy (`StretchRect` from the back buffer into a texture, a
+  resolve when multisampled) and one multisampled depth refresh, each right after a scene draw, at 1280×800 and
+  1920×1080 with 1x, 4x and 8x devices, and prints the median GPU ms of 60 rounds. It loads `d3d9.dll` by name, so a
+  DXVK `d3d9.dll` placed beside a copy of `vfog_harness.exe` and `CoAGraphicsTest.dll` times DXVK instead of the system
+  runtime.
 
 ## Install
 
@@ -1144,6 +1149,13 @@ settled change from the settings window, an INI reload or Revert is logged as on
 `settings: WaterFoam 1 -> 1.5, WaterWind 2 -> 4`. The water line goes on with the ripples (`ripples 512 at 0.125 yd, 30 Hz,
 up to 3 contacts, 0 steps dropped`, or `ripples idle`/`off`). `water: the client's splash and wake sprites are hidden` or
 `shown again` reports the hold.
+
+Every 60 s a `frame copies over N frames, per frame:` line gives the full-screen colour copies per frame at each site
+(water begin, surface lights, god-ray source, fog composite, late god rays, grading, image), then the depth refreshes
+per frame at water begin, water end and fog. Each refresh is followed in brackets by how many of them came with no depth
+write by the client since the previous refresh (a draw with depth writes on or a depth clear counts, whatever the depth
+test; the DLL's own passes do not) and how many issued a multisampled depth copy. Single-sampled devices count the
+refreshes too, though they copy nothing.
 
 The depth probe logs raw depth, distance and fog opacity at 25 points on frame 60, then every 60 s up to five times (every
 30 s without limit at `LogLevel=2`). Its rows are read back on a later frame. The first reason a fog draw is skipped is

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "frame_copies.h"
+
 #include <d3d9.h>
 
 enum class DepthCopyMethod
@@ -87,9 +89,10 @@ struct SceneDepth
     IDirect3DTexture9* texture = nullptr;
     IDirect3DSurface9* bound = nullptr;
     const DepthCopy* copy = nullptr;
+    bool* writtenSinceRefresh = nullptr;
 
     bool Multisampled() const { return copy != nullptr; }
-    bool Refresh(IDirect3DDevice9* dev) const { return !copy || copy->Copy(dev); }
+    bool Refresh(IDirect3DDevice9* dev, DepthRefreshSite site) const;
 };
 
 struct MultisamplingStatus

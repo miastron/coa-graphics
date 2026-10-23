@@ -1,6 +1,7 @@
 #include "grading_renderer.h"
 
 #include "d3d_util.h"
+#include "frame_copies.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
 
@@ -253,6 +254,8 @@ bool GradingRenderer::CopyWorld(IDirect3DDevice9* dev, IDirect3DSurface9* target
     const bool copied = SUCCEEDED(m_sceneCopy->GetSurfaceLevel(0, &copy)) &&
                         SUCCEEDED(dev->StretchRect(target, &rect, copy, nullptr, D3DTEXF_POINT));
     SafeRelease(copy);
+    if (copied)
+        GlobalFrameCopies().CountColourCopy(ColourCopySite::Grading);
     return copied || Skip("scene copy failed");
 }
 

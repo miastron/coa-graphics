@@ -628,6 +628,16 @@ bool DepthCopy::Copy(IDirect3DDevice9* dev) const
     }
 }
 
+bool SceneDepth::Refresh(IDirect3DDevice9* dev, DepthRefreshSite site) const
+{
+    const bool written = !writtenSinceRefresh || *writtenSinceRefresh;
+    const bool refreshed = !copy || copy->Copy(dev);
+    if (refreshed && writtenSinceRefresh)
+        *writtenSinceRefresh = false;
+    GlobalFrameCopies().CountDepthRefresh(site, written, copy && refreshed);
+    return refreshed;
+}
+
 bool ReadDepthTexels(IDirect3DDevice9* dev, IDirect3DTexture9* depth, const DepthTexel* texels, int count,
                      float* values)
 {

@@ -7,6 +7,7 @@
 #include "fog_model.h"
 #include "forever_look.h"
 #include "fullscreen_triangle.h"
+#include "frame_copies.h"
 #include "gpu_timing.h"
 #include "grading_renderer.h"
 #include "image_quality.h"
@@ -123,6 +124,8 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_force_depth_copy_method(in
 extern "C" __declspec(dllimport) void __cdecl vf_test_override_client_shadow_vector(const float*);
 extern "C" __declspec(dllimport) int __cdecl vf_test_read_scene_depth(const DepthTexel*, int, float*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_multisampling(MultisamplingStatus*);
+extern "C" __declspec(dllimport) int __cdecl vf_test_refresh_scene_depth();
+extern "C" __declspec(dllimport) void __cdecl vf_test_take_frame_copies(FrameCopyCounts*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_probe_depth_copy(IDirect3D9*, DepthCopyProbe*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_water_ripple_stats(WaterRippleStats*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_water_ripple_shading(WaterRippleShading*);
@@ -1599,6 +1602,29 @@ std::string ReadText(const std::wstring& path)
     return text;
 }
 
+void CheckFrameCopySummary()
+{
+    FrameCopyCounters counters;
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        counters.CountFrame();
+        counters.CountColourCopy(ColourCopySite::WaterBegin);
+        counters.CountDepthRefresh(DepthRefreshSite::Fog, frame % 2 == 0, true);
+    }
+    counters.CountColourCopy(ColourCopySite::SurfaceLights);
+    char text[768];
+    DescribeFrameCopies(counters.Counts(), text, sizeof(text));
+    std::printf("     %s\n", text);
+    Check(std::strstr(text, "over 4 frames") && std::strstr(text, "water begin 1.00, surface lights 0.25") &&
+              std::strstr(text, "fog 1.00 (0.50, 1.00)") && std::strstr(text, "water end 0.00 (0.00, 0.00)"),
+          "the frame copy summary gives each site's colour copies and depth refreshes per frame, the refreshes with "
+          "no depth write since the last and the multisampled copies");
+    counters.Reset();
+    DescribeFrameCopies(counters.Counts(), text, sizeof(text));
+    Check(std::strstr(text, "over 0 frames") && std::strstr(text, "fog 0.00 (0.00, 0.00)"),
+          "an empty interval describes zero copies instead of dividing by no frames");
+}
+
 bool SameHotkey(const Hotkey& a, const Hotkey& b)
 {
     return a.virtualKey == b.virtualKey && a.ctrl == b.ctrl && a.shift == b.shift && a.alt == b.alt;
@@ -2368,6 +2394,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     LogOpen(NarrowPath(g_harnessLog).c_str());
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     RUN_GROUP(CheckOverlayKeyNames());
+    RUN_GROUP(CheckFrameCopySummary());
     RUN_GROUP(CheckIniSectionMatchesProfileApi(outDir, FullPath(iniPath)));
     RUN_GROUP(CheckShippedIniMatchesSettingsTable(FullPath(iniPath)));
     RUN_GROUP(CheckSettingsSaveKeepsTheIni(outDir, FullPath(iniPath)));
@@ -3407,6 +3434,7 @@ int RunHarbour(const std::wstring& outDir, const std::string& dataPath, const Ha
 namespace
 {
 #include "performance_scene.h"
+#include "copy_cost_scene.h"
 #include "water_performance_scene.h"
 }
 
@@ -3487,11 +3515,14 @@ int wmain(int argc, wchar_t** argv)
         return ripple_scene::RunRippleScene(out, waterData);
     if (scene == L"water-performance")
         return water_performance::RunWaterPerformance(waterData);
+    if (scene == L"copy-cost")
+        return copy_cost_scene::RunCopyCost();
     if (scene == L"cpu")
         return Run(out, data, ini, waterData, true);
     if (!scene.empty())
     {
-        std::printf("unknown scene %ls (known: cpu, harbour, performance, ripples, water-performance)\n",
+        std::printf("unknown scene %ls (known: copy-cost, cpu, harbour, performance, ripples, "
+                    "water-performance)\n",
                     scene.c_str());
         return 2;
     }

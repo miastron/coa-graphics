@@ -141,6 +141,7 @@ public:
     void KeepSingleSampled(const char* why);
     const MultisamplingStatus& Multisampling() const { return m_multisampling; }
     bool ReadSceneDepth(const DepthTexel* texels, int count, float* values);
+    bool RefreshSceneDepth() { return FogActive() && m_clientDepth && Depth().Refresh(m_real, DepthRefreshSite::Fog); }
     bool Render(const FrameInputs& in, const Config& cfg, FogPass pass, const char** skip);
     bool RenderGodRaysAfterWorld(const char** skip);
     bool ReadyToRender(const D3DVIEWPORT9& vp, const char** skip);
@@ -324,6 +325,8 @@ public:
     HRESULT STDMETHODCALLTYPE EndScene() override { return m_real->EndScene(); }
     HRESULT STDMETHODCALLTYPE Clear(DWORD n, const D3DRECT* r, DWORD flags, D3DCOLOR c, float z, DWORD s) override
     {
+        if (flags & D3DCLEAR_ZBUFFER)
+            m_depthWrittenSinceRefresh = true;
         return m_real->Clear(n, r, flags, c, z, s);
     }
     HRESULT STDMETHODCALLTYPE SetTransform(D3DTRANSFORMSTATETYPE t, const D3DMATRIX* m) override
@@ -422,21 +425,25 @@ public:
     float STDMETHODCALLTYPE GetNPatchMode() override { return m_real->GetNPatchMode(); }
     HRESULT STDMETHODCALLTYPE DrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count) override
     {
+        NoteDepthWrite();
         return m_real->DrawPrimitive(t, start, count);
     }
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitive(D3DPRIMITIVETYPE t, INT base, UINT minIndex, UINT vertices,
                                                    UINT start, UINT count) override
     {
+        NoteDepthWrite();
         return m_real->DrawIndexedPrimitive(t, base, minIndex, vertices, start, count);
     }
     HRESULT STDMETHODCALLTYPE DrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, const void* data, UINT stride) override
     {
+        NoteDepthWrite();
         return m_real->DrawPrimitiveUP(t, count, data, stride);
     }
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE t, UINT minIndex, UINT vertices, UINT count,
                                                      const void* indices, D3DFORMAT fmt, const void* data,
                                                      UINT stride) override
     {
+        NoteDepthWrite();
         return m_real->DrawIndexedPrimitiveUP(t, minIndex, vertices, count, indices, fmt, data, stride);
     }
     HRESULT STDMETHODCALLTYPE ProcessVertices(UINT src, UINT dst, UINT count, IDirect3DVertexBuffer9* buffer,
@@ -567,7 +574,12 @@ private:
     bool BindFallbackDepth();
     void ResetTextureFiltering();
     static unsigned ForcedAnisotropy();
-    SceneDepth Depth() const;
+    SceneDepth Depth();
+    void NoteDepthWrite()
+    {
+        if (DepthWriteToApply())
+            m_depthWrittenSinceRefresh = true;
+    }
     bool DepthWriteOverridden() const { return m_suppressDepthWrite || m_forceDepthWrite || m_waterForcesDepthWrite; }
     DWORD DepthWriteToApply() const
     {
@@ -588,6 +600,7 @@ private:
 
     LONG m_ref = 1;
     DWORD m_clientRequestedDepthWrite = TRUE;
+    bool m_depthWrittenSinceRefresh = true;
     bool m_forceDepthWrite = false;
     bool m_suppressDepthWrite = false;
     bool m_waterForcesDepthWrite = false;
@@ -992,14 +1005,16 @@ void FogDevice::ReleaseDepth()
     ReleaseReference(m_clientDepth);
     ReleaseReference(m_depthSurface);
     ReleaseReference(m_depthTexture);
+    m_depthWrittenSinceRefresh = true;
 }
 
-SceneDepth FogDevice::Depth() const
+SceneDepth FogDevice::Depth()
 {
     SceneDepth depth;
     depth.texture = m_depthTexture;
     depth.bound = m_clientDepth ? m_clientDepth : m_depthSurface;
     depth.copy = m_clientDepth ? &m_depthCopy : nullptr;
+    depth.writtenSinceRefresh = &m_depthWrittenSinceRefresh;
     return depth;
 }
 
@@ -1286,6 +1301,11 @@ void RunAtFirstDevice(void (*startup)())
 void RefuseFogDepthCreation(bool refused)
 {
     g_depthCreationRefused = refused;
+}
+
+bool RefreshSceneDepth(FogDevice* device)
+{
+    return device && device->RefreshSceneDepth();
 }
 #endif
 

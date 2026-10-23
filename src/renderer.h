@@ -5,6 +5,7 @@
 #include "engine_shadows.h"
 #include "fog_data.h"
 #include "fog_model.h"
+#include "frame_copies.h"
 #include "gpu_timing.h"
 #include "msaa_depth.h"
 #include "retry_gate.h"
@@ -124,7 +125,8 @@ private:
     bool EnsureStateBlock(IDirect3DDevice9* dev);
     bool EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT rayW, UINT rayH);
     bool EnsureSceneCopy(IDirect3DDevice9* dev, IDirect3DSurface9* target, UINT w, UINT h);
-    bool CopyWorldViewport(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp);
+    bool CopyWorldViewport(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
+                           ColourCopySite site);
     bool Skip(const char* reason);
     bool NotReady(const char* reason);
     void LogLightChange(const FrameInputs& in, const AuthoredFog& fog, bool authored);

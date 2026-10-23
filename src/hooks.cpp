@@ -6,6 +6,7 @@
 #include "engine.h"
 #include "fog_model.h"
 #include "forever_look.h"
+#include "frame_copies.h"
 #include "grass_wind.h"
 #include "image_quality.h"
 #include "log.h"
@@ -378,6 +379,7 @@ void ReloadConfigAfterInterval()
 
 void OnFrameBegin()
 {
+    GlobalFrameCopies().CountFrame();
     ReloadConfigAfterInterval();
     PublishSpellLights();
     ConfigureWind();
@@ -459,6 +461,7 @@ void OnFrameEnd()
     RestorePushedStockFog();
     g_renderedLastFrame = g_renderedThisFrame;
     LogTransparentFogStatsWhenDue();
+    LogFrameCopiesWhenDue();
 }
 
 void UseClientFogRangeInsteadOfPushed(FrameInputs& in)

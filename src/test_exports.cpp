@@ -5,6 +5,7 @@
 #include "engine.h"
 #include "fog_data.h"
 #include "forever_look.h"
+#include "frame_copies.h"
 #include "grass_wind.h"
 #include "hooks.h"
 #include "image_quality.h"
@@ -412,6 +413,17 @@ extern "C" int __cdecl vf_test_read_scene_depth(const DepthTexel* texels, int co
 extern "C" void __cdecl vf_test_multisampling(MultisamplingStatus* status)
 {
     *status = CurrentMultisamplingStatus();
+}
+
+extern "C" int __cdecl vf_test_refresh_scene_depth()
+{
+    return RefreshSceneDepth(LatestFogDevice()) ? 1 : 0;
+}
+
+extern "C" void __cdecl vf_test_take_frame_copies(FrameCopyCounts* counts)
+{
+    *counts = GlobalFrameCopies().Counts();
+    GlobalFrameCopies().Reset();
 }
 
 extern "C" void __cdecl vf_test_probe_depth_copy(IDirect3D9* d3d, DepthCopyProbe* probe)
