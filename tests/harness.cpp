@@ -33,10 +33,12 @@
 #include <wincodec.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <cwctype>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -1559,6 +1561,29 @@ std::string NarrowPath(const std::wstring& path)
 }
 
 std::wstring g_harnessLog;
+std::vector<std::string> g_groupFilters;
+
+bool GroupSelected(const std::string& group)
+{
+    if (g_groupFilters.empty())
+        return true;
+    std::string lowered = group;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    for (const std::string& filter : g_groupFilters)
+        if (lowered.find(filter) != std::string::npos)
+            return true;
+    return false;
+}
+
+#define RUN_GROUP(...)                      \
+    do                                      \
+    {                                       \
+        if (GroupSelected(#__VA_ARGS__))    \
+        {                                   \
+            __VA_ARGS__;                    \
+        }                                   \
+    } while (0)
 
 std::string ReadText(const std::wstring& path)
 {
@@ -2229,67 +2254,67 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
           "outside the supported client (no water hooks) the DLL does not load waterdata.bin");
     FogData classic;
     Check(classic.Load(dataPath), "Classic fog data loads");
-    CheckClassicData(classic);
-    CheckOutlandAndNorthrendHaveTheirOwnLights(classic);
-    CheckRegionalFogSettings();
-    CheckOutlandDensityThinsTheConvertedFog(classic);
-    CheckOutlandSkyColourTintsTheConvertedFog(classic);
-    CheckLayerSlidersScaleTheClassicLayers(classic);
-    CheckNegligibleLightsLeaveTheLightLogAlone();
-    CheckStormBlendsLayersByClassicIndex(classic);
-    CheckScreenEffectLightSlot(classic);
-    CheckZoneLights(classic);
-    CheckAuthoredFogFollowsClientDirectLight(classic);
-    CheckDenseClassicFogAtHarbourSunset(classic);
-    CheckThinClassicFogAtHyjalMidnight(classic);
-    CheckFogThinsIntoFoglessClassicLight(classic);
-    authored_fog::CheckAuthoredFogExtras(classic);
-    authored_noise::CheckAuthoredNoise(classic);
-    classic_phase::CheckClassicPhase();
-    derived_fog_hue::CheckDerivedFogHue();
-    level_ray_fog::CheckLevelRayFog();
-    transparent_fog_checks::CheckStockFogFit(classic);
-    terrain_shadow_checks::CheckTerrainShadows();
-    shadow_light_checks::CheckShadowDirection();
-    shadow_light_checks::CheckShadowMapWeightFades();
-    shadow_light_checks::CheckSunShadowPlan();
-    resource_retry::CheckRetryGate();
+    RUN_GROUP(CheckClassicData(classic));
+    RUN_GROUP(CheckOutlandAndNorthrendHaveTheirOwnLights(classic));
+    RUN_GROUP(CheckRegionalFogSettings());
+    RUN_GROUP(CheckOutlandDensityThinsTheConvertedFog(classic));
+    RUN_GROUP(CheckOutlandSkyColourTintsTheConvertedFog(classic));
+    RUN_GROUP(CheckLayerSlidersScaleTheClassicLayers(classic));
+    RUN_GROUP(CheckNegligibleLightsLeaveTheLightLogAlone());
+    RUN_GROUP(CheckStormBlendsLayersByClassicIndex(classic));
+    RUN_GROUP(CheckScreenEffectLightSlot(classic));
+    RUN_GROUP(CheckZoneLights(classic));
+    RUN_GROUP(CheckAuthoredFogFollowsClientDirectLight(classic));
+    RUN_GROUP(CheckDenseClassicFogAtHarbourSunset(classic));
+    RUN_GROUP(CheckThinClassicFogAtHyjalMidnight(classic));
+    RUN_GROUP(CheckFogThinsIntoFoglessClassicLight(classic));
+    RUN_GROUP(authored_fog::CheckAuthoredFogExtras(classic));
+    RUN_GROUP(authored_noise::CheckAuthoredNoise(classic));
+    RUN_GROUP(classic_phase::CheckClassicPhase());
+    RUN_GROUP(derived_fog_hue::CheckDerivedFogHue());
+    RUN_GROUP(level_ray_fog::CheckLevelRayFog());
+    RUN_GROUP(transparent_fog_checks::CheckStockFogFit(classic));
+    RUN_GROUP(terrain_shadow_checks::CheckTerrainShadows());
+    RUN_GROUP(shadow_light_checks::CheckShadowDirection());
+    RUN_GROUP(shadow_light_checks::CheckShadowMapWeightFades());
+    RUN_GROUP(shadow_light_checks::CheckSunShadowPlan());
+    RUN_GROUP(resource_retry::CheckRetryGate());
 
     CreateDirectoryW(outDir.c_str(), nullptr);
     g_harnessLog = FullPath(outDir + L"\\harness.log");
     LogOpen(NarrowPath(g_harnessLog).c_str());
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    CheckOverlayKeyNames();
-    CheckShippedIniMatchesSettingsTable(FullPath(iniPath));
-    CheckSettingsSaveKeepsTheIni(outDir, FullPath(iniPath));
-    CheckFogDataBounds(outDir, dataPath);
-    forever_look_checks::CheckForeverGlow();
-    forever_look_checks::CheckLookSettings(outDir, FullPath(iniPath));
-    water_data_checks::CheckWaterData(outDir, waterDataPath);
-    water_settings_checks::CheckWaterSettings(outDir, FullPath(iniPath));
-    transparent_fog_checks::CheckTransparentFogSetting(outDir, FullPath(iniPath));
-    texture_filtering_checks::CheckForcedSamplerFilter();
-    texture_filtering_checks::CheckShippedSetting(FullPath(iniPath));
-    image_quality_checks::CheckShippedSetting(FullPath(iniPath));
-    surface_light_checks::CheckShippedSetting(FullPath(iniPath));
-    tree_wind_checks::CheckShippedSettings(FullPath(iniPath));
-    grass_wind_checks::CheckShippedSettings(FullPath(iniPath));
+    RUN_GROUP(CheckOverlayKeyNames());
+    RUN_GROUP(CheckShippedIniMatchesSettingsTable(FullPath(iniPath)));
+    RUN_GROUP(CheckSettingsSaveKeepsTheIni(outDir, FullPath(iniPath)));
+    RUN_GROUP(CheckFogDataBounds(outDir, dataPath));
+    RUN_GROUP(forever_look_checks::CheckForeverGlow());
+    RUN_GROUP(forever_look_checks::CheckLookSettings(outDir, FullPath(iniPath)));
+    RUN_GROUP(water_data_checks::CheckWaterData(outDir, waterDataPath));
+    RUN_GROUP(water_settings_checks::CheckWaterSettings(outDir, FullPath(iniPath)));
+    RUN_GROUP(transparent_fog_checks::CheckTransparentFogSetting(outDir, FullPath(iniPath)));
+    RUN_GROUP(texture_filtering_checks::CheckForcedSamplerFilter());
+    RUN_GROUP(texture_filtering_checks::CheckShippedSetting(FullPath(iniPath)));
+    RUN_GROUP(image_quality_checks::CheckShippedSetting(FullPath(iniPath)));
+    RUN_GROUP(surface_light_checks::CheckShippedSetting(FullPath(iniPath)));
+    RUN_GROUP(tree_wind_checks::CheckShippedSettings(FullPath(iniPath)));
+    RUN_GROUP(grass_wind_checks::CheckShippedSettings(FullPath(iniPath)));
 
     if (cpuOnly)
     {
-        CheckLocalLightInputs();
-        CheckPointLightTableCapture();
-        CheckLightsFollowTheirObjects();
-        CheckInteriorInputsSurviveAnIncompleteWalk();
-        CheckHdrLocalLightColours();
-        local_light_stabiliser_checks::CheckLocalLightStabiliser();
-        spell_light_checks::CheckSpellLights();
-        client_light_stay_checks::CheckClientLightStay();
-        client_game_clock_checks::CheckGameClock();
-        tree_wind_checks::CheckTreeWind();
-        grass_wind_checks::CheckGrassWind();
-        CheckInteriorFogInputs();
-        water_contact_checks::CheckWaterContacts();
+        RUN_GROUP(CheckLocalLightInputs());
+        RUN_GROUP(CheckPointLightTableCapture());
+        RUN_GROUP(CheckLightsFollowTheirObjects());
+        RUN_GROUP(CheckInteriorInputsSurviveAnIncompleteWalk());
+        RUN_GROUP(CheckHdrLocalLightColours());
+        RUN_GROUP(local_light_stabiliser_checks::CheckLocalLightStabiliser());
+        RUN_GROUP(spell_light_checks::CheckSpellLights());
+        RUN_GROUP(client_light_stay_checks::CheckClientLightStay());
+        RUN_GROUP(client_game_clock_checks::CheckGameClock());
+        RUN_GROUP(tree_wind_checks::CheckTreeWind());
+        RUN_GROUP(grass_wind_checks::CheckGrassWind());
+        RUN_GROUP(CheckInteriorFogInputs());
+        RUN_GROUP(water_contact_checks::CheckWaterContacts());
         CoUninitialize();
         std::printf("CPU checks %s (%d failures); D3D9 graphics checks were not run\n",
                     g_failures ? "FAILED" : "OK", g_failures);
@@ -2340,7 +2365,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
           "the fog data is read at the first CreateDevice, not under the loader lock in DllMain");
     if (!h.dev)
         return 1;
-    CheckBypassesAreWarnedOnce(h);
+    RUN_GROUP(CheckBypassesAreWarnedOnce(h));
 
     D3DDEVICE_CREATION_PARAMETERS cp;
     h.dev->GetCreationParameters(&cp);
@@ -2368,40 +2393,40 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
         parent->Release();
 
     h.CreateEngineObjects();
-    texture_filtering_checks::CheckForcedAnisotropyOnTheDevice(h.dev);
-    CheckFogIntegration(h.dev);
-    CheckLocalLightInputs();
-    CheckPointLightTableCapture();
-    CheckLightsFollowTheirObjects();
-    CheckInteriorInputsSurviveAnIncompleteWalk();
-    CheckHdrLocalLightColours();
-    local_light_stabiliser_checks::CheckLocalLightStabiliser();
-    spell_light_checks::CheckSpellLights();
-    spell_light_checks::CheckTextureTintOnTheDevice(h.dev);
-    client_light_stay_checks::CheckClientLightStay();
-    client_game_clock_checks::CheckGameClock();
-    tree_wind_checks::CheckTreeWind();
-    grass_wind_checks::CheckGrassWind();
-    grass_wind_checks::CheckShadersOnTheDevice(h.dev);
-    CheckInteriorFogInputs();
-    CheckNoiseVariation(h.dev);
-    authored_noise::CheckAuthoredNoiseOnTheGpu(h.dev);
-    classic_phase::CheckIsotropicSlabSaturation(h.dev);
-    march_layers::CheckUnrolledMarchMatchesLoopedMarch(h.dev);
-    march_layers::CheckStoppedMarchMatchesUnstoppedMarch(h.dev);
-    local_light_gpu::CheckLocalLightIntegration(h.dev);
-    silhouette_quality::CheckSilhouettes(h.dev);
-    grazing_upsample::CheckGrazingGroundUpsample(h.dev);
-    god_ray_quality::CheckGodRays(h.dev);
-    CheckTemporalQuality(h.dev);
-    CheckTemporalFallbackNoise(h.dev);
-    CheckLightDisappearanceHistory(h);
-    CheckSunOcclusion(h);
-    classic_phase::CheckSunsetHaloKeepsItsHue(h, FullPath(iniPath));
-    water_fft_checks::CheckWaterFft(h.dev);
-    water_mask_packing_checks::CheckWaveFoamMaskPacking(h.dev);
-    water_contact_checks::CheckWaterContacts();
-    water_ripple_checks::CheckWaterRipples(h.dev);
+    RUN_GROUP(texture_filtering_checks::CheckForcedAnisotropyOnTheDevice(h.dev));
+    RUN_GROUP(CheckFogIntegration(h.dev));
+    RUN_GROUP(CheckLocalLightInputs());
+    RUN_GROUP(CheckPointLightTableCapture());
+    RUN_GROUP(CheckLightsFollowTheirObjects());
+    RUN_GROUP(CheckInteriorInputsSurviveAnIncompleteWalk());
+    RUN_GROUP(CheckHdrLocalLightColours());
+    RUN_GROUP(local_light_stabiliser_checks::CheckLocalLightStabiliser());
+    RUN_GROUP(spell_light_checks::CheckSpellLights());
+    RUN_GROUP(spell_light_checks::CheckTextureTintOnTheDevice(h.dev));
+    RUN_GROUP(client_light_stay_checks::CheckClientLightStay());
+    RUN_GROUP(client_game_clock_checks::CheckGameClock());
+    RUN_GROUP(tree_wind_checks::CheckTreeWind());
+    RUN_GROUP(grass_wind_checks::CheckGrassWind());
+    RUN_GROUP(grass_wind_checks::CheckShadersOnTheDevice(h.dev));
+    RUN_GROUP(CheckInteriorFogInputs());
+    RUN_GROUP(CheckNoiseVariation(h.dev));
+    RUN_GROUP(authored_noise::CheckAuthoredNoiseOnTheGpu(h.dev));
+    RUN_GROUP(classic_phase::CheckIsotropicSlabSaturation(h.dev));
+    RUN_GROUP(march_layers::CheckUnrolledMarchMatchesLoopedMarch(h.dev));
+    RUN_GROUP(march_layers::CheckStoppedMarchMatchesUnstoppedMarch(h.dev));
+    RUN_GROUP(local_light_gpu::CheckLocalLightIntegration(h.dev));
+    RUN_GROUP(silhouette_quality::CheckSilhouettes(h.dev));
+    RUN_GROUP(grazing_upsample::CheckGrazingGroundUpsample(h.dev));
+    RUN_GROUP(god_ray_quality::CheckGodRays(h.dev));
+    RUN_GROUP(CheckTemporalQuality(h.dev));
+    RUN_GROUP(CheckTemporalFallbackNoise(h.dev));
+    RUN_GROUP(CheckLightDisappearanceHistory(h));
+    RUN_GROUP(CheckSunOcclusion(h));
+    RUN_GROUP(classic_phase::CheckSunsetHaloKeepsItsHue(h, FullPath(iniPath)));
+    RUN_GROUP(water_fft_checks::CheckWaterFft(h.dev));
+    RUN_GROUP(water_mask_packing_checks::CheckWaveFoamMaskPacking(h.dev));
+    RUN_GROUP(water_contact_checks::CheckWaterContacts());
+    RUN_GROUP(water_ripple_checks::CheckWaterRipples(h.dev));
     const float aspect = 1280.0f / 688.0f;
     const D3DVIEWPORT9 world = {0, 0, 1280, 688, 0.0f, 1.0f};
     float proj[16];
@@ -2492,14 +2517,14 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     SavePng(outDir + L"\\before.png", before.w, before.h, before.bgra);
     SavePng(outDir + L"\\after.png", after.w, after.h, after.bgra);
 
-    CheckLinearComposite(h, cfg, eye, at, proj, world);
-    CheckDisabledTemporalIsStable(h, cfg, eye, at, proj, world);
-    CheckVoidBelowTheHorizonMirrorsTheSky(h, cfg, eye, proj, world);
-    forever_look_checks::CheckColourGrading(h, world, classic);
-    image_quality_checks::CheckSharpening(h, world);
-    image_quality_checks::CheckAntialiasing(h, world);
-    image_quality_checks::CheckBloom(h, world);
-    forever_look_checks::CheckFogCompensatesTheDeliveredGlow(h, cfg, world);
+    RUN_GROUP(CheckLinearComposite(h, cfg, eye, at, proj, world));
+    RUN_GROUP(CheckDisabledTemporalIsStable(h, cfg, eye, at, proj, world));
+    RUN_GROUP(CheckVoidBelowTheHorizonMirrorsTheSky(h, cfg, eye, proj, world));
+    RUN_GROUP(forever_look_checks::CheckColourGrading(h, world, classic));
+    RUN_GROUP(image_quality_checks::CheckSharpening(h, world));
+    RUN_GROUP(image_quality_checks::CheckAntialiasing(h, world));
+    RUN_GROUP(image_quality_checks::CheckBloom(h, world));
+    RUN_GROUP(forever_look_checks::CheckFogCompensatesTheDeliveredGlow(h, cfg, world));
     vf_test_set_config(&cfg);
 
     auto renderDebugIn = [&](int mode, float maxDist, const D3DVIEWPORT9& vp, float wdlPatchRawDepth) {
@@ -2527,7 +2552,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     SavePng(outDir + L"\\debug-radiance.png", radiance.w, radiance.h, radiance.bgra);
     Image transmittance = renderDebug(2, 5000.0f);
     SavePng(outDir + L"\\debug-transmittance.png", transmittance.w, transmittance.h, transmittance.bgra);
-    CheckFirstColumnIsFogged(transmittance, world);
+    RUN_GROUP(CheckFirstColumnIsFogged(transmittance, world));
 
     {
         Config c = cfg;
@@ -2725,28 +2750,28 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
               "liquid-pass depth writes stay on while forced and the client's last request is restored");
     }
 
-    CheckDepthWriteStateBlockRestore(h.dev);
-    CheckWorldTextDepthIsolation(h);
-    transparent_fog_checks::CheckTransparentFog(h);
-    early_composite_look::CheckLookThroughTheEarlyComposite(h);
+    RUN_GROUP(CheckDepthWriteStateBlockRestore(h.dev));
+    RUN_GROUP(CheckWorldTextDepthIsolation(h));
+    RUN_GROUP(transparent_fog_checks::CheckTransparentFog(h));
+    RUN_GROUP(early_composite_look::CheckLookThroughTheEarlyComposite(h));
     Config restored = cfg;
     vf_test_set_config(&restored);
-    water_checks::CheckWaterRipplePass(h, outDir);
+    RUN_GROUP(water_checks::CheckWaterRipplePass(h, outDir));
     vf_test_set_config(&restored);
-    water_wake_checks::CheckWakes(h);
+    RUN_GROUP(water_wake_checks::CheckWakes(h));
     vf_test_set_config(&restored);
-    client_sprite_checks::CheckClientSprites(h);
+    RUN_GROUP(client_sprite_checks::CheckClientSprites(h));
     vf_test_set_config(&restored);
-    water_checks::CheckWaterPass(h, outDir, waterDataPath);
+    RUN_GROUP(water_checks::CheckWaterPass(h, outDir, waterDataPath));
     vf_test_set_config(&restored);
-    ripple_scene::CheckWakesShowInShadedWater(h, outDir, waterDataPath);
+    RUN_GROUP(ripple_scene::CheckWakesShowInShadedWater(h, outDir, waterDataPath));
     vf_test_set_config(&restored);
 
-    CheckOverlayInput(h);
+    RUN_GROUP(CheckOverlayInput(h));
     const size_t logBeforeWidgets = water_settings_checks::DllLogSize();
-    CheckOverlayWidgets(h);
-    water_settings_checks::CheckSliderDragLoggedOnce(logBeforeWidgets);
-    CheckOverlayDraw(h, world, outDir);
+    RUN_GROUP(CheckOverlayWidgets(h));
+    RUN_GROUP(water_settings_checks::CheckSliderDragLoggedOnce(logBeforeWidgets));
+    RUN_GROUP(CheckOverlayDraw(h, world, outDir));
     PanelRect panel = CheckSettingsWindowResizes(h, world, outDir);
 
     const void* densityBeforeReset = nullptr;
@@ -2770,7 +2795,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     const D3DVIEWPORT9 resized = {0, 0, 1024, 600, 0.0f, 1.0f};
     EngineProjection(1024.0f / 600.0f, proj);
     CameraRelativeLookAt(eye, at, view);
-    CheckFogReturnsAfterRefusedDepth(h, resized, eye, at, view, proj);
+    RUN_GROUP(CheckFogReturnsAfterRefusedDepth(h, resized, eye, at, view, proj));
     h.BeginFrame();
     h.DrawScene(eye, view, proj, resized);
     FrameInputs in = MakeInputs(view, proj, eye, at, resized);
@@ -2786,48 +2811,49 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     Check(OverlayProbeChange(beforeOverlay, Capture(h.dev)) > 0.05, "the overlay draws again after Reset");
     PressHotkey(h.window, kDefaultOverlayHotkey);
     panel.h = std::min(panel.h, static_cast<float>(h.pp.BackBufferHeight) - kPanelMargin);
-    CheckSettingsWindowKeepsItsSize(h, panel,
-                                    "after a Reset to a smaller back buffer the settings window keeps its place and "
-                                    "width and fits its height to the screen");
-    forever_look_checks::CheckColourGradingAfterReset(h, resized, curveUploadsBeforeReset);
+    RUN_GROUP(CheckSettingsWindowKeepsItsSize(h, panel,
+                                              "after a Reset to a smaller back buffer the settings window keeps its "
+                                              "place and width and fits its height to the screen"));
+    RUN_GROUP(forever_look_checks::CheckColourGradingAfterReset(h, resized, curveUploadsBeforeReset));
     vf_test_set_config(&restored);
 
-    runtime_cost::CheckDisabledTemporalSkipsHistoryPasses(h, eye, at, proj, resized);
-    terrain_shadow_checks::CheckShadowMapUpdates(h.dev);
-    CheckRendererSwitchesLitShaders(h);
-    surface_light_checks::CheckLightsOnSurfaces(h);
-    authored_noise::CheckRendererDrawsStormNoise(h);
-    runtime_cost::CheckFrameSummaryLogsClassicExtras(h);
-    runtime_cost::CheckLocalLightLogLines(h);
-    runtime_cost::CheckDepthProbeAndGpuTimeLog(h, eye, at);
-    runtime_cost::CheckGpuTimerRetriesTransientCreationFailures(h.dev);
-    runtime_cost::CheckGpuTimerReportsUnsupportedBeforeFirstSummary(h.dev);
+    RUN_GROUP(runtime_cost::CheckDisabledTemporalSkipsHistoryPasses(h, eye, at, proj, resized));
+    RUN_GROUP(terrain_shadow_checks::CheckShadowMapUpdates(h.dev));
+    RUN_GROUP(CheckRendererSwitchesLitShaders(h));
+    RUN_GROUP(surface_light_checks::CheckLightsOnSurfaces(h));
+    RUN_GROUP(authored_noise::CheckRendererDrawsStormNoise(h));
+    RUN_GROUP(runtime_cost::CheckFrameSummaryLogsClassicExtras(h));
+    RUN_GROUP(runtime_cost::CheckLocalLightLogLines(h));
+    RUN_GROUP(runtime_cost::CheckDepthProbeAndGpuTimeLog(h, eye, at));
+    RUN_GROUP(runtime_cost::CheckGpuTimerRetriesTransientCreationFailures(h.dev));
+    RUN_GROUP(runtime_cost::CheckGpuTimerReportsUnsupportedBeforeFirstSummary(h.dev));
 
     vf_test_set_config(&restored);
     h.ReleaseEngineObjects();
     client_sprite_checks::HoldGateForDeviceRelease();
     ULONG devRefs = h.dev->Release();
-    client_sprite_checks::CheckDeviceReleaseRestoresTheGate();
+    RUN_GROUP(client_sprite_checks::CheckDeviceReleaseRestoresTheGate());
     h.dev = nullptr;
     hr = h.d3d->CreateDevice(0, D3DDEVTYPE_HAL, h.window, engineFlags, &h.pp, &h.dev);
     Check(SUCCEEDED(hr) && h.dev, "a device is created again on the harness window");
     if (h.dev)
     {
-        CheckSettingsWindowKeepsItsSize(h, panel,
-                                        "a device created again for the same session opens the settings window at "
-                                        "the place and size it had");
+        RUN_GROUP(CheckSettingsWindowKeepsItsSize(h, panel,
+                                                  "a device created again for the same session opens the settings "
+                                                  "window at the place and size it had"));
         h.CreateEngineObjects();
-        resource_retry::CheckFogResourceRetries(h, engineFlags, eye, at, proj, resized, devRefs);
+        RUN_GROUP(resource_retry::CheckFogResourceRetries(h, engineFlags, eye, at, proj, resized, devRefs));
         h.ReleaseEngineObjects();
         devRefs += h.dev->Release();
     }
     ULONG d3dRefs = h.d3d->Release();
     Check(devRefs == 0 && d3dRefs == 0, "wrapper reference counts reach zero");
-    multisampling_checks::CheckMultisampling(realCreate, h.window, outDir, FullPath(iniPath));
+    RUN_GROUP(multisampling_checks::CheckMultisampling(realCreate, h.window, outDir, FullPath(iniPath)));
     vf_test_set_config(&restored);
     DestroyWindow(h.window);
     CoUninitialize();
-    std::printf("%s (%d failure%s)\n", g_failures ? "FAILED" : "OK", g_failures, g_failures == 1 ? "" : "s");
+    std::printf("%s (%d failure%s%s)\n", g_failures ? "FAILED" : "OK", g_failures, g_failures == 1 ? "" : "s",
+                g_groupFilters.empty() ? "" : ", filtered: checks outside the groups run may fail");
     return g_failures ? 1 : 0;
 }
 
@@ -3313,6 +3339,19 @@ int wmain(int argc, wchar_t** argv)
     {
         if (std::wcscmp(argv[i], L"--samples") == 0 && _wtoi(argv[i + 1]) > 1)
             samples = static_cast<D3DMULTISAMPLE_TYPE>(_wtoi(argv[i + 1]));
+        if (std::wcscmp(argv[i], L"--filter") == 0)
+        {
+            std::string list;
+            for (const wchar_t* c = argv[i + 1]; *c; ++c)
+                list.push_back(static_cast<char>(std::towlower(*c)));
+            for (size_t from = 0; from <= list.size();)
+            {
+                const size_t to = std::min(list.find(',', from), list.size());
+                if (to > from)
+                    g_groupFilters.push_back(list.substr(from, to - from));
+                from = to + 1;
+            }
+        }
         if (std::wcscmp(argv[i], L"--classic-phase") == 0)
             harbour.classicPhase = _wtoi(argv[i + 1]);
         if (std::wcscmp(argv[i], L"--storm") == 0)

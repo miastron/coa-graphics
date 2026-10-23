@@ -9,7 +9,9 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
 
 - Configure once with `cmake -S . -B build -G "Visual Studio 17 2022" -A Win32`, build with
   `cmake --build build --config Release`, test with `ctest --test-dir build -C Release --output-on-failure`
-  (the D3D9 harness and the comment check).
+  (the D3D9 harness and the comment check). While iterating, `vfog_harness --filter water_fft,ripple` (comma-separated,
+  case-insensitive substrings of the check call in `Run`) runs only the matching check groups, which takes seconds; the
+  inline checks between groups can fail then, so the full `ctest` run decides.
 - Formatting follows `.editorconfig`: UTF-8, max 120 cols, trailing newline, no trailing whitespace, 4-space indent
   (tabs forbidden).
 - Express intent through names, structure and tests; do not add explanatory comments or docstrings in C++, HLSL,
