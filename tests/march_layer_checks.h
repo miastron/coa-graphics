@@ -1,5 +1,8 @@
 #pragma once
 
+#include "ps_shadowed_lit_march_high.h"
+#include "ps_shadowed_lit_march_low.h"
+#include "ps_shadowed_lit_march_mid.h"
 #include "ps_unstopped_shadowed_march_high.h"
 #include "ps_unstopped_shadowed_march_low.h"
 #include "ps_unstopped_shadowed_march_mid.h"
@@ -177,7 +180,14 @@ void FillConstants(float constants[kConstantRegisters][4], bool jitter, float fr
     std::memcpy(constants[9], light, sizeof(light));
     const float march[4] = {jitter ? 1.0f : 0.0f, 1000.0f, kHorizonBlendStart, kFarClip};
     std::memcpy(constants[11], march, sizeof(march));
-    std::memcpy(constants[kFirstLayerRegister], kLayers, sizeof(kLayers));
+    static_assert(sizeof(Layer) == sizeof(FogLayer), "the test layer mirrors the fog layer");
+    for (int i = 0; i < 4; ++i)
+    {
+        FogLayer layer;
+        std::memcpy(&layer, &kLayers[i], sizeof(layer));
+        const FogLayer folded = MarchLayerOf(layer, light[3]);
+        std::memcpy(constants[kFirstLayerRegister + i * kRegistersPerLayer], &folded, sizeof(folded));
+    }
     const float variation[4] = {0.6f, 0.2f, 3.5f, -2.0f};
     std::memcpy(constants[78], variation, sizeof(variation));
 }
@@ -283,6 +293,12 @@ void CheckUnrolledMarchMatchesLoopedMarch(IDirect3DDevice9* device)
     CheckMarchVariantsMatch(device, resources, unrolled, looped, false,
                             "the unrolled march (shared step noise, stop past the last layer) matches the per-layer "
                             "loop with clipped, empty and shadowed layers, sky and horizon rays");
+    const BYTE* shadowedPlain[3] = {g_ps_shadowed_march_low, g_ps_shadowed_march_mid, g_ps_shadowed_march_high};
+    const BYTE* shadowedLooped[3] = {g_ps_shadowed_lit_march_low, g_ps_shadowed_lit_march_mid,
+                                     g_ps_shadowed_lit_march_high};
+    CheckMarchVariantsMatch(device, resources, shadowedPlain, shadowedLooped, true,
+                            "the shadowed march without local lights matches the shadowed march that runs the "
+                            "local light loop over no lights");
     device->SetRenderTarget(0, resources.previousTarget);
     device->SetDepthStencilSurface(resources.previousDepth);
     resources.previousState->Apply();
