@@ -364,6 +364,11 @@ extern "C" void __cdecl vf_test_keep_surface_lights_in_target(int keep)
     KeepSurfaceLightsInTheTarget(keep != 0);
 }
 
+extern "C" void __cdecl vf_test_take_god_rays_from_target(int fromTarget)
+{
+    TakeGodRaysFromTheTarget(fromTarget != 0);
+}
+
 extern "C" void __cdecl vf_test_force_fog_params(const FogParams* fog)
 {
     ForceFogParams(fog);

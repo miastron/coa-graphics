@@ -29,6 +29,7 @@ struct LitFrame
     unsigned draws = 0;
     unsigned colourCopies = 0;
     unsigned surfaceLightCopies = 0;
+    unsigned godRayCopies = 0;
 };
 
 struct Scene
@@ -40,14 +41,14 @@ struct Scene
     float projection[16] = {};
 };
 
-Config SurfaceConfig(const Config& saved, float strength)
+Config SurfaceConfig(const Config& saved, float strength, float godRays = 0.0f)
 {
     Config config = saved;
     config.quality = 1;
     config.noiseAmount = 0;
     config.localLights = true;
     config.temporal = 0;
-    config.godRays = 0;
+    config.godRays = godRays;
     config.maxDistance = 1000;
     config.dataMode = 0;
     config.surfaceLights = strength;
@@ -73,9 +74,10 @@ FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1
 }
 
 LitFrame RenderLit(Harness& h, Scene& scene, const Config& saved, float strength, bool withLight,
-                   uint32_t ambientColor = 0, uint32_t directColor = 0, float lightScale = 1.0f)
+                   uint32_t ambientColor = 0, uint32_t directColor = 0, float lightScale = 1.0f,
+                   float godRays = 0.0f)
 {
-    const Config config = SurfaceConfig(saved, strength);
+    const Config config = SurfaceConfig(saved, strength, godRays);
     vf_test_set_config(&config);
     FrameInputs input = SceneInputs(scene, config, lightScale);
     if (ambientColor)
@@ -109,6 +111,7 @@ LitFrame RenderLit(Harness& h, Scene& scene, const Config& saved, float strength
     for (unsigned copies : counts.colourCopies)
         frame.colourCopies += copies;
     frame.surfaceLightCopies = counts.colourCopies[static_cast<int>(ColourCopySite::SurfaceLights)];
+    frame.godRayCopies = counts.colourCopies[static_cast<int>(ColourCopySite::GodRaySource)];
     return frame;
 }
 
@@ -239,6 +242,31 @@ void CheckSurfaceLightsFadeOutInDaylight(Harness& h)
     Check(dayStrong.draws == 1 && nightFaint.draws == 1,
           "a strong light in daylight and the same faint light at night are still drawn on surfaces");
     RenderLit(h, scene, saved, kFullStrength, false);
+    vf_test_set_config(&saved);
+}
+
+void CheckGodRaysTakeTheirSceneFromTheCompositeCopy(Harness& h)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Scene scene;
+    SceneInputs(scene, SurfaceConfig(saved, 0.0f));
+    constexpr float kRays = 1.5f;
+    const LitFrame noRays = RenderLit(h, scene, saved, 0.0f, false);
+    RenderLit(h, scene, saved, 0.0f, false, 0, 0, 1.0f, kRays);
+    const LitFrame fromCopy = RenderLit(h, scene, saved, 0.0f, false, 0, 0, 1.0f, kRays);
+    vf_test_take_god_rays_from_target(1);
+    const LitFrame fromTarget = RenderLit(h, scene, saved, 0.0f, false, 0, 0, 1.0f, kRays);
+    vf_test_take_god_rays_from_target(0);
+    std::printf("     god rays: low-resolution copies %u from the scene copy, %u from the target; colour copies %u "
+                "against %u\n",
+                fromCopy.godRayCopies, fromTarget.godRayCopies, fromCopy.colourCopies, fromTarget.colourCopies);
+    Check(fromCopy.godRayCopies == 1 && fromTarget.godRayCopies == 1 &&
+              !image_quality_checks::SameImage(noRays.image, fromCopy.image),
+          "the surface light scene draws god rays with their low-resolution scene copy");
+    Check(image_quality_checks::SameImage(fromCopy.image, fromTarget.image),
+          "taking the god rays' low-resolution scene from the composite's scene copy instead of the target draws the "
+          "same frame");
     vf_test_set_config(&saved);
 }
 

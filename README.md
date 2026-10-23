@@ -281,6 +281,11 @@ copying it again (harness check). Measured with `--scene performance` at 1080p o
 (within 0.1 ms of 11.4 ms for eight flood lights); under the installed DXVK: about 0.3-0.7 ms less on a 6-15 ms frame
 (four runs each, 5-10% run to run).
 
+The god rays' low-resolution copy of the scene is taken from the same texture (the lit scene, or the composite's copy of
+the target) instead of a second resolve of the target; the frame is bit-identical (harness check, single-sampled and
+under DXVK at 4x). It measured no change at 4x and 8x at 1080p under DXVK (within the 5-10% run to run); the most it can
+save is the difference between a multisampled and a single-sampled copy, 0.1-0.15 ms at 8x by `--scene copy-cost`.
+
 **Glow and colour grading.** With `ForeverGlow=1`, the DLL rewrites the glow byte the client hands the glow composite (see
 Glow feed) once per frame, before the fog composite, to `lerp(client byte/255, Forever glow, t)`, where
 `t = saturate((coverage − 0.5)/0.5)` from the Classic lights' share of the blend. It restores the byte at the frame end. It

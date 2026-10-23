@@ -17,6 +17,7 @@
 #ifdef VF_TESTING
 void ForceFogParams(const FogParams* fog);
 void KeepSurfaceLightsInTheTarget(bool keep);
+void TakeGodRaysFromTheTarget(bool fromTarget);
 #endif
 enum FogResourceKind : unsigned
 {
@@ -112,7 +113,7 @@ private:
                        const SurfaceLightFrame& frame, bool intoLitScene);
     bool EnsureLitScene(IDirect3DDevice9* dev);
     void CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
-                             bool fromLitScene);
+                             IDirect3DTexture9* sceneTexture);
     void DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, const GodRayFrame& rays);
     bool DrawGodRaysOverScene(IDirect3DDevice9* dev, const SceneDepth& depth, IDirect3DSurface9* target,
                               const D3DSURFACE_DESC& depthDesc, const GodRayFrame& rays);

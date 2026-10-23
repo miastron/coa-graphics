@@ -274,6 +274,7 @@ constexpr float kMinGodRayStrength = 0.005f;
 
 bool g_fogParamsForced = false;
 bool g_surfaceLightsKeptInTarget = false;
+bool g_godRaysFromTarget = false;
 unsigned g_failedResourceKinds = 0;
 unsigned g_resourceCreationAttempts[kFogNoise + 1] = {};
 FogParams g_forcedFogParams = {};
@@ -445,6 +446,11 @@ void ForceFogParams(const FogParams* fog)
 void KeepSurfaceLightsInTheTarget(bool keep)
 {
     g_surfaceLightsKeptInTarget = keep;
+}
+
+void TakeGodRaysFromTheTarget(bool fromTarget)
+{
+    g_godRaysFromTarget = fromTarget;
 }
 
 void FailFogResourceCreation(unsigned kinds)
@@ -1490,22 +1496,23 @@ bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
 }
 
 void Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
-                                   bool fromLitScene)
+                                   IDirect3DTexture9* sceneTexture)
 {
     IDirect3DSurface9* raySurface = nullptr;
-    IDirect3DSurface9* litSurface = nullptr;
+    IDirect3DSurface9* sceneSurface = nullptr;
     const RECT world = ViewportRect(vp);
-    const RECT litWorld = {0, 0, static_cast<LONG>(vp.Width), static_cast<LONG>(vp.Height)};
+    const RECT sceneWorld = {0, 0, static_cast<LONG>(vp.Width), static_cast<LONG>(vp.Height)};
+    const bool fromTexture = sceneTexture && !Seam(g_godRaysFromTarget, false);
     if (SUCCEEDED(m_rays[0]->GetSurfaceLevel(0, &raySurface)) &&
-        (!fromLitScene || SUCCEEDED(m_litScene->GetSurfaceLevel(0, &litSurface))))
+        (!fromTexture || SUCCEEDED(sceneTexture->GetSurfaceLevel(0, &sceneSurface))))
     {
-        IDirect3DSurface9* const source = litSurface ? litSurface : target;
-        const RECT* const sourceRect = litSurface ? &litWorld : &world;
+        IDirect3DSurface9* const source = sceneSurface ? sceneSurface : target;
+        const RECT* const sourceRect = sceneSurface ? &sceneWorld : &world;
         const bool copied = SUCCEEDED(dev->StretchRect(source, sourceRect, raySurface, nullptr, D3DTEXF_LINEAR));
         if (copied)
             GlobalFrameCopies().CountColourCopy(ColourCopySite::GodRaySource);
     }
-    SafeRelease(litSurface);
+    SafeRelease(sceneSurface);
     SafeRelease(raySurface);
 }
 
@@ -1780,20 +1787,17 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
                       {vp, surfaceLightStrength, marchLightLimit, in.ambientColor, in.directColor,
                        {toLightInView[0], toLightInView[1], toLightInView[2]}},
                       compositeBlendsInShader);
+    const bool sceneCopyReady =
+        litSceneReady || (compositeBlendsInShader && CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite));
     if (rays)
-        CopySceneForGodRays(dev, target, vp, litSceneReady);
+        CopySceneForGodRays(dev, target, vp, litSceneReady ? m_litScene : (sceneCopyReady ? m_sceneCopy : nullptr));
     if (raysNow)
         DrawGodRayMask(dev, depthTexture, godRays);
 
-    FogBlend blend = FogBlend::GammaFixedFunction;
-    if (litSceneReady)
+    FogBlend blend = fog.linear ? FogBlend::LinearFixedFunction : FogBlend::GammaFixedFunction;
+    if (sceneCopyReady)
         blend = fog.linear ? FogBlend::LinearOverSceneCopy : FogBlend::GammaOverSceneCopy;
-    else if (fog.linear)
-        blend = CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite) ? FogBlend::LinearOverSceneCopy
-                                                                                : FogBlend::LinearFixedFunction;
-    else if (raysNow && CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite))
-        blend = FogBlend::GammaOverSceneCopy;
-    const bool sceneBlend = blend == FogBlend::LinearOverSceneCopy || blend == FogBlend::GammaOverSceneCopy;
+    const bool sceneBlend = sceneCopyReady;
     const float blendMode = static_cast<float>(blend);
     if (blendMode != m_loggedBlendMode)
     {

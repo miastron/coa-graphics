@@ -117,6 +117,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_refuse_fog_depth(int);
 extern "C" __declspec(dllimport) int __cdecl vf_test_fog_data_loaded();
 extern "C" __declspec(dllimport) void __cdecl vf_test_force_fog_params(const FogParams*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_keep_surface_lights_in_target(int);
+extern "C" __declspec(dllimport) void __cdecl vf_test_take_god_rays_from_target(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_fail_water_mask_uploads(int);
 extern "C" __declspec(dllimport) int __cdecl vf_test_water_masks_uploaded(int*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_force_water_shading_variant(int);
@@ -2935,6 +2936,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(surface_light_checks::CheckLightsOnSurfaces(h));
     RUN_GROUP(surface_light_checks::CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(h));
     RUN_GROUP(surface_light_checks::CheckSurfaceLightsFadeOutInDaylight(h));
+    RUN_GROUP(surface_light_checks::CheckGodRaysTakeTheirSceneFromTheCompositeCopy(h));
     RUN_GROUP(authored_noise::CheckRendererDrawsStormNoise(h));
     RUN_GROUP(runtime_cost::CheckFrameSummaryLogsClassicExtras(h));
     RUN_GROUP(runtime_cost::CheckLocalLightLogLines(h));
