@@ -57,9 +57,6 @@ struct FogLayer
     float upperFalloff;
     float lowerHeight;
     float lowerFalloff;
-    float3 shadowEmissive;
-    float shadowDensity;
-    float shadowed;
     float skyFalloff;
     float limit;
     float densityVariation;
@@ -81,9 +78,6 @@ FogLayer LoadConstantFogLayer(int index)
     layer.upperFalloff = cLayers[first + 3].y;
     layer.lowerHeight = cLayers[first + 3].z;
     layer.lowerFalloff = cLayers[first + 3].w;
-    layer.shadowEmissive = cLayers[first + 4].rgb;
-    layer.shadowDensity = cLayers[first + 4].w;
-    layer.shadowed = cLayers[first + 5].x;
     layer.skyFalloff = cLayers[first + 5].y;
     layer.limit = cLayers[first + 5].z;
     layer.densityVariation = cLayers[first + 5].w;
@@ -104,11 +98,6 @@ FogLayer LoadFogLayer(int index)
 float3 DirectionToLightView()
 {
     return cLight.xyz;
-}
-
-float LightAboveHorizon()
-{
-    return cLight.w;
 }
 
 bool JitterEnabled()
@@ -149,16 +138,6 @@ float HeightProfile(FogLayer layer, float height)
 {
     return saturate(exp((layer.upperHeight - height) * layer.upperFalloff)) *
            saturate(exp((height - layer.lowerHeight) * layer.lowerFalloff));
-}
-
-float HorizonShadow(FogLayer layer)
-{
-    return layer.shadowed * (1 - LightAboveHorizon());
-}
-
-float ShadowDensityScale(FogLayer layer)
-{
-    return lerp(1, layer.shadowDensity, HorizonShadow(layer));
 }
 
 float SkyDensityScale(FogLayer layer, float skyMask, float upward)
@@ -221,8 +200,6 @@ void AccumulateLayer(FogLayer layer, int layerIndex, float noiseDensity, float c
     float layerLength = max(min(stepEnd, layer.limit) - layerStart, 0);
     [branch] if (layerLength <= 0 || layer.density <= 0)
         return;
-    float shadow = HorizonShadow(layer);
-    float shadowDensityScale = ShadowDensityScale(layer);
     float sampleDistance = layerStart + layerLength * jitter;
     float sampleHeight = ray.cameraHeight + ray.heightPerYard * sampleDistance;
     float distanceCurve = DistanceCurve(layer, sampleDistance);
@@ -230,16 +207,14 @@ void AccumulateLayer(FogLayer layer, int layerIndex, float noiseDensity, float c
     float variation = 1;
     [branch] if (layer.densityVariation > 0 && cDensityVariation.x > 0)
         variation = WeightedVariation(LayerVariation(stepVariation, ray, sampleDistance), layer.densityVariation);
-    float directLight = (1 - shadow) * sunVisibility;
     float profile = distanceCurve * heightProfile * variation;
     stepProfiles += LayerSelector(layerIndex) * profile;
-    float layerOpticalDepth = layer.density * skyDensityScale * layerLength * profile * shadowDensityScale *
-                              noiseDensity;
-    float3 emissive = lerp(layer.emissive, layer.shadowEmissive, shadow);
+    float layerOpticalDepth = layer.density * skyDensityScale * layerLength * profile * noiseDensity;
+    float3 emissive = layer.emissive;
     [flatten] if (kSamplesAuthoredNoise && layerIndex < kNoisyLayers)
         emissive = lerp(emissive, LayerNoiseFade(layerIndex), 1 - noiseDensity);
     float phase = LayerPhase(layer, cosToLight);
-    radiance += (layer.diffuse * (directLight * phase) + emissive) * layerOpticalDepth;
+    radiance += (layer.diffuse * (sunVisibility * phase) + emissive) * layerOpticalDepth;
     opticalDepth += layerOpticalDepth;
 }
 

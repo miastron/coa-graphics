@@ -71,7 +71,7 @@ bool StepMeetsLocalLights(ChordCoverage coverage, float stepEnd)
 
 float LayerLightDensityScale(FogLayer layer, float skyMask, float upward)
 {
-    return layer.density * SkyDensityScale(layer, skyMask, upward) * ShadowDensityScale(layer);
+    return layer.density * SkyDensityScale(layer, skyMask, upward);
 }
 
 float4 LayerLightDensityScales(float skyMask, float upward)

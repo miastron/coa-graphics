@@ -1704,7 +1704,9 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     dev->SetPixelShaderConstantF(9, &celestialLight.x, 1);
     dev->SetPixelShaderConstantF(11, &march.x, 1);
     static_assert(sizeof(FogLayer) == 6 * sizeof(Float4), "FogLayer is six shader registers");
-    dev->SetPixelShaderConstantF(12, &fog.layers[0].start, 6 * kFogLayers);
+    FogLayer marchLayers[kFogLayers];
+    PackMarchLayers(fog, marchLayers);
+    dev->SetPixelShaderConstantF(12, &marchLayers[0].start, 6 * kFogLayers);
     const Float4 sunShadow = {cfg.lightShafts ? 1.0f : 0.0f, shadows.hardwareComparison ? 1.0f : 0.0f,
                               shadows.count > 1 ? shadowPlan.mapWeight : 0.0f,
                               shadows.count > 0 ? shadowPlan.mapWeight : 0.0f};
@@ -1825,7 +1827,9 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     dev->SetPixelShaderConstantF(kSunShadowRegister, &sunShadow.x, 1);
     dev->SetPixelShaderConstantF(11, &march.x, 1);
     const FogParams compositeMarchFog = marchesLitLayers ? WithMeanNoise(fog) : fog;
-    dev->SetPixelShaderConstantF(12, &compositeMarchFog.layers[0].start, 6 * kFogLayers);
+    FogLayer compositeLayers[kFogLayers];
+    PackMarchLayers(compositeMarchFog, compositeLayers);
+    dev->SetPixelShaderConstantF(12, &compositeLayers[0].start, 6 * kFogLayers);
     m_drawnGlowCompensation = cfg.glowCompensation && sceneBlend ? in.clientGlowAmount : 0.0f;
     const Float4 composite[3] = {
         {fog.authored ? cfg.classicExposure : cfg.exposure, raysNow && sceneBlend ? rayStrength : 0.0f,

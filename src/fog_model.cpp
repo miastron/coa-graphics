@@ -407,6 +407,29 @@ float RegionDensity(const Config& cfg, MapRegion region)
 }
 }
 
+FogLayer MarchLayerOf(const FogLayer& layer, float lightAboveHorizon)
+{
+    const float shadow = layer.shadowed * (1.0f - lightAboveHorizon);
+    FogLayer march = layer;
+    march.density = layer.density * (1.0f + (layer.shadowDensity - 1.0f) * shadow);
+    for (int channel = 0; channel < 3; ++channel)
+    {
+        march.emissive[channel] =
+            layer.emissive[channel] + (layer.shadowEmissive[channel] - layer.emissive[channel]) * shadow;
+        march.diffuse[channel] = layer.diffuse[channel] * (1.0f - shadow);
+        march.shadowEmissive[channel] = 0.0f;
+    }
+    march.shadowDensity = 1.0f;
+    march.shadowed = 0.0f;
+    return march;
+}
+
+void PackMarchLayers(const FogParams& fog, FogLayer (&out)[kFogLayers])
+{
+    for (int i = 0; i < kFogLayers; ++i)
+        out[i] = MarchLayerOf(fog.layers[i], fog.lightAboveHorizon);
+}
+
 void UnpackColor(uint32_t argb, float* rgb)
 {
     rgb[0] = static_cast<float>((argb >> 16) & 0xFF) / 255.0f;

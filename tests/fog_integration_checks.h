@@ -88,6 +88,29 @@ void CheckShortRangeAuthoredFog()
 constexpr float kHorizonShadowEmissive = 0.3f;
 constexpr float kHorizonShadowDensity = 0.5f;
 
+void CheckMarchLayerFoldsHorizonShadow()
+{
+    FogLayer layer = {};
+    layer.density = 0.004f;
+    layer.emissive[0] = 0.2f;
+    layer.diffuse[1] = 0.8f;
+    layer.shadowEmissive[2] = 0.6f;
+    layer.shadowDensity = 3.0f;
+    layer.shadowed = 1.0f;
+    const FogLayer lit = MarchLayerOf(layer, 1.0f);
+    const FogLayer dark = MarchLayerOf(layer, 0.0f);
+    const FogLayer half = MarchLayerOf(layer, 0.5f);
+    layer.shadowed = 0.0f;
+    const FogLayer unshadowed = MarchLayerOf(layer, 0.0f);
+    Check(lit.density == 0.004f && lit.emissive[0] == 0.2f && lit.diffuse[1] == 0.8f &&
+              unshadowed.density == 0.004f && unshadowed.diffuse[1] == 0.8f && unshadowed.emissive[2] == 0.0f,
+          "a march layer keeps its density, emissive and diffuse in light above the horizon or when unshadowed");
+    Check(Near(dark.density, 0.012f) && dark.emissive[0] == 0.0f && Near(dark.emissive[2], 0.6f) &&
+              dark.diffuse[1] == 0.0f && Near(half.density, 0.008f) && Near(half.diffuse[1], 0.4f) &&
+              Near(half.emissive[2], 0.3f),
+          "a march layer in horizon shadow carries the shadow density, the shadow emissive and the lost direct light");
+}
+
 void CheckHorizonShadowIntegration(IDirect3DDevice9* device, const FogIntegrationResources& resources, int quality,
                                    bool foregroundOccluder, const char* variant)
 {
@@ -136,15 +159,18 @@ void CheckHorizonShadowIntegration(IDirect3DDevice9* device, const FogIntegratio
             constants[9][3] = static_cast<float>(aboveHorizon);
             constants[11][1] = constants[11][3] = 1000;
             constants[11][2] = 850;
-            constants[12][1] = 0.003f;
-            constants[12][3] = 1;
-            constants[13][0] = constants[13][1] = constants[13][2] = 0.1f;
-            constants[14][0] = constants[14][1] = constants[14][2] = 0.75f;
-            constants[14][3] = 1;
-            constants[16][0] = constants[16][1] = constants[16][2] = kHorizonShadowEmissive;
-            constants[16][3] = kHorizonShadowDensity;
-            constants[17][0] = static_cast<float>(shadowed);
-            constants[17][2] = 1000;
+            FogLayer layer = {};
+            layer.density = 0.003f;
+            layer.isotropic = 1;
+            layer.emissive[0] = layer.emissive[1] = layer.emissive[2] = 0.1f;
+            layer.diffuse[0] = layer.diffuse[1] = layer.diffuse[2] = 0.75f;
+            layer.exponent = 1;
+            layer.shadowEmissive[0] = layer.shadowEmissive[1] = layer.shadowEmissive[2] = kHorizonShadowEmissive;
+            layer.shadowDensity = kHorizonShadowDensity;
+            layer.shadowed = static_cast<float>(shadowed);
+            layer.endDistance = 1000;
+            const FogLayer marchLayer = MarchLayerOf(layer, static_cast<float>(aboveHorizon));
+            std::memcpy(constants[12], &marchLayer, sizeof(marchLayer));
             device->SetPixelShaderConstantF(0, &constants[0][0], 99);
             device->BeginScene();
             const HRESULT draw = device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, quad, sizeof(quad[0]));
@@ -171,6 +197,7 @@ void CheckHorizonShadowIntegration(IDirect3DDevice9* device, const FogIntegratio
 void CheckFogIntegration(IDirect3DDevice9* device)
 {
     CheckShortRangeAuthoredFog();
+    CheckMarchLayerFoldsHorizonShadow();
     FogIntegrationResources resources;
     const bool ready = CreateFogIntegrationResources(device, resources);
     Check(ready, "analytic fog integration render targets created");

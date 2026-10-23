@@ -77,6 +77,9 @@ struct FogParams
     bool authored;
 };
 
+FogLayer MarchLayerOf(const FogLayer& layer, float lightAboveHorizon);
+void PackMarchLayers(const FogParams& fog, FogLayer (&out)[kFogLayers]);
+
 void UnpackColor(uint32_t argb, float* rgb);
 FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const AuthoredFog* authored);
 
