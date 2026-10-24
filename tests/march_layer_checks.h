@@ -26,6 +26,10 @@ constexpr float kPartialOpacity[2] = {0.02f, 0.9f};
 constexpr int kVariants = 3;
 constexpr int kSunShadowRegister = 10;
 constexpr int kSunShadowLightRegister = 54;
+constexpr int kAuthoredNoiseStage = 10;
+constexpr int kAuthoredNoiseRegister = 36;
+constexpr int kNoisyLayerCount = 3;
+constexpr int kRegistersPerLayerNoise = 4;
 constexpr int kMinPartiallyFogged = kVariants * kSize * kSize / 2;
 constexpr float kOpaqueAlpha = 0.998f;
 constexpr int kMinOpaque = kVariants * kSize * kSize / 4;
@@ -136,7 +140,8 @@ void BindResources(IDirect3DDevice9* device, const Resources& resources)
     device->SetTexture(0, resources.depth);
     device->SetTexture(8, nullptr);
     device->SetTexture(9, resources.noise);
-    for (DWORD stage : {0u, 9u})
+    device->SetTexture(kAuthoredNoiseStage, resources.noise);
+    for (DWORD stage : std::initializer_list<DWORD>{0, 9, kAuthoredNoiseStage})
     {
         const D3DTEXTUREFILTERTYPE filter = stage == 0 ? D3DTEXF_POINT : D3DTEXF_LINEAR;
         const D3DTEXTUREADDRESS address = stage == 0 ? D3DTADDRESS_CLAMP : D3DTADDRESS_WRAP;
@@ -225,11 +230,28 @@ void ScaleLayerDensities(float constants[kConstantRegisters][4], float scale)
         constants[kFirstLayerRegister + layer * kRegistersPerLayer][1] *= scale;
 }
 
+void SetAuthoredNoiseOn(float constants[kConstantRegisters][4])
+{
+    const float octave0[4] = {0.0f, 0.0f, 0.0f, 1.0f / 300.0f};
+    const float octave1[4] = {5.0f, 7.0f, 11.0f, 1.0f / 90.0f};
+    const float fadeAndAlpha[4] = {0.5f, 0.5f, 0.5f, 0.8f};
+    const float octaveWeights[4] = {0.6f, 0.4f, 0.0f, 0.0f};
+    for (int layer = 0; layer < kNoisyLayerCount; ++layer)
+    {
+        float(*registers)[4] = constants + kAuthoredNoiseRegister + layer * kRegistersPerLayerNoise;
+        std::memcpy(registers[0], octave0, sizeof(octave0));
+        std::memcpy(registers[1], octave1, sizeof(octave1));
+        std::memcpy(registers[2], fadeAndAlpha, sizeof(fadeAndAlpha));
+        std::memcpy(registers[3], octaveWeights, sizeof(octaveWeights));
+    }
+}
+
 struct Comparison
 {
     float densityScale = 1.0f;
     float maxDifference = kMaxDifference;
     bool wantsOpaque = false;
+    bool authoredNoise = false;
 };
 
 void CheckMarchVariantsMatch(IDirect3DDevice9* device, const Resources& resources, const BYTE* const reference[3],
@@ -253,6 +275,8 @@ void CheckMarchVariantsMatch(IDirect3DDevice9* device, const Resources& resource
             ScaleLayerDensities(constants, comparison.densityScale);
             if (sunShadows)
                 SetSunShadowsOn(constants);
+            if (comparison.authoredNoise)
+                SetAuthoredNoiseOn(constants);
             float pixels[2][kSize * kSize * 4];
             rendered = RenderMarch(device, resources, shaders[0], constants, pixels[0]) &&
                        RenderMarch(device, resources, shaders[1], constants, pixels[1]);
@@ -299,6 +323,24 @@ void CheckUnrolledMarchMatchesLoopedMarch(IDirect3DDevice9* device)
     CheckMarchVariantsMatch(device, resources, shadowedPlain, shadowedLooped, true,
                             "the shadowed march without local lights matches the shadowed march that runs the "
                             "local light loop over no lights");
+    device->SetRenderTarget(0, resources.previousTarget);
+    device->SetDepthStencilSurface(resources.previousDepth);
+    resources.previousState->Apply();
+}
+
+void CheckNoisyMarchMatchesLitNoisyMarch(IDirect3DDevice9* device, const BYTE* const noisy[3],
+                                         const BYTE* const noisyLit[3])
+{
+    Resources resources;
+    const bool ready = CreateResources(device, resources);
+    Check(ready, "noisy march comparison targets, depth and density noise created");
+    if (!ready)
+        return;
+    BindResources(device, resources);
+    CheckMarchVariantsMatch(device, resources, noisy, noisyLit, false,
+                            "the noisy march without local lights matches the noisy march that runs the local light "
+                            "loop over no lights",
+                            {1.0f, kMaxDifference, false, true});
     device->SetRenderTarget(0, resources.previousTarget);
     device->SetDepthStencilSurface(resources.previousDepth);
     resources.previousState->Apply();

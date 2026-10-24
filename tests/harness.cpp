@@ -2527,6 +2527,8 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(authored_noise::CheckAuthoredNoiseOnTheGpu(h.dev));
     RUN_GROUP(classic_phase::CheckIsotropicSlabSaturation(h.dev));
     RUN_GROUP(march_layers::CheckUnrolledMarchMatchesLoopedMarch(h.dev));
+    RUN_GROUP(march_layers::CheckNoisyMarchMatchesLitNoisyMarch(h.dev, authored_noise::kNoisyMarches,
+                                                                authored_noise::kNoisyMarches + 3));
     RUN_GROUP(march_layers::CheckStoppedMarchMatchesUnstoppedMarch(h.dev));
     RUN_GROUP(local_light_gpu::CheckLocalLightIntegration(h.dev));
     RUN_GROUP(silhouette_quality::CheckSilhouettes(h.dev));

@@ -63,9 +63,11 @@ float Facing(float3 normal, float3 direction)
 float3 PointLightOnSurface(int index, float3 position, float3 normal)
 {
     float4 positionRadius = LocalLightParameter(index * 3);
-    float3 attenuation = LocalLightAttenuation(index);
     float3 toLight = positionRadius.xyz - position;
     float distanceSquared = max(dot(toLight, toLight), 1e-6);
+    [branch] if (distanceSquared >= positionRadius.w * positionRadius.w)
+        return 0;
+    float3 attenuation = LocalLightAttenuation(index);
     float inverseDistance = rsqrt(distanceSquared);
     float lightDistance = distanceSquared * inverseDistance;
     float falloff = rcp(max(attenuation.x + attenuation.y * lightDistance + attenuation.z * distanceSquared, 1));
