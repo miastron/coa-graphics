@@ -8,6 +8,7 @@
 #include "fog_model.h"
 #include "frame_copies.h"
 #include "fullscreen_triangle.h"
+#include "god_ray_blur.h"
 #include "noise_volume.h"
 #include "log.h"
 #include "test_seams.h"
@@ -131,9 +132,6 @@ constexpr int kProbeGridSide = 5;
 constexpr UINT kProbePoints = kProbeGridSide * kProbeGridSide;
 constexpr float kRayFalloff = 8.0f;
 constexpr float kRayThreshold = 0.12f;
-constexpr float kRayStep = 0.075f;
-constexpr float kRayDecay = 0.9f;
-constexpr int kRayTaps = 8;
 constexpr float kHistoryMaxSeconds = 0.25f;
 constexpr float kHistoryMaxMove = 30.0f;
 constexpr float kHistoryMinForwardDot = 0.70710678f;
@@ -290,6 +288,24 @@ bool AttemptCreation(FogResourceKind kind)
     {
         return true;
     }
+}
+
+D3DFORMAT FilterableRayFormat(IDirect3DDevice9* dev)
+{
+    constexpr DWORD kUsage = D3DUSAGE_RENDERTARGET | D3DUSAGE_QUERY_FILTER;
+    IDirect3D9* d3d = nullptr;
+    D3DDEVICE_CREATION_PARAMETERS creation = {};
+    D3DDISPLAYMODE mode = {};
+    D3DFORMAT format = D3DFMT_A8R8G8B8;
+    if (SUCCEEDED(dev->GetDirect3D(&d3d)) && d3d)
+    {
+        if (SUCCEEDED(dev->GetCreationParameters(&creation)) && SUCCEEDED(dev->GetDisplayMode(0, &mode)) &&
+            SUCCEEDED(d3d->CheckDeviceFormat(creation.AdapterOrdinal, creation.DeviceType, mode.Format, kUsage,
+                                             D3DRTYPE_TEXTURE, D3DFMT_A16B16G16R16F)))
+            format = D3DFMT_A16B16G16R16F;
+        d3d->Release();
+    }
+    return format;
 }
 
 const char* DrawnNoiseState(const LayerNoise& drawn, const Config& cfg)
@@ -475,6 +491,7 @@ void Renderer::ReleaseDefaultPool()
     SafeRelease(m_history[0]);
     SafeRelease(m_history[1]);
     SafeRelease(m_historyDepth);
+    SafeRelease(m_raySource);
     SafeRelease(m_rays[0]);
     SafeRelease(m_rays[1]);
     SafeRelease(m_sceneCopy);
@@ -899,6 +916,7 @@ bool Renderer::EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT r
     SafeRelease(m_history[0]);
     SafeRelease(m_history[1]);
     SafeRelease(m_historyDepth);
+    SafeRelease(m_raySource);
     SafeRelease(m_rays[0]);
     SafeRelease(m_rays[1]);
     m_historyValid = false;
@@ -911,11 +929,13 @@ bool Renderer::EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT r
         fogFormat = D3DFMT_A8R8G8B8;
         ok = CreateTarget(dev, lowW, lowH, fogFormat, &m_marchTarget);
     }
+    const D3DFORMAT rayFormat = FilterableRayFormat(dev);
     ok = ok && CreateTarget(dev, lowW, lowH, fogFormat, &m_history[0]) &&
          CreateTarget(dev, lowW, lowH, fogFormat, &m_history[1]) &&
          CreateTarget(dev, lowW, lowH, D3DFMT_A8R8G8B8, &m_historyDepth) &&
-         CreateTarget(dev, rayW, rayH, D3DFMT_A8R8G8B8, &m_rays[0]) &&
-         CreateTarget(dev, rayW, rayH, D3DFMT_A8R8G8B8, &m_rays[1]);
+         CreateTarget(dev, rayW, rayH, D3DFMT_A8R8G8B8, &m_raySource) &&
+         CreateTarget(dev, rayW, rayH, rayFormat, &m_rays[0]) &&
+         CreateTarget(dev, rayW, rayH, rayFormat, &m_rays[1]);
     if (!ok)
     {
         VF_LOG_ERROR("render target creation failed (%ux%u)", lowW, lowH);
@@ -923,6 +943,7 @@ bool Renderer::EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT r
         SafeRelease(m_history[0]);
         SafeRelease(m_history[1]);
         SafeRelease(m_historyDepth);
+        SafeRelease(m_raySource);
         SafeRelease(m_rays[0]);
         SafeRelease(m_rays[1]);
         m_targetRetry.Failed();
@@ -933,8 +954,9 @@ bool Renderer::EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT r
     m_lowH = lowH;
     m_rayW = rayW;
     m_rayH = rayH;
-    VF_LOG_INFO("targets: fog %ux%u (%s), depth history rgba8, rays %ux%u", lowW, lowH,
-                fogFormat == D3DFMT_A16B16G16R16F ? "fp16" : "rgba8", rayW, rayH);
+    VF_LOG_INFO("targets: fog %ux%u (%s), depth history rgba8, rays %ux%u (%s)", lowW, lowH,
+                fogFormat == D3DFMT_A16B16G16R16F ? "fp16" : "rgba8", rayW, rayH,
+                rayFormat == D3DFMT_A16B16G16R16F ? "fp16" : "rgba8");
     return true;
 }
 
@@ -1503,7 +1525,7 @@ void Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* tar
     const RECT world = ViewportRect(vp);
     const RECT sceneWorld = {0, 0, static_cast<LONG>(vp.Width), static_cast<LONG>(vp.Height)};
     const bool fromTexture = sceneTexture && !Seam(g_godRaysFromTarget, false);
-    if (SUCCEEDED(m_rays[0]->GetSurfaceLevel(0, &raySurface)) &&
+    if (SUCCEEDED(m_raySource->GetSurfaceLevel(0, &raySurface)) &&
         (!fromTexture || SUCCEEDED(sceneTexture->GetSurfaceLevel(0, &sceneSurface))))
     {
         IDirect3DSurface9* const source = sceneSurface ? sceneSurface : target;
@@ -1527,26 +1549,23 @@ void Renderer::DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTex
     };
     dev->SetPixelShaderConstantF(9, &mask[0].x, 2);
     BindTexture(dev, 0, depthTexture, false);
-    BindTexture(dev, 1, m_rays[0], true);
+    BindTexture(dev, 1, m_raySource, true);
     DrawFullscreenTriangle(dev);
 
-    float norm = 0.0f;
-    for (int k = 0; k < kRayTaps; ++k)
-        norm += std::pow(kRayDecay, static_cast<float>(k));
     const float sunUv[2] = {(rays.sunPx[0] - vp.X) / vp.Width, (rays.sunPx[1] - vp.Y) / vp.Height};
     dev->SetPixelShader(m_rayBlur);
-    float step = kRayStep;
-    for (int pass = 0; pass < 2; ++pass)
+    for (int pass = 0; pass < god_ray_blur::kPasses; ++pass)
     {
+        const god_ray_blur::Pass blurPass = god_ray_blur::PassAt(pass);
         SetTarget(dev, m_rays[pass == 0 ? 0 : 1]);
-        const Float4 blur[2] = {
-            {sunUv[0], sunUv[1], step, 1.0f / norm},
+        const Float4 blur[3] = {
+            {sunUv[0], sunUv[1], blurPass.stepTowardSun, blurPass.normalisation},
             {static_cast<float>(m_rayW), static_cast<float>(m_rayH), 1.0f / m_rayW, 1.0f / m_rayH},
+            {blurPass.decayPerTap, 0.0f, 0.0f, 0.0f},
         };
-        dev->SetPixelShaderConstantF(9, &blur[0].x, 2);
+        dev->SetPixelShaderConstantF(9, &blur[0].x, 3);
         BindTexture(dev, 0, m_rays[pass == 0 ? 1 : 0], true);
         DrawFullscreenTriangle(dev);
-        step /= kRayTaps;
     }
 }
 
@@ -1554,7 +1573,8 @@ bool Renderer::DrawGodRaysOverScene(IDirect3DDevice9* dev, const SceneDepth& dep
                                     const D3DSURFACE_DESC& depthDesc, const GodRayFrame& rays)
 {
     const D3DVIEWPORT9& vp = rays.viewport;
-    if (!m_rays[0] || !m_rays[1] || vp.X + vp.Width > depthDesc.Width || vp.Y + vp.Height > depthDesc.Height)
+    if (!m_raySource || !m_rays[0] || !m_rays[1] || vp.X + vp.Width > depthDesc.Width ||
+        vp.Y + vp.Height > depthDesc.Height)
         return Skip("god ray targets unavailable");
     PrepareFullscreenPasses(dev);
     dev->SetPixelShaderConstantF(0, &rays.common[0][0], 9);

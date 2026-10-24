@@ -2232,6 +2232,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "authored_noise_checks.h"
 #include "grazing_upsample_checks.h"
 #include "god_ray_quality_checks.h"
+#include "god_ray_blur_checks.h"
 #include "temporal_quality_checks.h"
 #include "runtime_quality_checks.h"
 #include "lighting_history_checks.h"
@@ -2531,6 +2532,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(silhouette_quality::CheckSilhouettes(h.dev));
     RUN_GROUP(grazing_upsample::CheckGrazingGroundUpsample(h.dev));
     RUN_GROUP(god_ray_quality::CheckGodRays(h.dev));
+    RUN_GROUP(god_ray_blur_checks::CheckGodRayBlur(h.dev));
     RUN_GROUP(CheckTemporalQuality(h.dev));
     RUN_GROUP(CheckTemporalFallbackNoise(h.dev));
     RUN_GROUP(CheckLightDisappearanceHistory(h));

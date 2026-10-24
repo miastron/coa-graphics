@@ -286,6 +286,18 @@ the target) instead of a second resolve of the target; the frame is bit-identica
 under DXVK at 4x). It measured no change at 4x and 8x at 1080p under DXVK (within the 5-10% run to run); the most it can
 save is the difference between a multisampled and a single-sampled copy, 0.1-0.15 ms at 8x by `--scene copy-cost`.
 
+**God ray blur and banding.** The rays are the bright sky around the sun, masked at a quarter of the viewport, then
+blurred toward the sun in two passes of eight taps: the first steps 0.075 of the way to the sun per tap, the second an
+eighth of that. The two passes only form one smooth falloff if the second decays by `0.9^(1/8)` per tap, so that the
+product of the weights is `0.9^(distance / 0.075)`; with `0.9` per tap in both, the weight rose by 88% at every eighth
+tap, which showed as a fan of stripes behind every branch (`god_ray_blur.h` holds the parameters, the harness checks the
+kernel never rises and that the shader follows it). The ray targets are fp16 where the device filters them (the scene
+copy they start from stays 8 bit), so faint streaks no longer step in 1/255 levels that the ray strength multiplies. The
+composite that blends over a scene copy (and the late god ray composite) rounds only the difference it adds to the scene
+(the fog and the rays) to whole display levels with a per-pixel noise (`InterleavedGradientNoise`, fixed in time), so
+smooth fog gradients do not contour in the 8-bit target; pixels the fog does not touch keep the scene's own value exactly.
+The fixed-function blend path (no scene copy) is not dithered.
+
 **Glow and colour grading.** With `ForeverGlow=1`, the DLL rewrites the glow byte the client hands the glow composite (see
 Glow feed) once per frame, before the fog composite, to `lerp(client byte/255, Forever glow, t)`, where
 `t = saturate((coverage − 0.5)/0.5)` from the Classic lights' share of the blend. It restores the byte at the frame end. It

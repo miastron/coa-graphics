@@ -188,6 +188,7 @@ private:
     IDirect3DTexture9* m_marchTarget = nullptr;
     IDirect3DTexture9* m_history[2] = {};
     IDirect3DTexture9* m_historyDepth = nullptr;
+    IDirect3DTexture9* m_raySource = nullptr;
     IDirect3DTexture9* m_rays[2] = {};
     IDirect3DTexture9* m_sceneCopy = nullptr;
     IDirect3DTexture9* m_litScene = nullptr;

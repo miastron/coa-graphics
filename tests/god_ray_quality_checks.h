@@ -20,6 +20,7 @@ struct Fixture
     IDirect3DSurface9* readback = nullptr;
     IDirect3DTexture9* textures[4] = {};
     IDirect3DPixelShader9* shaders[3] = {};
+    BYTE bytes[kSize * kSize][3] = {};
 
     explicit Fixture(IDirect3DDevice9* value) : device(value) {}
 
@@ -143,9 +144,13 @@ struct Fixture
         if (FAILED(result) || FAILED(device->GetRenderTargetData(target, readback)) ||
             FAILED(readback->LockRect(&locked, nullptr, D3DLOCK_READONLY)))
             return false;
-        const BYTE* pixel = static_cast<const BYTE*>(locked.pBits) + (kSize / 2) * locked.Pitch + (kSize / 2) * 4;
+        const BYTE* const bits = static_cast<const BYTE*>(locked.pBits);
+        for (UINT y = 0; y < kSize; ++y)
+            for (UINT x = 0; x < kSize; ++x)
+                for (int channel = 0; channel < 3; ++channel)
+                    bytes[y * kSize + x][channel] = bits[y * locked.Pitch + x * 4 + 2 - channel];
         for (int channel = 0; channel < 3; ++channel)
-            colour[channel] = pixel[2 - channel] / 255.0f;
+            colour[channel] = bytes[(kSize / 2) * kSize + kSize / 2][channel] / 255.0f;
         return SUCCEEDED(readback->UnlockRect());
     }
 };
@@ -223,6 +228,54 @@ void CheckMode(Fixture& fixture, bool linearLight)
         }
 }
 
+constexpr BYTE kExactScene[] = {115, 140, 166};
+constexpr float kDitheredOpacity = 0.012f;
+constexpr double kMeanToleranceLevels = 0.2;
+
+double ExpectedLevels(int channel, float opacity)
+{
+    const double scene = kExactScene[channel];
+    return scene + (kFogColour[channel] - scene / 255.0) * opacity * 255.0;
+}
+
+void CheckFogOverTheSceneIsDithered(Fixture& fixture, bool linearLight)
+{
+    const float scene[] = {kExactScene[0] / 255.0f, kExactScene[1] / 255.0f, kExactScene[2] / 255.0f, 1};
+    float colour[3] = {};
+    const bool clear = fixture.Fill(3, scene) && fixture.Draw(0, linearLight, 0.0f, 0.0f, 0.0f, colour);
+    bool untouched = clear;
+    for (int pixel = 0; pixel < kSize * kSize; ++pixel)
+        for (int channel = 0; channel < 3; ++channel)
+            untouched = untouched && fixture.bytes[pixel][channel] == kExactScene[channel];
+    const bool thin = fixture.Draw(0, linearLight, kDitheredOpacity, 0.0f, 0.0f, colour);
+    double mean[3] = {};
+    bool varied = false;
+    for (int pixel = 0; pixel < kSize * kSize; ++pixel)
+    {
+        varied = varied || fixture.bytes[pixel][0] != fixture.bytes[0][0];
+        for (int channel = 0; channel < 3; ++channel)
+            mean[channel] += fixture.bytes[pixel][channel] / static_cast<double>(kSize * kSize);
+    }
+    bool unbiased = thin;
+    for (int channel = 0; channel < 3; ++channel)
+        unbiased = unbiased && std::fabs(mean[channel] - ExpectedLevels(channel, kDitheredOpacity)) <
+                                   kMeanToleranceLevels;
+    const float original[] = {kScene[0], kScene[1], kScene[2], 1};
+    fixture.Fill(3, original);
+    char label[160];
+    std::snprintf(label, sizeof(label), "%s composite leaves a fog-free scene exactly as it was",
+                  linearLight ? "linear" : "gamma");
+    Check(untouched, label);
+    if (linearLight)
+        return;
+    std::snprintf(label, sizeof(label),
+                  "%s composite dithers a sub-level fog gradient to its true mean (%.2f %.2f %.2f levels, expected "
+                  "%.2f %.2f %.2f)",
+                  linearLight ? "linear" : "gamma", mean[0], mean[1], mean[2], ExpectedLevels(0, kDitheredOpacity),
+                  ExpectedLevels(1, kDitheredOpacity), ExpectedLevels(2, kDitheredOpacity));
+    Check(unbiased && varied, label);
+}
+
 void CheckGodRays(IDirect3DDevice9* device, bool includeGamma = true)
 {
     Fixture fixture(device);
@@ -231,7 +284,11 @@ void CheckGodRays(IDirect3DDevice9* device, bool includeGamma = true)
     if (!ready)
         return;
     CheckMode(fixture, true);
+    CheckFogOverTheSceneIsDithered(fixture, true);
     if (includeGamma)
+    {
         CheckMode(fixture, false);
+        CheckFogOverTheSceneIsDithered(fixture, false);
+    }
 }
 }

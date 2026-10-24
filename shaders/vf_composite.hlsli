@@ -20,6 +20,8 @@ static const float kSameSurfaceRelativeDepth = 0.02;
 static const float kTapPlaneRelativeDepth = 0.005;
 static const float kWholeBilinearWeight = 0.999;
 static const float kMaxDisplayedMarchCurvature = 2.0 / 255;
+static const float kDisplayLevels = 255;
+static const float kDitherRoundingGuard = 0.001;
 
 float Exposure()
 {
@@ -291,6 +293,12 @@ float3 BlendGodRays(float3 colour, float3 godRays)
     return colour;
 }
 
+float3 DitheredOverScene(float3 scene, float3 composited, float2 pixel)
+{
+    float guardedNoise = kDitherRoundingGuard + InterleavedGradientNoise(pixel) * (1 - 2 * kDitherRoundingGuard);
+    return scene + floor((composited - scene) * kDisplayLevels + guardedNoise) / kDisplayLevels;
+}
+
 float3 FogSceneColour(float3 scene, float4 fog)
 {
     [branch] if (!BlendsInLinearLight())
@@ -306,10 +314,10 @@ float3 FogSceneColour(float3 scene, float4 fog)
     return colour;
 }
 
-float4 BlendOverSceneCopy(float2 viewportUv, float4 fog, float3 godRays)
+float4 BlendOverSceneCopy(float2 pixel, float2 viewportUv, float4 fog, float3 godRays)
 {
     float3 scene = tex2Dlod(sSceneBeforeFog, float4(viewportUv, 0, 0)).rgb;
-    return float4(BlendGodRays(FogSceneColour(scene, fog), godRays), 1);
+    return float4(DitheredOverScene(scene, BlendGodRays(FogSceneColour(scene, fog), godRays), pixel), 1);
 }
 
 float4 PremultipliedForFixedFunctionBlend(float4 fog, float3 godRays, bool linearLight)
@@ -344,6 +352,6 @@ float4 CompositeAtDepth(float2 pixel, float depth)
         return kSunMarkerColour;
 
     [branch] if (BlendsOverSceneCopy())
-        return BlendOverSceneCopy(viewportUv, fog, godRays);
+        return BlendOverSceneCopy(pixel, viewportUv, fog, godRays);
     return PremultipliedForFixedFunctionBlend(fog, godRays, linearLight);
 }
