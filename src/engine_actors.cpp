@@ -37,6 +37,9 @@ constexpr uintptr_t kUnitPosition = 0x798;
 constexpr uintptr_t kUnitMovementFlags = 0x7CC;
 constexpr uintptr_t kUnitCollisionRadius = 0x850;
 constexpr uintptr_t kUnitCollisionHeight = 0x854;
+constexpr uintptr_t kUnitMountState = 0x9C0;
+constexpr uintptr_t kUnitClientFlags = 0xA30;
+constexpr uint32_t kUnitSuppressedMountFlag = 0x10000000;
 constexpr uintptr_t kUnitSize = kUnitCollisionHeight + sizeof(float);
 constexpr uint32_t kSwimmingMovementFlag = 0x200000;
 constexpr uintptr_t kEntityWorldPosition = 0x6C;
@@ -84,6 +87,12 @@ const GuardBytes kWaterContactLayout[] = {
      {0x8B, 0x48, 0x7C, 0x8B, 0x55, 0x0C, 0xC1, 0xE9, 0x08, 0x83, 0xE1, 0x01}},
     {"entity world position store", 0x007803BD, 12,
      {0x89, 0x79, 0x6C, 0xD8, 0x65, 0xBC, 0x89, 0x59, 0x70, 0x89, 0x51, 0x74}},
+};
+
+const GuardBytes kMountedLayout[] = {
+    {"unit mount state", 0x0051A230, 19,
+     {0x83, 0xB9, 0xC0, 0x09, 0x00, 0x00, 0x00, 0x7E, 0x12, 0xF7, 0x81, 0x30, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x10}},
 };
 
 const GuardBytes kActivePlayerLayout[] = {
@@ -263,6 +272,87 @@ bool WalkVisibleUnits(uintptr_t manager, const float centre[3], WaterContactFram
     }
 }
 
+bool UnitIsMounted(uintptr_t object)
+{
+    return Read<int32_t>(object + kUnitMountState) > 0 &&
+           !(Read<uint32_t>(object + kUnitClientFlags) & kUnitSuppressedMountFlag);
+}
+
+bool ReadNearbyUnitUnsafe(uintptr_t object, NearbyUnit& unit)
+{
+    if (!IsUnit(object) || !ValidPointer(object, kUnitClientFlags + sizeof(uint32_t)))
+        return false;
+    const uintptr_t entity = Read<uintptr_t>(object + kObjectWorldEntity);
+    const bool onTransport = Read<uint64_t>(object + kUnitTransportGuid) != 0;
+    if (onTransport && !ValidPointer(entity, kEntitySize))
+        return false;
+    unit.guid = Read<uint64_t>(object + kObjectGuid);
+    const uintptr_t position = onTransport ? entity + kEntityWorldPosition : object + kUnitPosition;
+    std::memcpy(unit.position, reinterpret_cast<const void*>(position), sizeof(unit.position));
+    unit.radius = Read<float>(object + kUnitCollisionRadius);
+    unit.mounted = UnitIsMounted(object);
+    return true;
+}
+
+bool WalkNearbyUnitsUnsafe(uintptr_t manager, const float centre[3], float range, NearbyUnitFrame& out)
+{
+    return WalkVisibleObjectsUnsafe(manager, out.truncated, [&](uintptr_t object) {
+        NearbyUnit unit;
+        if (ReadNearbyUnitUnsafe(object, unit))
+            engine::SelectNearbyUnit(out, unit, centre, range);
+        return false;
+    });
+}
+
+bool WalkNearbyUnits(uintptr_t manager, const float centre[3], float range, NearbyUnitFrame& out)
+{
+    __try
+    {
+        return WalkNearbyUnitsUnsafe(manager, centre, range, out);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+bool NearbyUnitLayoutMatches()
+{
+    __try
+    {
+        return LayoutMatchesUnsafe() &&
+               GuardsMatch(kMountedLayout, "nearby units", "the grass is not parted around other units");
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+bool PlausibleUnit(const NearbyUnit& unit)
+{
+    for (float axis : unit.position)
+        if (!FiniteWithin(axis, -kMaxWorldCoordinate, kMaxWorldCoordinate))
+            return false;
+    return unit.radius > 0.0f && FiniteWithin(unit.radius, 0.0f, kMaxCollisionRadius);
+}
+
+double SquaredGroundDistance(const NearbyUnit& unit, const float centre[3])
+{
+    const double dx = static_cast<double>(unit.position[0]) - centre[0];
+    const double dy = static_cast<double>(unit.position[1]) - centre[1];
+    return dx * dx + dy * dy;
+}
+
+bool Precedes(const NearbyUnit& a, const NearbyUnit& b, const float centre[3])
+{
+    const double aDistance = SquaredGroundDistance(a, centre);
+    const double bDistance = SquaredGroundDistance(b, centre);
+    if (aDistance != bDistance)
+        return aDistance < bDistance;
+    return a.guid < b.guid;
+}
+
 bool ReadObjectManager(uintptr_t& manager)
 {
     __try
@@ -346,6 +436,59 @@ bool CaptureWaterContactsFrom(uintptr_t objectManager, const float centre[3], Wa
     if (valid)
         out = captured;
     return valid;
+}
+
+bool SelectNearbyUnit(NearbyUnitFrame& frame, const NearbyUnit& unit, const float centre[3], float range)
+{
+    if (frame.count > kMaxNearbyUnits || !ValidCentre(centre) || !PlausibleUnit(unit) ||
+        SquaredGroundDistance(unit, centre) > static_cast<double>(range) * range)
+        return false;
+    uint32_t index = 0;
+    while (index < frame.count && !Precedes(unit, frame.units[index], centre))
+        ++index;
+    if (index == kMaxNearbyUnits)
+        return false;
+    const uint32_t count = std::min(frame.count + 1, kMaxNearbyUnits);
+    for (uint32_t i = count - 1; i > index; --i)
+        frame.units[i] = frame.units[i - 1];
+    frame.units[index] = unit;
+    frame.count = count;
+    return true;
+}
+
+bool CaptureNearbyUnitsFrom(uintptr_t objectManager, const float centre[3], float range, NearbyUnitFrame& out)
+{
+    out = {};
+    if (!ValidCentre(centre))
+        return false;
+    if (!objectManager)
+        return true;
+    NearbyUnitFrame captured;
+    const bool valid = WalkNearbyUnits(objectManager, centre, range, captured);
+    if (valid)
+        out = captured;
+    return valid;
+}
+
+bool NearbyUnitsSupported()
+{
+    static const bool supported = NearbyUnitLayoutMatches();
+    return supported;
+}
+
+bool CaptureNearbyUnits(const float centre[3], float range, NearbyUnitFrame& out)
+{
+    out = {};
+    uintptr_t manager = 0;
+    if (!NearbyUnitsSupported() || !ValidCentre(centre) || !ReadObjectManager(manager))
+        return false;
+    if (!CaptureNearbyUnitsFrom(manager, centre, range, out))
+        return false;
+    uintptr_t after = 0;
+    if (ReadObjectManager(after) && after == manager)
+        return true;
+    out = {};
+    return false;
 }
 
 bool ActivePlayerSupported()

@@ -157,17 +157,17 @@ target_compile_definitions(imgui
 
 set(COA_MODULE_SOURCES
     src/client_code.cpp src/client_game_clock.cpp src/client_light_stay.cpp src/client_ripple_sprites.cpp
-    src/config.cpp src/engine_actors.cpp src/engine_lights.cpp src/fog_data.cpp src/fog_model.cpp
-    src/frame_copies.cpp src/gpu_timing.cpp src/grass_wind.cpp src/ini_section.cpp src/local_light_stabiliser.cpp
-    src/log.cpp src/noise_volume.cpp
+    src/config.cpp src/engine_actors.cpp src/engine_grass.cpp src/engine_lights.cpp src/fog_data.cpp
+    src/fog_model.cpp src/frame_copies.cpp src/gpu_timing.cpp src/grass_density.cpp src/grass_doodads.cpp
+    src/grass_wind.cpp src/ini_section.cpp src/local_light_stabiliser.cpp src/log.cpp src/noise_volume.cpp
     src/spell_lights.cpp src/status_log.cpp src/terrain_shadows.cpp src/texture_filtering.cpp src/texture_tint.cpp
     src/transparent_fog.cpp src/tree_wind.cpp src/water_contacts.cpp src/water_data.cpp src/water_fft.cpp
-    src/water_ripples.cpp src/water_spectrum.cpp)
+    src/water_ripples.cpp src/water_spectrum.cpp src/wdbc.cpp src/wind_model.cpp)
 set(COA_RUNTIME_SOURCES
-    src/d3d9_wrap.cpp src/dllmain.cpp src/engine.cpp src/engine_shadows.cpp src/engine_terrain.cpp
-    src/forever_look.cpp src/grading_renderer.cpp src/hooks.cpp src/image_quality.cpp src/image_renderer.cpp
-    src/msaa_depth.cpp src/overlay.cpp src/renderer.cpp src/settings_panel.cpp src/time_of_day.cpp
-    src/water_renderer.cpp)
+    src/d3d9_wrap.cpp src/dllmain.cpp src/engine.cpp src/engine_environment.cpp src/engine_shadows.cpp
+    src/engine_terrain.cpp src/forever_look.cpp src/grading_renderer.cpp src/hooks.cpp src/image_quality.cpp
+    src/image_renderer.cpp src/msaa_depth.cpp src/overlay.cpp src/renderer.cpp src/settings_panel.cpp
+    src/time_of_day.cpp src/water_renderer.cpp)
 
 function(coa_object_library name testing)
     add_library(${name} OBJECT ${ARGN})
@@ -208,14 +208,16 @@ target_compile_definitions(version PRIVATE WIN32_LEAN_AND_MEAN)
 add_executable(vfog_harness tests/harness.cpp $<TARGET_OBJECTS:coa_modules_test>)
 target_include_directories(vfog_harness PRIVATE src ${SHADER_OUT})
 target_compile_definitions(vfog_harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS VF_TESTING
-                           GRASS_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders")
+                           GRASS_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders"
+                           WIND_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 target_compile_options(vfog_harness PRIVATE /W4 /WX /permissive- /wd4100 /wd4456)
 target_link_libraries(vfog_harness PRIVATE CoAGraphicsTest user32 ole32 windowscodecs)
 target_link_options(vfog_harness PRIVATE $<$<CONFIG:Release>:/LTCG>)
 add_custom_command(TARGET CoAGraphics POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/CoAGraphics.ini
             ${CMAKE_CURRENT_SOURCE_DIR}/data/fogdata.bin ${CMAKE_CURRENT_SOURCE_DIR}/data/waterdata.bin
-            $<TARGET_FILE_DIR:CoAGraphics>)
+            ${CMAKE_CURRENT_SOURCE_DIR}/data/WindProfile.cdbc
+            ${CMAKE_CURRENT_SOURCE_DIR}/data/GroundEffectDoodadWind.cdbc $<TARGET_FILE_DIR:CoAGraphics>)
 
 enable_testing()
 configure_file(CoAGraphics.ini interior-test.ini COPYONLY)

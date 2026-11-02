@@ -4,6 +4,7 @@
 
 constexpr uint32_t kMaxWaterContacts = 32;
 constexpr float kWaterContactRange = 48.0f;
+constexpr uint32_t kMaxNearbyUnits = 16;
 
 struct WaterContact
 {
@@ -23,6 +24,21 @@ struct WaterContactFrame
     bool truncated = false;
 };
 
+struct NearbyUnit
+{
+    uint64_t guid = 0;
+    float position[3] = {};
+    float radius = 0.0f;
+    bool mounted = false;
+};
+
+struct NearbyUnitFrame
+{
+    NearbyUnit units[kMaxNearbyUnits] = {};
+    uint32_t count = 0;
+    bool truncated = false;
+};
+
 float WaterContactDepth(const WaterContact& contact);
 float ClientRippleDepthLimit(float height);
 
@@ -32,5 +48,9 @@ bool SelectWaterContact(WaterContactFrame& frame, const WaterContact& contact, c
 bool CaptureWaterContactsFrom(uintptr_t objectManager, const float centre[3], WaterContactFrame& out);
 bool WaterContactsSupported();
 bool CaptureWaterContacts(const float centre[3], WaterContactFrame& out);
+bool SelectNearbyUnit(NearbyUnitFrame& frame, const NearbyUnit& unit, const float centre[3], float range);
+bool CaptureNearbyUnitsFrom(uintptr_t objectManager, const float centre[3], float range, NearbyUnitFrame& out);
+bool NearbyUnitsSupported();
+bool CaptureNearbyUnits(const float centre[3], float range, NearbyUnitFrame& out);
 bool ReadActivePlayerPosition(float out[3]);
 }

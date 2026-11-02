@@ -5,6 +5,7 @@
 #include "engine.h"
 #include "fog_data.h"
 #include "forever_look.h"
+#include "grass_doodads.h"
 #include "grass_wind.h"
 #include "hooks.h"
 #include "image_quality.h"
@@ -17,6 +18,7 @@
 #include "transparent_fog.h"
 #include "water_data.h"
 #include "water_renderer.h"
+#include "wind_model.h"
 
 #include <windows.h>
 
@@ -64,9 +66,32 @@ std::string g_directory;
 bool g_engineHooks = false;
 bool g_waterHooks = false;
 
+void LoadWindProfiles()
+{
+    std::string error;
+    wind::WindModel& model = wind::GlobalWindModel();
+    if (model.LoadProfiles(g_directory + "WindProfile.cdbc", error))
+        VF_LOG_INFO("wind: %u profile rows loaded from WindProfile.cdbc", static_cast<unsigned>(model.RowCount()));
+    else
+        VF_LOG_INFO("wind: %s; the built-in profile applies everywhere", error.c_str());
+}
+
+void LoadGrassDoodadOverrides()
+{
+    std::string error;
+    GrassDoodads& doodads = GlobalGrassDoodads();
+    if (doodads.LoadOverrides(g_directory + "GroundEffectDoodadWind.cdbc", error))
+        VF_LOG_INFO("grass doodads: %u override rows loaded from GroundEffectDoodadWind.cdbc",
+                    static_cast<unsigned>(doodads.OverrideCount()));
+    else
+        VF_LOG_INFO("grass doodads: %s; every doodad bends by its own model", error.c_str());
+}
+
 void LoadDataAtFirstDevice()
 {
     GlobalFogData().Load(g_directory + "fogdata.bin");
+    LoadWindProfiles();
+    LoadGrassDoodadOverrides();
     if (g_engineHooks)
         PrepareAuthoredNoise();
     if (g_waterHooks)

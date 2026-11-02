@@ -587,9 +587,11 @@ time, since both would tilt the same placements.
 ## Grass wind and parting
 
 The client's grass (the ground-effect "detail doodads") has no motion. CoAGraphics reassembles the grass vertex shader
-with a block that displaces each blade in the world plane by two travelling sine waves and a lean, and that leans
-blades away from your character. This ports WarcraftXL's Grasswind; `WarcraftXL.dll` and its Grasswind extension are
-not needed and must not be loaded at the same time.
+with a block that displaces each blade in the world plane by the wind at its place and a per-blade flutter, and that
+leans blades away from the player and every unit near it. The shader rewrite and the call-site thunks port WarcraftXL's
+Grasswind; the wind model, the wind grid, the unit parting and the motion block port the Living Azeroth module
+([Morfium-G/seyris-living-azeroth](https://github.com/Morfium-G/seyris-living-azeroth)). `WarcraftXL.dll` and its
+Grasswind extension are not needed and must not be loaded at the same time.
 
 - **The shaders.** The grass vertex shaders are `Shaders\Vertex\vs_2_0\DetailDoodad.bls` and
   `Shaders\Vertex\vs_3_0\DetailDoodad.bls` in the client's `patch.MPQ` (`HSXG`, version `0x10003`, six permutations
@@ -597,38 +599,227 @@ not needed and must not be loaded at the same time.
   548, 676, 844, 1328, 1456, 1624 bytes (vs_3_0). The permutation is `3 * index + shadow`; the only call of
   `CDetailDoodad::SetupVertexShader` passes index 0, so only the first three of each are ever drawn. The last three read
   c14 to c22, the point lights, which the motion block also needs; they are left stock. The first three read c0 to c13
-  and, with shadows, c23 and up.
+  and, with shadows, up to c34 (the shadow matrices; checked by the harness on the extracted shaders), so c35 and up
+  belong to the motion block.
 - **Where it hooks.** The device wrapper's `CreateVertexShader` measures the bytecode to its end token and, for a
   version token of `0xFFFE0200` or `0xFFFE0300` with one of the six first lengths, disassembles it with
-  `D3DDisassemble` from the system's `d3dcompiler_47.dll`, inserts the motion block after `add r0, r0, c3` (the view
-  transform), reassembles it with `D3DAssemble` and passes the result on. Nothing in the client is patched for this, so
-  it also works on DXVK. A shader that cannot be rewritten stays stock and is logged once with its length. The result
-  is remembered per shader contents, not per length: another vertex shader of a grass length, created first, was once
-  remembered as "not grass" under that length and kept the real grass shader stock for the session (seen in game on
-  2026-10-22, 844 bytes). The block
-  uses `sincos` with one source, which vs_3_0 assembles and vs_2_0 does not: on a client that runs the vs_2_0 grass
-  shaders the grass stays still and the log says so.
+  `D3DDisassemble` from the system's `d3dcompiler_47.dll`, defines `c36` to `c38` and the loop counter `i0` after the
+  version line, inserts the motion block after `add r0, r0, c3` (the view transform), reassembles it with `D3DAssemble`
+  and passes the result on. Nothing in the client is patched for this, so it also works on DXVK. A shader that cannot
+  be rewritten stays stock and is logged once with its length. The result is remembered per shader contents, not per
+  length: another vertex shader of a grass length, created first, was once remembered as "not grass" under that length
+  and kept the real grass shader stock for the session (seen in game on 2026-10-22, 844 bytes). The block uses `sincos`
+  with one source, `mova`, a `loop` and relative constant addressing, which vs_3_0 assembles and vs_2_0 does not: on a
+  client that runs the vs_2_0 grass shaders the grass stays still and the log says so. The harness assembles the block
+  into all three stock vs_3_0 shaders.
+- **The motion block.** The vertex's world position is its view position rotated back by `c0` to `c2` (the chunks are
+  unrotated) plus the camera. Its bend weight is how far its texture row lies from its doodad's root row toward its tip
+  row (see Per-doodad bend; `1 - v` when nothing is known of the doodad), with the lowest `GrassWindAnchor` share held
+  still and the rest squared, as in Grasswind. The wind at the blade comes from an 8×8 grid of wind values,
+  8 yd apart and centred on the player, sampled bilinearly. The tip moves by `wind × (amplitude + flutter × sin(phase) ×
+  (gust + 0.3))`, the phase running with time and with the blade's world position. Each unit pushes blades away within
+  its radius and only within 3 yd of its own height; a unit's push falls off linearly with distance. Grass more than
+  45 yd from the player skips the unit loop.
 - **The constants.** `CDetailDoodad::InitializeShaderConstants` (`0x007B15D0`, called only from `0x007B2E25`) clears the
   23-register structure at `0x00D1C518` and fills c0 to c13; `CDetailDoodad::SetupVertexShader` uploads all 23 registers
   for each chunk (`6A 17 68 18 C5 D1 00 6A 00 6A 00 FF D0` at `0x007B1194`). The call at `0x007B2E25` is retargeted to
-  a thunk that runs the original and writes c14 to c21 of that structure: the camera, the player, the cone and radius,
-  two waves and the blade variance. Their guards are the entry `55 8B EC 81 EC 5C 01 00 00 56 6A 00 68 70 01 00`, the
-  clear `6A 00 68 70 01 00 00 68 18 C5 D1 00` at `0x007B15DA` and the upload above.
+  a thunk that runs the original and writes c14 to c18 of that structure: the camera and the flutter phase, the anchor,
+  the amplitude and the flutter, the grid scale and origin, the blade phase per yard and the push strength, and the
+  centre of the unit range. It also builds the frame: the wind model advances, the grid cells ease toward their new wind
+  over 0.35 s, and the units are packed. `SetupVertexShader` (`0x007B10E0`, `(world matrix, shader index)`, cdecl;
+  decomp `DetailDoodad.cpp:142-157`) has one caller, `CWorldScene::RenderDetailDoodads` at `0x007985EE`
+  (`57 51 E8 ED 8A 01 00 83 C4 08` at `0x007985EC`: push the index, push the matrix, call, clean
+  two arguments), once for each chunk
+  with grass. That call is retargeted to a thunk that runs the original with a copy of its two arguments and then, for
+  index 0 only, uploads 80 registers to the device from c40: the wind grid in c40 to c103 and the 16 units in c104 to
+  c119 (position and push radius, unused slots far away with radius 0). It is done for every chunk, after the client's
+  own upload of c0 to c22, so nothing drawn in between can replace it. Index 1 selects the point light shaders, which
+  stay stock, and gets nothing. Their guards are the entries `55 8B EC 81 EC 5C 01 00 00 56 6A 00 68 70 01 00` and
+  `55 8B EC 81 EC 80 00 00 00 E8 02 2F 0C 00 83 F8`, the clear `6A 00 68 70 01 00 00 68 18 C5 D1 00` at `0x007B15DA`
+  and the upload above.
+- **Per-doodad bend.** The client packs grass, flowers and pebbles into shared atlas textures, so a vertex's texture row
+  says little about where on its own doodad it sits. Each vertex therefore carries its doodad's table entry, and the
+  entry holds that doodad's root row, one over its span from root to tip, and a wind and a push scale.
+  `CDetailDoodadInstBatch::FillVertices` (`0x007B1B50`, thiscall with the batch in `ecx`) builds a batch's vertices
+  and runs only when the batch's vertex buffer has no data or is not valid (the two bytes at `+0x1C` and `+0x1D`
+  of the buffer, tested at `0x007B33E6` to `0x007B33F0`); `CDetailDoodadInstBatch::Draw` (`0x007B3390`) calls it, and
+  `DrawBatches` (`0x007B36B0`) calls `Draw` for the four batches of a chunk. Each has one caller: `8B CE E8 57 E7 FF FF
+  8B 0F` at `0x007B33F2` (the call is `0x007B33F4`) and `8B CE E8 C4 FC FF FF` at `0x007B36C5` (the call is `0x007B36C7`). The batch keeps its instances at `+0x1C` with their
+  count at `+0x18` (`8B 7B 1C` ... `8B 43 18` at `0x007B1B7D`), `0x2C` bytes each (`83 C7 2C` at `0x007B257E`), the
+  doodad id at `+0x04` and the colour at `+0x28`, which the build copies into every vertex (`0x007B1CE0` to
+  `0x007B1D38`). The client's build also waits for each model to load (`test byte [model + 0x10], 1`, else
+  `0x00823ED0`), so a model is readable once the fill returns. The fill call is retargeted to a thunk that writes each
+  instance's entry index into its colour before the original runs (the low three bits into green, the high two into
+  red and blue, so a red and blue swap for the GPU format changes nothing; a slot with more than 31 kinds sends the
+  extra ones to entry 31) and gives the colours back after. The shader reads the index back with float arithmetic on
+  the 8-bit channels (the harness checks every index against that arithmetic for several other colour bits, swapped
+  or not); a white vertex decodes to entry 31, the fallback. The fallback is the old rule, root at row 1 and tip at
+  row 0, with the full wind and push, and every entry a slot does not use holds it, so the shader never reads zeros.
+  The thunk also records which doodads each slot holds. The draw call is retargeted to a thunk that uploads the
+  slot's table (32 registers from c120) before the original runs, and the fill thunk uploads it again right after a
+  fill, which happens inside the draw. `GrassModelBend=0` (read live, with c19 holding the choice) makes the shader
+  use entry 31 whatever the colours say, stops the tagging and uploads fallback tables.
+- **Root and tip.** The table for a doodad id comes from its model: the doodad list at `0x00D1C4FC` (entry pointers by
+  id, count at `0x00D1C4F8`) gives an entry whose `+0x04` is the model, `+0x2C` of the model its shared data, whose
+  `+0x150` is the `M2Data` (vertex count at `+0x3C`, vertex pointer at `+0x40`, 48-byte vertices with the height at `+8`
+  and the texture row at `+0x24`) and whose `+0x170` is the skin (vertex lookup count at `+0x04`, a pointer to 16-bit
+  indices at `+0x08`; guards at `0x007B1D04`, `0x007B1D29`, `0x007B2330`, `0x007B233D` and `0x007B2391`). The 12340
+  client keeps absolute pointers in these arrays where the decomp keeps offsets (the exe's own loop reads them that way). The
+  root row is the mean texture row of the vertices in the lowest 12 percent of the model's height, the tip row that of
+  the highest 12 percent; a model under 0.15 yd high is flat (pebbles, shells) and gets no wind and no push; one
+  whose two rows agree is left on the fallback. A model is read once, when its first slot is filled, and at most 8192
+  vertices; the reads are guarded and an unreadable model keeps the fallback and is retried at the next fill.
+- **Overrides.** `GroundEffectDoodadWind.cdbc` beside the DLL (the module's table, 37 rows shipped, tuned by its author
+  in the game) overrides single doodads: `ID`, `Flags` (1 no wind, 2 no push, 0x10 root and tip swapped),
+  `Stiffness` (0 flexible to 1 rigid, which scales both motions by one minus it), `RootV` and `TipV` (a row of
+  your own, -1 for the model's). A doodad whose model could not be read is usable when its override gives both
+  rows. Without the file every doodad bends by its model alone. The module's settings-window editor for these rows is
+  not ported.
+- **Putting the constants back.** The client keeps its own copy of the vertex shader constants, `CGxDevice::s_shadowConstants`
+  (decomp `CGxDevice.cpp:84`; the vertex array is at `0x00C5EFE8`, 16 bytes a register, as the flush at `0x006A9FE0` reads
+  it with `shl ecx, 4; add eax, 0xC5EFE8`, guarded by `C1 E0 04 05 E8 EF C5 00 50 51 8B 8F 78 01 00 00` at
+  `0x006AA003`), and `IShaderConstantsFlush` sends the device only the registers whose values it changed since its
+  last flush. The wind grid, the units and the table overwrite c40 to c151 on the device behind its back, and models
+  drawn afterwards write bone matrices there (`CM2SceneRender.cpp:430` locks the array at register 31), so a model
+  whose bones happen to equal the client's last copy would be skipped by the flush and drawn with grass data. The call
+  to `CWorldScene::RenderOccluders` (`0x00797280`, cdecl, no arguments, one caller at `0x00798781`) that ends
+  `RenderDetailDoodads` is retargeted to a thunk that, when the pass uploaded anything, copies the client's own c40 to
+  c151 back to the device before it runs the original.
+- **The wind.** The wind comes from `WindProfile.cdbc` beside the DLL, a plain WDBC table (the format of the Living
+  Azeroth module; fifteen sample rows ship in `data/`): `ID`, `ScopeType` (0 global, 1 map, 2 area), `ScopeID`, then
+  `GroundMin`, `GroundMax`, `AloftMin`, `AloftMax`, `AloftHeight`, `WeatherInfluence`, `GustStrength`, `GustFrequency`,
+  `TerrainWeight`, `LockedDirection`, `LockStrength`, `Flags` and `Comment` (a string). A row is resolved global, then
+  map, then the areas of the player's area chain from the zone to the sub-area, the most specific last, and a negative
+  field takes the value of the next less specific row; crossing a border blends over about 1.5 s. The steady strength
+  wanders between `GroundMin` and `GroundMax` and is pushed toward `GroundMax` by the weather in proportion to
+  `WeatherInfluence`; the bearing wanders by up to 60° around a base of its own for each map unless `LockedDirection`
+  and `LockStrength` pin it; gusts are a noise field stretched along the wind and carried downwind, scaled by
+  `GustStrength`. `WindStrength` scales the whole wind. The aloft and terrain columns are kept for the table's layout
+  and not read. Without the file one built-in global profile (the file's global row) applies everywhere; a file with no
+  global row is a calm world. Shelter under roofs and the lee behind walls, which the Living Azeroth wind has, are not
+  ported.
+- **Weather and area.** The weather is `World::s_weather` (`0x00CD7544`; the client loads it at `0x004F8645`, `A1 44
+  75 CD 00 D9 40 28`, the density blend at `+0x28`) and its `m_intensity` at `+0x08`, stored by
+  `Weather::SetStormIntensity` (`0x00784850`) at `0x007848BA` (`D9 56 08`). The client eases it toward the value the
+  server's weather packets set and itself reads it as `(intensity - 0.25) × 4/3`, no less than 0 (decomp
+  `MapWeather.cpp:385-389`); the wind uses the same dead zone, so a server module that shapes the weather over time
+  shapes the wind with it. The area is the one of the terrain chunk under the player: `CMap::QueryAreaIdTerrain`
+  (`0x007A0490`) returns `chunk->m_areaId` at `+0xB0` (`8B 80 B0 00 00 00` at `0x007A0526`), and the chunk is found with
+  the area table `0x00CE48D0` that the terrain shadows already read. The parents come from the AreaTable storage, read
+  by the client's own outdoor test at `0x0077FC87` to `0x0077FCA4`: the largest id `0x00AD3140`, the smallest
+  `0x00AD3144` and the row pointers `0x00AD3154`, with `ParentAreaID` at row `+0x08` (decomp `AreaTableRec.h`; the
+  storage object is `g_areaTableDB` at `0x00AD3134`). The chain stops at a cycle or after eight areas.
+- **Units.** The walk of the client's visible object list that finds units wading through water (the object manager,
+  `0x00C79CE0 + 0x2ED0`) also gathers the 16 units nearest to the player within 40 yd, with their position (the world
+  entity's on a transport), their collision radius (`CMovement_C::m_collisionRadius` at unit `+0x850`, set to
+  `width × scale × 0.5` by `SetCollisionBox`, decomp `Movement.cpp:1662`) and the client's own mounted test
+  (`CGUnit_C::IsMounted` `0x0051A230`: `[unit + 0x9C0] > 0` and no `0x10000000` in `[unit + 0xA30]`, which the guard
+  `83 B9 C0 09 00 00 00 7E 12 F7 81 30 0A 00 00 00 00 00 10` holds). A unit's push radius is its collision radius times
+  `GrassPartingRadiusScale`, times `GrassPartingMountedScale` while mounted, and at least `GrassPartingMinRadius`. The
+  collision radius does not grow with a mount (the mounted box keeps the rider's width), hence the mounted factor.
 - **The player.** `CGWorldFrame::UpdateDayNight` `0x4F8410` copies the active player's `GetPosition()` into
   `DNInfo.m_playerPos` `[0xD38B0C]` every frame the player exists (`8B 08 89 4E 0C 8B 50 04 89 56 10 8B 40 08 89 46 14`
   at `0x4F8555`, `ESI` being the `GetInfo` result `0x7ECEF0`, `B8 00 8B D3 00`). `CGUnit_C::GetPosition` `0x6E6EF0` is
   the movement's `CPassenger::GetPosition`, the world position also on a transport, so the grass reads that float
   triple instead of walking the visible object list. `DayNight::LoadMap` zeroes it and it is not cleared when the
-  player leaves, so out of the world the grass is parted around a stale point nobody sees. The earlier walk, replaced
-  here, matched the active player GUID (`+0xC0` of the object manager) in the visible list. The harness cannot read
+  player leaves, so out of the world the grass is parted around a stale point nobody sees. The harness cannot read
   client memory, so this read has no check; the first in-game look is a transport passenger.
-- **Settings.** `GrassWind*` and `GrassParting*` in `CoAGraphics.ini` and the Grass section of the settings window. The
-  shader rewrite is made when the game creates its shaders, so it needs `GrassWind=1` or `GrassParting=1` at start; with
-  it in place the keys apply within a second and 0 stops the motion.
+- **Density copies.** The client chooses how much grass a chunk gets with `groundEffectDensity`, which its callback
+  (`0x0078DAB0`, `8D 48 F0 81 F9 F0 00 00 00 77` in the 12340 exe: the value minus 16 against `0xF0`) accepts from 16 to
+  256. `CMapChunk::CreateDetailDoodads` (decomp `MapChunk.cpp`) picks that many random cells of the
+  chunk's 8 by 8, a cell being picked twice or more adding more, and each pick places the ground effect's own plant
+  count (8 when the record says 0). `CDetailDoodadInst::AddDoodad` (`0x007B31E0`, decomp `DetailDoodad.cpp:661`) puts a
+  plant into one of the chunk's four batches, one per texture, and returns without adding it when none has room: a
+  batch holds `s_vtxBufItems` vertices, which `CDetailDoodad::UpdatePools` (`0x007B2A80`) sets to the density times 64
+  and never above 4096. So the client builds all of a chunk's plants on the CPU into buffers of a fixed size, and its
+  setting stops at 256. That a chunk of the game reaches that limit has not been seen; it is read from the decomp.
+  `GrassDensity` (1 to 4) draws each plant more than once instead. The thunk on `CDetailDoodad::SetupVertexShader`
+  (see Wind grid) now also reads the chunk's world matrix, the `world` argument that `CWorldScene::RenderDetailDoodads`
+  (`0x007984A0`, decomp `World.cpp:3560`) builds as the identity translated by the chunk's top left corner minus the
+  camera: the translation is the matrix's floats 12 and 13 (decomp `C44Matrix.h`, `d0` at `+0x30` and `d1` at `+0x34`).
+  The plants of a chunk lie at local coordinates from the corner back to minus 33.33 yd, 8 cells of
+  `SMOLTILE_SIZE` 4.1666665 (the same function: `position.x = -py`, then `position.x -= cellY`), so the chunk is the square from that
+  corner back by 33.33 yd, and its distance is the horizontal distance from the camera to the nearest edge of that
+  square. A chunk is drawn once for the plants and once for each copy `j` (1 to `ceil(GrassDensity - 1)`, at most
+  3) whose outer distance `R - (R / 2) (j - 1) / (GrassDensity - 1)` (`R` being `GrassDensityRadius`) lies beyond the
+  chunk's distance, so the chunks beyond the radius cost nothing. Which plants show the copy is decided in the
+  shader, see Fading in. The draw thunk (call `0x007B36C7`) runs the client's
+  `CDetailDoodadInstBatch::Draw` (`0x007B3390`), which binds the batch's vertex and index buffers and texture and
+  issues the draw (it builds vertices only when the buffer has no data), once, and then once more for each copy, with
+  the copy's offset in c20 for that draw. The offset is fixed per copy number: the direction advances by the golden
+  angle and the length lies between half of `GrassDensitySpread` and all of it. The shader then turns it by an
+  angle of the plant and shortens it to between 0.6 and 1 of its length, so that no direction repeats from plant
+  to plant. The upload for a copy is two registers, c20 (the offset, the outer distance and the width of the
+  copy's band) and c21 (the inverse of the share of plants that ever show it). c20 is the position of the third point
+  light in the client's constant block (c14 to c22 hold three lights, `0xE0` and 48 bytes each in the structure at
+  `0x00D1C518`), which the client zeroes and only the point light variants of the shader (index 1, which the client
+  never draws) read; the disassembly of the stock blobs shows the three variants of index 0 reading c0 to c13 and, with
+  shadows, c23 to c34 (the harness checks that none reads c20). The client's own copy of the constants holds zero in c20, so the thunk writes the offset straight to the
+  device for each copy, writes zeros back after the last one, and writes zeros again at the next chunk's setup and at
+  the end of the pass if one was left. The rewritten shader runs first in the motion block: the vertex normal is the
+  ground triangle's normal in the same chunk coordinates as the position (`FillVertices`, decomp `DetailDoodad.cpp`,
+  `vertex->m_normal = add.m_normal`), so the plant moves by (dx, dy) and by `-(nx dx + ny dy) / nz` in z, which
+  keeps it on its triangle's plane, through the same world matrix columns as the position. The wind, the parting and
+  the shadow coordinates then use the moved position.
+  The shader has nothing per plant but the vertex colour, the normal and the position, so the fill thunk (which
+  already writes the entry index into the colour) also writes six bits taken from the plant into the low six bits
+  of the alpha byte of its colour: a hash of the plant's position (the instance record's floats at `+0x08` and
+  `+0x0C`, `CDetailDoodadInstAdd` in the decomp, whose `+0x04` and `+0x28` were found to be the doodad id and the
+  colour in the exe) is stable while the plant exists, so it does not change when the client rebuilds a buffer.
+  The client writes that alpha as 255, or 0 for a plant in the shadow map (`CMapChunk::CreateDetailDoodads`, decomp
+  `MapChunk.cpp`), and all six stock shaders pass it on with `mov o1.w, v2.w`; the rewrite changes that line to
+  `sge o1.w, v2.w, 0.5`, which gives the pixel shader exactly the 1 or 0 it had before whatever the six bits are,
+  so nothing about the plant's lighting changes. The bits are written only when the shaders were rewritten without
+  failures, and the colour is given back after the fill like the tag. The shader turns the offset by
+  `(bits + 0.5) / 64` of a full turn and scales it by `0.6 + 0.4 * frac(5.3 * (bits + 0.5) / 64)`.
+  Fading in: a copy must not appear in whole chunks at a time, nor all at one distance. The same six bits give
+  each plant a second number `t = frac(39.554175 * (bits + 0.5) / 64)` (64 times the golden ratio's fraction, so the
+  64 values lie evenly in 0 to 1), and the copy of a plant shows while the plant is nearer to the camera than
+  `outer - t * width`: copy `j` of a multiplier `m` has `outer = R - (R / 2) (j - 1) / (m - 1)` and
+  `width = (R / 2) min(1, m - j) / (m - 1)`, so the share of plants showing it falls evenly from all of them at the
+  inner end of its band to none at `outer`, and the copies thin out one after the other, the last first. For a
+  fractional multiplier the last copy only has a share `m - j` of the plants (`t` divided by that share, and a
+  plant whose result reaches 1 never shows it). The plant does not vanish at that distance: the shader measures the
+  horizontal distance from the camera (the world offset from the view-space position, before the camera is added)
+  and sinks the plant along the ground normal, which it transforms like the stock lighting does, by 2 yd times
+  `clamp(1 - (hide distance - distance) / GrassDensityFade, 0, 1)`, so a plant grows out of the ground over
+  `GrassDensityFade` yd of approach (32 by default; it is a distance, so it passes faster the faster you move) and a
+  plant that is entirely beyond its hide distance is under the terrain, which hides it with the depth test (the
+  grass is about a yard tall). A vertex of one plant is within a yard of the others, so they sink almost together;
+  nothing is collapsed to a point. Without a copy window (c20 width under 0.001, which is every draw of the client's
+  own) nothing sinks. Limits: a
+  copy is not kept inside its terrain triangle, so with a large
+  `GrassDensitySpread` grass reaches over a path or a cliff edge and its height is only right to the first order on bumpy
+  ground; each copy costs one more draw per batch and the same vertices again on the GPU. The copies need the doodad
+  hooks (the draw call) and the shader rewrite (`GrassWind`, `GrassParting` or `GrassDensity` above 1 at start). The
+  status line in the log counts the chunks that got copies.
+- **Settings.** `WindStrength` and the `GrassWind*` and `GrassParting*` keys in `CoAGraphics.ini` and the Grass section
+  of the settings window. The shader rewrite is made when the game creates its shaders, so it needs `GrassWind=1`,
+  `GrassParting=1` or `GrassDensity` above 1 at start; with it in place the keys apply within a second and 0 stops the motion. The keys of the
+  two-wave model that Grasswind had (`GrassWindDirection`, `Speed`, `Wavelength`, the cross swell, `Lean`, `Variance`,
+  `DistanceFade`, and the cone keys of the parting) are gone, and an INI that still names them is read without them.
 - **Checks.** The harness reads the client's twelve grass shaders from `tests/shaders` (extracted from `patch.MPQ`), and
-  checks their end tokens, the rewrite of the three vs_3_0 shaders, that the light variants, other shaders, a missing
-  compiler and a disabled rewrite pass through, the constants, the thunk, the guards, the shipped defaults and, on the
-  device, that the wrapper hands the driver a longer shader. That does not establish in-game behaviour.
+  checks their end tokens, that the stock shaders read nothing from c35 up, the rewrite of the three vs_3_0 shaders, that
+  the light variants, other shaders, a missing compiler and a disabled rewrite pass through, the frame constants, the
+  wind grid against the wind model, its easing and its cell table, the unit packing, both thunks (the original runs
+  with its arguments, the upload is 80 registers from c40 for index 0 only), the guards, the shipped defaults and, on
+  the device, that the wrapper hands the driver a longer shader. The wind model has its own checks (the WDBC reader,
+  the shipped table, the resolution order, the weather and lock, the gusts, the area chain), as has the unit selection
+  and the walk over a synthetic object list. The per-doodad bend has its own checks: the tags and their float decode,
+  the slot entries, the root and tip bands, the entries with and without overrides, the shipped override table, tagging
+  and untagging a synthetic slot, reading a synthetic model (and refusing broken ones), the guards, the three thunks and,
+  on the device, points drawn with tagged colours that move by the weights, scales and fallback the table says. The
+  density copies have their own checks: the chunk distance, the copies by distance, the offsets, the three settings,
+  the draw thunk (a chunk near the camera is drawn once and once per copy with each offset in c20 at its draw and c20
+  zero after, a far chunk, a multiplier of 1 and the point light variant once, no copies inherited from the chunk
+  before), the copy bands and counts, the share of plants that still show a copy (it falls with distance, is all
+  near the camera and none past the outer distance, is half in the middle of the band, and is the share the
+  multiplier says for the last copy), the plant bits (their spread, their stability, tagging and untagging a
+  synthetic slot with them) and, on the device, a point moved by a copy offset on level ground, on a slope and on a ridge for six alphas, and the
+  alpha the pixel shader receives (exactly 1 or 0 for all 64 bit patterns), and a point at six distances for five
+  patterns sunk by the amount the C++ mirror of the shader gives. That does
+  not establish in-game behaviour: the area and weather reads, the unit walk, the doodad hooks and the density copies
+  have not been seen in the game yet.
 
 ## Engine inputs
 
@@ -1070,7 +1261,8 @@ cmake --build build --config Release
 ```
 
 Outputs in `build/Release`: `version.dll`, `CoAGraphics.dll`, `CoAGraphicsTest.dll` and `vfog_harness.exe`, with
-`CoAGraphics.ini`, `fogdata.bin` and `waterdata.bin` copied beside them. Both DLLs link the same compiled objects
+`CoAGraphics.ini`, `fogdata.bin`, `waterdata.bin`, `WindProfile.cdbc` and `GroundEffectDoodadWind.cdbc` copied beside
+them. Both DLLs link the same compiled objects
 (`coa_core`). `CoAGraphics.dll` is the one to install and exports only `vf_loader_anchor`; `CoAGraphicsTest.dll` adds
 the `vf_test_*` entry points (`src/test_exports.cpp`) that the harness calls.
 
@@ -1132,8 +1324,8 @@ Scenes for looking at the output:
 
 ## Install
 
-Close the client, then copy `version.dll`, `CoAGraphics.dll`, `CoAGraphics.ini`, `fogdata.bin` and `waterdata.bin` next to
-`Ascension.exe`. To uninstall, remove `version.dll` and `CoAGraphics.dll`; nothing else in the client is changed. The DLL
+Close the client, then copy `version.dll`, `CoAGraphics.dll`, `CoAGraphics.ini`, `fogdata.bin`, `waterdata.bin`,
+`WindProfile.cdbc` and `GroundEffectDoodadWind.cdbc` next to `Ascension.exe`. To uninstall, remove `version.dll` and `CoAGraphics.dll`; nothing else in the client is changed. The DLL
 writes `CoAGraphics.log` next to itself.
 
 ## Steam Deck and Linux (Proton)
@@ -1278,8 +1470,11 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `TreeMinHeight`, `TreeMinAspect`, `TreeMaxHeight`, `TreeMaxDistance` | 6, 1.8, 200, 0 | Tall-model test (yd, height over width), tallest tree that sways and farthest tree from the camera; 0 = no limit |
 | `BushWind` | 1 | Placed bushes, ferns and hedges sway with their own `BushWind*` keys (same names as `TreeWind*`; defaults `Speed` 2, `Amplitude` 0.5, `Wavelength` 9, `CrossAmplitude` 0.25, `CrossWavelength` 5, `Lean` 0.2, `Variance` 0.6, `Gust` 0.4) |
 | `BushDoodadsOnly`, `BushSkipDead`, `BushMaxDistance` | 1, 1, 0 | Map-placed models only, skip dead bushes, farthest bush from the camera; 0 = no limit |
-| `GrassWind` | 1 | Grass blades sway; the other `GrassWind*` keys shape the wind: `Direction` 45, `Speed` 3, `Amplitude` 0.06 and `CrossAmplitude` 0.02 (yd), `Wavelength` 18 and `CrossWavelength` 6.5 (yd), `CrossAngle` 35, `Lean` 0.35, `Variance` 0.6, `DistanceFade` 0.015, `Anchor` 0.3. Needs 1 here or in `GrassParting` at start to rewrite the shaders |
-| `GrassParting` | 1 | Grass leans away from your character; `GrassPartingRadius` 2 (yd), `GrassPartingForce` 0.5, `GrassPartingEdgeForce` 0, `GrassPartingHeight` 0.5 (yd), `GrassPartingMinBladeHeight` 0.3 (yd) |
+| `WindStrength` | 1 | Scale of the whole wind (0..4) that `WindProfile.cdbc` describes; 0 = calm |
+| `GrassWind` | 1 | Grass blades sway with the wind; the other `GrassWind*` keys shape the sway: `Amplitude` 0.35 (yd at wind strength 1), `Flutter` 0.4 (yd), `FlutterSpeed` 3 (rad/s), `Anchor` 0.3 (the share of the blade that never moves). Needs 1 here or in `GrassParting` at start to rewrite the shaders |
+| `GrassModelBend` | 1 | Each kind of grass, flower and pebble bends from its own root to its own tip, measured from its model; 0 = every doodad bends by its texture row |
+| `GrassDensity` | 2 | Plants drawn per plant the client places, near you (1 to 4): the client's own grass drawn again on the GPU, each copy moved sideways in a direction of its plant's own and kept on its ground slope; `GrassDensityRadius` 150 (yd from the camera, the copies thin out plant by plant from half of it to all of it, each plant sinking into the ground), `GrassDensitySpread` 1 (yd), `GrassDensityFade` 32 (yd of approach over which a plant grows out of the ground). Needs the doodad hooks; 1 here, in `GrassWind` and in `GrassParting` at start leaves the shaders alone |
+| `GrassParting` | 1 | Grass leans away from your character and the 16 nearest units within 40 yd; `GrassPartingForce` 0.25 (yd), `GrassPartingRadiusScale` 4.5 (times the collision radius), `GrassPartingMinRadius` 1 (yd), `GrassPartingMountedScale` 2 |
 
 Turning `FarClipMax` on from 0 needs a restart. Other changes, including turning it off, apply at the next `farclip`
 change, map load or zone change, where raising it shows a loading screen.
@@ -1411,6 +1606,9 @@ game, so by default colours still differ from Classic.
   [wxl-treewind](https://github.com/manatactical/wxl-treewind) and
   [wxl-grasswind](https://github.com/WarcraftXL/wxl-grasswind), whose GPLv3 tree, bush and grass wind the Tree and bush
   wind and Grass wind and parting sections port.
+- **Morfium-G** ([seyris-living-azeroth](https://github.com/Morfium-G/seyris-living-azeroth)), whose GPLv3 Living Azeroth
+  module the wind model, the `WindProfile.cdbc` table, the wind grid, the parting around units and the grass motion block
+  come from.
 - **Luca Foscili** added the interior distance-fog control and the Steam Deck and Proton notes upstream
   (pull requests #9 and #10).
 - **St0ny** and the AIO WoW EXE Patcher, whose patch No. 70 "lightstay" byte the `LightStay` setting reproduces.

@@ -14,6 +14,7 @@ constexpr int kAreaChunkSide = 16;
 constexpr uintptr_t kAreaAsyncLoad = 0x70;
 constexpr uintptr_t kAreaChunks = 0xBC;
 constexpr uintptr_t kChunkTopLeft = 0x7C;
+constexpr uintptr_t kChunkAreaId = 0xB0;
 constexpr uintptr_t kChunkHeights = 0x11C;
 constexpr int kChunkHeightStride = 17;
 constexpr int kChunkHeightCount = 145;
@@ -49,6 +50,19 @@ bool ChunkSitsAt(uintptr_t chunk, int chunkRow, int chunkCol, float* origin)
            std::isfinite(origin[2]);
 }
 
+bool ReadAreaIdUnsafe(float x, float y, int32_t& areaId)
+{
+    const float row = std::floor((kTerrainMapOriginYards - x) / kTerrainChunkYards);
+    const float col = std::floor((kTerrainMapOriginYards - y) / kTerrainChunkYards);
+    if (!(row >= 0.0f && row < kTerrainMapChunks && col >= 0.0f && col < kTerrainMapChunks))
+        return false;
+    const uintptr_t chunk = ChunkAddress(static_cast<int>(row), static_cast<int>(col));
+    if (!chunk)
+        return false;
+    areaId = Read<int32_t>(chunk + kChunkAreaId);
+    return true;
+}
+
 bool ReadChunkUnsafe(int chunkRow, int chunkCol, TerrainChunkHeights& out)
 {
     const uintptr_t chunk = ChunkAddress(chunkRow, chunkCol);
@@ -71,6 +85,18 @@ bool ReadChunkUnsafe(int chunkRow, int chunkCol, TerrainChunkHeights& out)
 
 namespace engine
 {
+bool TerrainAreaIdAt(float x, float y, int32_t& areaId)
+{
+    __try
+    {
+        return ReadAreaIdUnsafe(x, y, areaId);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
 bool TerrainContractSupported()
 {
     static constexpr unsigned char areaLookup[] = {0x8B, 0x04, 0x85, 0xD0, 0x48, 0xCE, 0x00};

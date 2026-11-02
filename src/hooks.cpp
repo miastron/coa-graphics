@@ -4,9 +4,13 @@
 #include "config.h"
 #include "d3d9_wrap.h"
 #include "engine.h"
+#include "engine_environment.h"
+#include "engine_grass.h"
 #include "fog_model.h"
 #include "forever_look.h"
 #include "frame_copies.h"
+#include "grass_density.h"
+#include "grass_doodads.h"
 #include "grass_wind.h"
 #include "image_quality.h"
 #include "log.h"
@@ -47,6 +51,10 @@ constexpr const char* kCameraUnderLiquid = "camera under liquid";
 constexpr const char* kWorldNotCaptured = "the world render inputs were not captured";
 constexpr const char* kInvalidFrameInputs = "invalid frame inputs";
 constexpr DWORD kTransparentFogStatsIntervalMs = 60000;
+constexpr unsigned kGrassUploadedEnd = kGrassDoodadFirstRegister + kGrassDoodadEntries;
+constexpr unsigned kGrassUploadedCount = kGrassUploadedEnd - engine::kGrassGridFirstRegister;
+constexpr DWORD kGrassStatusFirstMs = 5000;
+constexpr DWORD kGrassStatusIntervalMs = 60000;
 constexpr size_t kGlarePassEntryTextSize = 64;
 constexpr double kPercent = 100.0;
 
@@ -78,10 +86,34 @@ int g_treeWindMap = -1;
 const float* g_testTreeWindCamera = nullptr;
 Config g_windConfigured;
 uintptr_t g_grassConstantsTarget = engine::kInitializeShaderConstants;
+uintptr_t g_grassSetupTarget = engine::kSetupGrassShader;
 float* g_grassConstantsDestination = nullptr;
+const GrassInputs* g_testGrassInputs = nullptr;
+GrassUploadFn g_testGrassUpload = nullptr;
+uintptr_t g_grassFillTarget = engine::kFillGrassVertices;
+uintptr_t g_grassDrawTarget = engine::kDrawGrassBatch;
+uintptr_t g_grassPassEndTarget = engine::kGrassPassEnd;
+GrassBandsFn g_testGrassBands = nullptr;
+GrassShadowFn g_testGrassShadow = nullptr;
+engine::SlotTagging g_grassFillTagging = {};
+uintptr_t g_grassFillSlot = 0;
+bool g_grassFillTagged = false;
+bool g_grassConstantsDirty = false;
+bool g_grassDoodadHooksInstalled = false;
 bool g_grassWindHooksInstalled = false;
 bool g_grassWindFailed = false;
 unsigned g_grassConstantFrames = 0;
+unsigned g_grassChunkUploads = 0;
+unsigned g_grassChunkUploadsLogged = 0;
+DWORD g_grassLastTick = 0;
+DWORD g_grassLastStatus = 0;
+bool g_grassFrameReady = false;
+GrassFrame g_grassFrame;
+GrassDensitySettings g_grassDensity = GrassDensitySettingsFrom(Config());
+unsigned g_grassChunkCopies = 0;
+bool g_grassCopyOffsetDirty = false;
+unsigned g_grassCopiedChunks = 0;
+unsigned g_grassCopiedChunksLogged = 0;
 int g_spellLightsObserved = 0;
 
 uintptr_t g_m2BatchFogTarget = engine::kM2BatchFogTarget;
@@ -348,6 +380,18 @@ void PublishSpellLights()
     g_spellLightsObserved = observed ? 1 : 0;
 }
 
+void ConfigureGrassDensity(const Config& cfg)
+{
+    g_grassDensity = GrassDensitySettingsFrom(cfg);
+}
+
+GrassWindSettings LiveGrassSettings(const Config& cfg)
+{
+    GrassWindSettings settings = GrassWindSettingsFrom(cfg);
+    settings.modelBend = settings.modelBend && g_grassDoodadHooksInstalled;
+    return settings;
+}
+
 void ConfigureWind()
 {
     if (!g_treeWindHooksInstalled && !g_grassWindHooksInstalled)
@@ -357,7 +401,8 @@ void ConfigureWind()
     {
         g_windConfigured = cfg;
         GlobalTreeWind().Configure(TreeWindSettingsFrom(cfg));
-        GlobalGrassWind().Configure(GrassWindSettingsFrom(cfg));
+        GlobalGrassWind().Configure(LiveGrassSettings(cfg));
+        ConfigureGrassDensity(cfg);
     }
     const int map = engine::ReadCurrentMap();
     if (map != g_treeWindMap)
@@ -1275,28 +1320,121 @@ extern "C" void __cdecl vf_on_model_animate(void* instance)
     }
 }
 
+void GatherGrassInputs(GrassInputs& in, NearbyUnitFrame& units)
+{
+    engine::ReadCameraPosition(in.camera);
+    in.havePlayer = engine::ReadActivePlayerPosition(in.player);
+    const float* subject = in.havePlayer ? in.player : in.camera;
+    engine::ReadWindPlace(subject, in.place);
+    if (GlobalGrassWind().Settings().parting && engine::CaptureNearbyUnits(subject, kGrassActorRange, units))
+        in.units = &units;
+}
+
+void LogGrassStatus(const GrassInputs& in, DWORD now)
+{
+    if (g_grassLastStatus && now - g_grassLastStatus < kGrassStatusIntervalMs)
+        return;
+    if (!g_grassLastStatus)
+    {
+        g_grassLastStatus = now ? now : 1;
+        g_grassLastStatus -= kGrassStatusIntervalMs - kGrassStatusFirstMs;
+        return;
+    }
+    g_grassLastStatus = now ? now : 1;
+    const float* subject = in.havePlayer ? in.player : in.camera;
+    const wind::WindModel& model = wind::GlobalWindModel();
+    const wind::Sample here = model.At(subject);
+    const GrassWindSettings& settings = GlobalGrassWind().Settings();
+    VF_LOG_INFO("grass wind: map %d, area %u of %d in the chain, weather %.2f, steady wind %.2f toward %.0f deg, at "
+                "the player strength %.2f with gust %.2f, amplitude %.2f yd, %u units, %u chunk uploads since the "
+                "last line, %u of them with extra plants (density %.1f within %.0f yd)",
+                in.place.mapId, in.place.areaCount ? in.place.areaChain[0] : 0u, in.place.areaCount,
+                in.place.weather, model.Steady(), model.Bearing(), here.strength, here.gust, settings.amplitude,
+                in.units ? in.units->count : 0u, g_grassChunkUploads - g_grassChunkUploadsLogged,
+                g_grassCopiedChunks - g_grassCopiedChunksLogged, g_grassDensity.multiplier, g_grassDensity.radius);
+    g_grassChunkUploadsLogged = g_grassChunkUploads;
+    g_grassCopiedChunksLogged = g_grassCopiedChunks;
+}
+
+void UploadGrassConstants(unsigned first, const float* data, unsigned count)
+{
+    g_grassConstantsDirty = true;
+    const GrassUploadFn upload = Seam<GrassUploadFn>(g_testGrassUpload, nullptr);
+    if (upload)
+    {
+        upload(first, data, count);
+        return;
+    }
+    if (IDirect3DDevice9* device = RealDevice(GameFogDevice()))
+        device->SetVertexShaderConstantF(first, data, count);
+}
+
+void UploadGrassFrame()
+{
+    UploadGrassConstants(engine::kGrassGridFirstRegister, &g_grassFrame.upload[0][0],
+                         static_cast<unsigned>(kGrassUploadRegisters));
+}
+
+void UploadGrassDoodadTable(const void* slot)
+{
+    float table[kGrassDoodadEntries][4];
+    const GrassDoodads& doodads = GlobalGrassDoodads();
+    doodads.BuildTable(GlobalGrassWind().Settings().modelBend ? doodads.SlotDoodads(slot) : nullptr, table);
+    UploadGrassConstants(kGrassDoodadFirstRegister, &table[0][0], kGrassDoodadEntries);
+}
+
+void ResetGrassCopyOffset()
+{
+    if (!g_grassCopyOffsetDirty)
+        return;
+    const float none[kGrassCopyRegisterCount][4] = {};
+    UploadGrassConstants(kGrassCopyRegister, &none[0][0], kGrassCopyRegisterCount);
+    g_grassCopyOffsetDirty = false;
+}
+
+void LearnGrassDoodads(const GrassSlotDoodads& slot)
+{
+    const GrassBandsFn read = kTestSeams ? g_testGrassBands : &engine::ReadGrassDoodadBands;
+    if (!read)
+        return;
+    for (unsigned k = 0; k < slot.count; ++k)
+    {
+        const uint32_t id = slot.ids[k];
+        ModelBands bands = {};
+        if (GlobalGrassDoodads().Analyzed(id) || !read(id, bands))
+            continue;
+        GlobalGrassDoodads().Learn(id, bands);
+        const GrassDoodadInfo* info = GlobalGrassDoodads().Info(id);
+        VF_LOG_INFO("grass doodad %u: height %.2f, root v %.3f, tip v %.3f%s%s", id, bands.height, bands.rootV,
+                    bands.tipV, !bands.usable ? ", unreadable, bends by its texture coordinate" : "",
+                    info && info->flat ? ", flat, stays still" : "");
+    }
+}
+
 extern "C" void __cdecl vf_on_grass_constants()
 {
     if (g_grassWindFailed)
         return;
     __try
     {
-        float camera[3];
-        if (Seam<const float*>(g_testTreeWindCamera, nullptr))
-            std::memcpy(camera, g_testTreeWindCamera, sizeof(camera));
+        GrassInputs in = {};
+        NearbyUnitFrame units;
+        const GrassInputs* testInputs = Seam<const GrassInputs*>(g_testGrassInputs, nullptr);
+        if (testInputs)
+            in = *testInputs;
         else
-            engine::ReadCameraPosition(camera);
-        float player[3];
-        const bool havePlayer =
-            !Seam<float*>(g_grassConstantsDestination, nullptr) && engine::ReadActivePlayerPosition(player);
-        const GrassConstants constants =
-            GrassFrameConstants(GlobalGrassWind().Settings(), camera, havePlayer ? player : nullptr, GetTickCount());
-        float* destination =
-            Seam<float*>(g_grassConstantsDestination, nullptr)
-                ? g_grassConstantsDestination
-                : reinterpret_cast<float*>(engine::kDetailDoodadShaderConstants) +
-                      engine::kDetailDoodadFirstFreeRegister * 4;
-        std::memcpy(destination, constants.registers, sizeof(constants.registers));
+            GatherGrassInputs(in, units);
+        const DWORD now = GetTickCount();
+        in.dt = g_grassLastTick ? static_cast<float>(now - g_grassLastTick) * 0.001f : -1.0f;
+        g_grassLastTick = now ? now : 1;
+        GlobalGrassWind().Build(in, wind::GlobalWindModel(), g_grassFrame);
+        g_grassFrameReady = true;
+        LogGrassStatus(in, now);
+        float* destination = Seam<float*>(g_grassConstantsDestination, nullptr)
+                                 ? g_grassConstantsDestination
+                                 : reinterpret_cast<float*>(engine::kDetailDoodadShaderConstants) +
+                                       engine::kDetailDoodadFirstFreeRegister * 4;
+        std::memcpy(destination, g_grassFrame.registers, sizeof(g_grassFrame.registers));
         if (++g_grassConstantFrames == 1)
             VF_LOG_INFO("grass wind: constants written to the first grass draw (%u shaders rewritten, %u failed)",
                         GlobalGrassWind().Shaders().Injected(), GlobalGrassWind().Shaders().Failed());
@@ -1305,6 +1443,151 @@ extern "C" void __cdecl vf_on_grass_constants()
     {
         g_grassWindFailed = true;
         VF_LOG_ERROR("exception 0x%08X in the grass wind hook; the grass stops moving for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+    }
+}
+
+extern "C" void __cdecl vf_on_grass_setup(const float* world, int shaderIndex)
+{
+    g_grassChunkCopies = 0;
+    if (g_grassWindFailed || !g_grassFrameReady || shaderIndex != 0)
+        return;
+    __try
+    {
+        UploadGrassFrame();
+        ResetGrassCopyOffset();
+        if (!g_grassDoodadHooksInstalled)
+            UploadGrassDoodadTable(nullptr);
+        else if (world)
+        {
+            g_grassChunkCopies = GrassExtraCopies(g_grassDensity, GrassChunkDistance(world));
+            g_grassCopiedChunks += g_grassChunkCopies ? 1u : 0u;
+        }
+        if (++g_grassChunkUploads == 1)
+            VF_LOG_INFO("grass wind: the wind grid and the nearby units reached the first grass chunk");
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_grassWindFailed = true;
+        VF_LOG_ERROR("exception 0x%08X in the grass chunk upload; the grass stops moving for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+    }
+}
+
+extern "C" void __cdecl vf_on_grass_fill_before(void* slot)
+{
+    g_grassFillSlot = 0;
+    g_grassFillTagged = false;
+    if (g_grassWindFailed)
+        return;
+    if (!GlobalGrassWind().Settings().modelBend)
+    {
+        GlobalGrassDoodads().ForgetSlot(slot);
+        return;
+    }
+    g_grassFillSlot = reinterpret_cast<uintptr_t>(slot);
+    const GrassShaderRewriter& shaders = GlobalGrassWind().Shaders();
+    const bool randomise = shaders.Injected() > 0 && shaders.Failed() == 0;
+    g_grassFillTagged = engine::TagGrassSlot(g_grassFillSlot, g_grassFillTagging, randomise);
+}
+
+extern "C" void __cdecl vf_on_grass_fill_after()
+{
+    if (!g_grassFillSlot)
+        return;
+    const uintptr_t slot = g_grassFillSlot;
+    g_grassFillSlot = 0;
+    engine::UntagGrassSlot(slot, g_grassFillTagging);
+    const void* key = reinterpret_cast<const void*>(slot);
+    if (!g_grassFillTagged)
+    {
+        GlobalGrassDoodads().ForgetSlot(key);
+        return;
+    }
+    __try
+    {
+        LearnGrassDoodads(g_grassFillTagging.doodads);
+        GlobalGrassDoodads().RecordSlot(key, g_grassFillTagging.doodads);
+        UploadGrassDoodadTable(key);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_grassWindFailed = true;
+        VF_LOG_ERROR("exception 0x%08X in the grass doodad hook; the grass stops moving for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+    }
+}
+
+extern "C" int __cdecl vf_on_grass_draw(void* slot)
+{
+    if (g_grassWindFailed)
+        return 0;
+    __try
+    {
+        UploadGrassDoodadTable(slot);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_grassWindFailed = true;
+        VF_LOG_ERROR("exception 0x%08X in the grass draw hook; the grass stops moving for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+        return 0;
+    }
+    return static_cast<int>(g_grassChunkCopies);
+}
+
+extern "C" void __cdecl vf_on_grass_copy(int copy)
+{
+    __try
+    {
+        const GrassCopyOffset offset = GrassCopyOffsetFor(g_grassDensity, static_cast<unsigned>(copy));
+        const GrassCopyWindow window = GrassCopyWindowFor(g_grassDensity, static_cast<unsigned>(copy));
+        const float registers[kGrassCopyRegisterCount][4] = {
+            {offset.x, offset.y, window.outerDistance, window.width},
+            {window.inverseShare, window.inverseFade, 0.0f, 1.0f}};
+        UploadGrassConstants(kGrassCopyRegister, &registers[0][0], kGrassCopyRegisterCount);
+        g_grassCopyOffsetDirty = true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_grassWindFailed = true;
+        VF_LOG_ERROR("exception 0x%08X in the grass copy hook; the grass stops moving for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+    }
+}
+
+extern "C" void __cdecl vf_on_grass_copies_end()
+{
+    __try
+    {
+        ResetGrassCopyOffset();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_grassWindFailed = true;
+        VF_LOG_ERROR("exception 0x%08X in the grass copy end hook; the grass stops moving for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+    }
+}
+
+extern "C" void __cdecl vf_on_grass_pass_end()
+{
+    if (!g_grassConstantsDirty)
+        return;
+    g_grassConstantsDirty = false;
+    __try
+    {
+        ResetGrassCopyOffset();
+        float restored[kGrassUploadedCount][4];
+        const GrassShadowFn read = kTestSeams ? g_testGrassShadow : &engine::ReadVertexShadowConstants;
+        if (read && read(engine::kGrassGridFirstRegister, kGrassUploadedCount, &restored[0][0]))
+            UploadGrassConstants(engine::kGrassGridFirstRegister, &restored[0][0], kGrassUploadedCount);
+        g_grassConstantsDirty = false;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_grassWindFailed = true;
+        VF_LOG_ERROR("exception 0x%08X in the grass pass end hook; the grass stops moving for this session",
                      static_cast<unsigned>(GetExceptionCode()));
     }
 }
@@ -1564,14 +1847,129 @@ __declspec(naked) static void GrassConstantsThunk()
     }
 }
 
-const void* RetargetGrassConstantsThunk(uintptr_t target, float* destination, const float* camera)
+__declspec(naked) static void GrassSetupThunk()
 {
-    g_grassConstantsTarget = target;
+    __asm {
+        push dword ptr [esp + 8]
+        push dword ptr [esp + 8]
+        call dword ptr [g_grassSetupTarget]
+        add esp, 8
+        pushad
+        push dword ptr [esp + 0x28]
+        push dword ptr [esp + 0x28]
+        call vf_on_grass_setup
+        add esp, 8
+        popad
+        ret
+    }
+}
+
+__declspec(naked) static void GrassFillThunk()
+{
+    __asm {
+        push ecx
+        push ecx
+        call vf_on_grass_fill_before
+        add esp, 4
+        pop ecx
+        call dword ptr [g_grassFillTarget]
+        pushad
+        call vf_on_grass_fill_after
+        popad
+        ret
+    }
+}
+
+__declspec(naked) static void GrassDrawThunk()
+{
+    __asm {
+        push esi
+        push edi
+        mov esi, ecx
+        push ecx
+        call vf_on_grass_draw
+        add esp, 4
+        mov edi, eax
+        mov ecx, esi
+        call dword ptr [g_grassDrawTarget]
+        test edi, edi
+        jz finished
+    more:
+        push edi
+        call vf_on_grass_copy
+        add esp, 4
+        mov ecx, esi
+        call dword ptr [g_grassDrawTarget]
+        dec edi
+        jnz more
+        call vf_on_grass_copies_end
+    finished:
+        pop edi
+        pop esi
+        ret
+    }
+}
+
+__declspec(naked) static void GrassPassEndThunk()
+{
+    __asm {
+        pushad
+        call vf_on_grass_pass_end
+        popad
+        jmp dword ptr [g_grassPassEndTarget]
+    }
+}
+
+const void* RetargetGrassDoodadThunks(uintptr_t fillTarget, uintptr_t drawTarget, uintptr_t passEndTarget,
+                                      GrassBandsFn bands, GrassShadowFn shadow, bool modelBend,
+                                      const void*& drawThunk, const void*& passEndThunk)
+{
+    g_grassFillTarget = fillTarget;
+    g_grassDrawTarget = drawTarget;
+    g_grassPassEndTarget = passEndTarget;
+    g_testGrassBands = bands;
+    g_testGrassShadow = shadow;
+    g_grassFillSlot = 0;
+    g_grassFillTagged = false;
+    g_grassConstantsDirty = false;
+    g_grassDoodadHooksInstalled = true;
+    g_grassWindFailed = false;
+    GlobalGrassDoodads().Clear();
+    GrassWindSettings settings = GrassWindSettingsFrom(GlobalConfig().Get());
+    settings.modelBend = modelBend;
+    GlobalGrassWind().Configure(settings);
+    drawThunk = reinterpret_cast<const void*>(&GrassDrawThunk);
+    passEndThunk = reinterpret_cast<const void*>(&GrassPassEndThunk);
+    return reinterpret_cast<const void*>(&GrassFillThunk);
+}
+
+void SetGrassDensityForTest(float multiplier, float radius, float spread)
+{
+    g_grassDensity = {multiplier, radius, spread};
+}
+
+const void* RetargetGrassThunks(uintptr_t constantsTarget, uintptr_t setupTarget, float* destination,
+                                const GrassInputs* inputs, GrassUploadFn upload, const void*& setupThunk)
+{
+    g_grassConstantsTarget = constantsTarget;
+    g_grassSetupTarget = setupTarget;
     g_grassConstantsDestination = destination;
-    g_testTreeWindCamera = camera;
+    g_testGrassInputs = inputs;
+    g_testGrassUpload = upload;
     g_grassWindFailed = false;
     g_grassConstantFrames = 0;
-    GlobalGrassWind().Configure(GrassWindSettingsFrom(GlobalConfig().Get()));
+    g_grassChunkUploads = 0;
+    g_grassChunkUploadsLogged = 0;
+    g_grassLastTick = 0;
+    g_grassLastStatus = 0;
+    g_grassFrameReady = false;
+    g_grassDoodadHooksInstalled = false;
+    g_grassChunkCopies = 0;
+    g_grassCopyOffsetDirty = false;
+    g_grassCopiedChunks = 0;
+    g_grassCopiedChunksLogged = 0;
+    GlobalGrassWind().Configure(LiveGrassSettings(GlobalConfig().Get()));
+    setupThunk = reinterpret_cast<const void*>(&GrassSetupThunk);
     return reinterpret_cast<const void*>(&GrassConstantsThunk);
 }
 
@@ -1904,28 +2302,52 @@ bool InstallTransparentFogHooks()
     return true;
 }
 
+void InstallGrassDoodadHooks()
+{
+    const CallSite sites[] = {
+        {engine::kFillGrassVerticesSite, engine::kFillGrassVertices, reinterpret_cast<const void*>(&GrassFillThunk)},
+        {engine::kDrawGrassBatchSite, engine::kDrawGrassBatch, reinterpret_cast<const void*>(&GrassDrawThunk)},
+        {engine::kGrassPassEndSite, engine::kGrassPassEnd, reinterpret_cast<const void*>(&GrassPassEndThunk)},
+    };
+    if (!engine::GrassDoodadCodeMatches(ClientCodeView()))
+        return;
+    if (!SitesHoldTheClientCalls(sites, "grass doodads") || !PatchCallSites(sites))
+        return;
+    g_grassDoodadHooksInstalled = true;
+    VF_LOG_INFO("grass doodad hooks installed at 0x%08X, 0x%08X and 0x%08X (GrassModelBend=%d)",
+                static_cast<unsigned>(engine::kFillGrassVerticesSite),
+                static_cast<unsigned>(engine::kDrawGrassBatchSite), static_cast<unsigned>(engine::kGrassPassEndSite),
+                GlobalConfig().Get().grassModelBend ? 1 : 0);
+}
+
 bool InstallGrassWindHooks()
 {
     const Config& cfg = GlobalConfig().Get();
-    if (!cfg.grassWind && !cfg.grassParting)
+    if (!cfg.grassWind && !cfg.grassParting && !(cfg.grassDensity > 1.0f))
     {
-        VF_LOG_INFO("grass wind not installed (GrassWind=0 and GrassParting=0)");
+        VF_LOG_INFO("grass wind not installed (GrassWind=0, GrassParting=0 and GrassDensity=1)");
         return false;
     }
     const CallSite sites[] = {
         {engine::kInitializeShaderConstantsSite, engine::kInitializeShaderConstants,
          reinterpret_cast<const void*>(&GrassConstantsThunk)},
+        {engine::kSetupGrassShaderSite, engine::kSetupGrassShader, reinterpret_cast<const void*>(&GrassSetupThunk)},
     };
     if (!engine::GrassWindCodeMatches(ClientCodeView()))
         return false;
     if (!SitesHoldTheClientCalls(sites, "grass wind") || !PatchCallSites(sites))
         return false;
     g_grassWindHooksInstalled = true;
-    GlobalGrassWind().Configure(GrassWindSettingsFrom(cfg));
+    InstallGrassDoodadHooks();
+    GlobalGrassWind().Configure(LiveGrassSettings(cfg));
+    ConfigureGrassDensity(cfg);
     GlobalGrassWind().Shaders().Enable(true);
-    VF_LOG_INFO("grass wind hook installed at 0x%08X (GrassWind=%d, GrassParting=%d)",
-                static_cast<unsigned>(engine::kInitializeShaderConstantsSite), cfg.grassWind ? 1 : 0,
-                cfg.grassParting ? 1 : 0);
+    const bool copiesLost = !g_grassDoodadHooksInstalled && cfg.grassDensity > 1.0f;
+    VF_LOG_INFO("grass wind hooks installed at 0x%08X and 0x%08X (GrassWind=%d, GrassParting=%d, GrassDensity=%.1f"
+                "%s)",
+                static_cast<unsigned>(engine::kInitializeShaderConstantsSite),
+                static_cast<unsigned>(engine::kSetupGrassShaderSite), cfg.grassWind ? 1 : 0, cfg.grassParting ? 1 : 0,
+                cfg.grassDensity, copiesLost ? ", no copies without the doodad hooks" : "");
     return true;
 }
 

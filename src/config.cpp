@@ -164,26 +164,24 @@ const FloatSetting kTreeWindFloatSettings[] = {
 };
 
 const FloatSetting kGrassWindFloatSettings[] = {
-    {"GrassWindDirection", &Config::grassWindDirection, 0.0f, 360.0f},
-    {"GrassWindSpeed", &Config::grassWindSpeed, 0.0f, 20.0f},
-    {"GrassWindAmplitude", &Config::grassWindAmplitude, 0.0f, 0.5f},
-    {"GrassWindWavelength", &Config::grassWindWavelength, 1.0f, 100.0f},
-    {"GrassWindCrossAmplitude", &Config::grassWindCrossAmplitude, 0.0f, 0.3f},
-    {"GrassWindCrossWavelength", &Config::grassWindCrossWavelength, 1.0f, 50.0f},
-    {"GrassWindCrossAngle", &Config::grassWindCrossAngle, 0.0f, 180.0f},
-    {"GrassWindLean", &Config::grassWindLean, 0.0f, 2.0f},
-    {"GrassWindVariance", &Config::grassWindVariance, 0.0f, 1.0f},
-    {"GrassWindDistanceFade", &Config::grassWindDistanceFade, 0.0f, 0.1f},
+    {"WindStrength", &Config::windStrength, 0.0f, 4.0f},
+    {"GrassWindAmplitude", &Config::grassWindAmplitude, 0.0f, 2.0f},
+    {"GrassWindFlutter", &Config::grassWindFlutter, 0.0f, 1.0f},
+    {"GrassWindFlutterSpeed", &Config::grassWindFlutterSpeed, 0.0f, 20.0f},
     {"GrassWindAnchor", &Config::grassWindAnchor, 0.0f, 0.9f},
-    {"GrassPartingRadius", &Config::grassPartingRadius, 0.1f, 10.0f},
     {"GrassPartingForce", &Config::grassPartingForce, 0.0f, 2.0f},
-    {"GrassPartingEdgeForce", &Config::grassPartingEdgeForce, 0.0f, 2.0f},
-    {"GrassPartingHeight", &Config::grassPartingHeight, 0.01f, 5.0f},
-    {"GrassPartingMinBladeHeight", &Config::grassPartingMinBladeHeight, 0.0f, 3.0f},
+    {"GrassPartingRadiusScale", &Config::grassPartingRadiusScale, 0.5f, 6.0f},
+    {"GrassPartingMinRadius", &Config::grassPartingMinRadius, 0.1f, 3.0f},
+    {"GrassPartingMountedScale", &Config::grassPartingMountedScale, 1.0f, 4.0f},
+    {"GrassDensity", &Config::grassDensity, 1.0f, 4.0f},
+    {"GrassDensityRadius", &Config::grassDensityRadius, 10.0f, 250.0f},
+    {"GrassDensitySpread", &Config::grassDensitySpread, 0.25f, 3.0f},
+    {"GrassDensityFade", &Config::grassDensityFade, 1.0f, 40.0f},
 };
 
 const BoolSetting kGrassWindBoolSettings[] = {
     {"GrassWind", &Config::grassWind},
+    {"GrassModelBend", &Config::grassModelBend},
     {"GrassParting", &Config::grassParting},
 };
 

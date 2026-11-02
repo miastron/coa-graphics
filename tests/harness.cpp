@@ -17,7 +17,12 @@
 #include "msaa_depth.h"
 #include "spell_lights.h"
 #include "texture_filtering.h"
+#include "grass_density.h"
+#include "grass_doodads.h"
+#include "engine_grass.h"
 #include "grass_wind.h"
+#include "wdbc.h"
+#include "wind_model.h"
 #include "texture_tint.h"
 #include "tree_wind.h"
 #include "noise_volume.h"
@@ -95,7 +100,12 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_particle_render_thunks(uin
                                                                             const void**);
 extern "C" __declspec(dllimport) void __cdecl vf_test_model_animate_thunks(uintptr_t, uintptr_t, const float*,
                                                                           const void**, const void**);
-extern "C" __declspec(dllimport) const void* __cdecl vf_test_grass_constants_thunk(uintptr_t, float*, const float*);
+extern "C" __declspec(dllimport) const void* __cdecl vf_test_grass_thunks(
+    uintptr_t, uintptr_t, float*, const void*, void (*)(unsigned, const float*, unsigned), const void**);
+extern "C" __declspec(dllimport) const void* __cdecl vf_test_grass_doodad_thunks(
+    uintptr_t, uintptr_t, uintptr_t, bool (*)(uint32_t, ModelBands&), bool (*)(unsigned, unsigned, float*), int,
+    const void**, const void**);
+extern "C" __declspec(dllimport) void __cdecl vf_test_set_grass_density(float, float, float);
 extern "C" __declspec(dllimport) void __cdecl vf_test_enable_grass_shaders(int);
 extern "C" __declspec(dllimport) uint32_t __cdecl vf_test_publish_spell_lights(LocalPointLight*, uint32_t, float);
 extern "C" __declspec(dllimport) const void* __cdecl vf_test_mesh_batch_draw_thunk(uintptr_t);
@@ -1749,9 +1759,9 @@ void CheckShippedIniMatchesSettingsTable(const std::wstring& shippedIni)
 
     const SettingRange temporal = FloatSettingRange(&Config::temporal);
     const SettingRange phase = FloatSettingRange(&Config::localLightPhase);
-    const SettingRange parting = FloatSettingRange(&Config::grassPartingHeight);
+    const SettingRange parting = FloatSettingRange(&Config::grassPartingRadiusScale);
     Check(temporal.lo == 0.0f && temporal.hi == 0.97f && phase.lo == -0.9f && phase.hi == 0.9f &&
-              parting.lo == 0.01f && parting.hi == 5.0f,
+              parting.lo == 0.5f && parting.hi == 6.0f,
           "the settings window takes its slider ranges from the settings table");
 
     ConfigStore store;
@@ -2246,6 +2256,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "terrain_shadow_checks.h"
 #include "shadow_light_checks.h"
 #include "water_contact_checks.h"
+#include "nearby_unit_checks.h"
 #include "water_ripple_checks.h"
 #include "water_checks.h"
 #include "water_ripple_pass_checks.h"
@@ -2258,7 +2269,10 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "multisampling_checks.h"
 #include "texture_filtering_checks.h"
 #include "tree_wind_checks.h"
+#include "wind_model_checks.h"
 #include "grass_wind_checks.h"
+#include "grass_doodad_checks.h"
+#include "grass_density_checks.h"
 #include "image_quality_checks.h"
 #include "surface_light_checks.h"
 
@@ -2426,7 +2440,11 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
         RUN_GROUP(client_light_stay_checks::CheckClientLightStay());
         RUN_GROUP(client_game_clock_checks::CheckGameClock());
         RUN_GROUP(tree_wind_checks::CheckTreeWind());
+        RUN_GROUP(wind_model_checks::CheckWindModel());
+        RUN_GROUP(nearby_unit_checks::CheckNearbyUnits());
         RUN_GROUP(grass_wind_checks::CheckGrassWind());
+        RUN_GROUP(grass_doodad_checks::CheckGrassDoodads());
+        RUN_GROUP(grass_density_checks::CheckGrassDensity(outDir, FullPath(iniPath)));
         RUN_GROUP(CheckInteriorFogInputs());
         RUN_GROUP(water_contact_checks::CheckWaterContacts());
         CoUninitialize();
@@ -2520,8 +2538,17 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(client_light_stay_checks::CheckClientLightStay());
     RUN_GROUP(client_game_clock_checks::CheckGameClock());
     RUN_GROUP(tree_wind_checks::CheckTreeWind());
+    RUN_GROUP(wind_model_checks::CheckWindModel());
+    RUN_GROUP(nearby_unit_checks::CheckNearbyUnits());
     RUN_GROUP(grass_wind_checks::CheckGrassWind());
+    RUN_GROUP(grass_doodad_checks::CheckGrassDoodads());
+    RUN_GROUP(grass_density_checks::CheckGrassDensity(outDir, FullPath(iniPath)));
     RUN_GROUP(grass_wind_checks::CheckShadersOnTheDevice(h.dev));
+    RUN_GROUP(grass_wind_checks::CheckMotionOnTheDevice(h.dev));
+    RUN_GROUP(grass_wind_checks::CheckBendOnTheDevice(h.dev));
+    RUN_GROUP(grass_wind_checks::CheckCopiesOnTheDevice(h.dev));
+    RUN_GROUP(grass_wind_checks::CheckSinkOnTheDevice(h.dev));
+    RUN_GROUP(grass_wind_checks::CheckAlphaOnTheDevice(h.dev));
     RUN_GROUP(CheckInteriorFogInputs());
     RUN_GROUP(CheckNoiseVariation(h.dev));
     RUN_GROUP(authored_noise::CheckAuthoredNoiseOnTheGpu(h.dev));

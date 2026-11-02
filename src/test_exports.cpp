@@ -264,9 +264,26 @@ extern "C" void __cdecl vf_test_particle_render_thunks(uintptr_t target, uintptr
     RetargetParticleRenderThunks(target, worldSceneSlot, *single, *batched);
 }
 
-extern "C" const void* __cdecl vf_test_grass_constants_thunk(uintptr_t target, float* destination, const float* camera)
+extern "C" const void* __cdecl vf_test_grass_thunks(uintptr_t constantsTarget, uintptr_t setupTarget,
+                                                    float* destination, const void* inputs, GrassUploadFn upload,
+                                                    const void** setupThunk)
 {
-    return RetargetGrassConstantsThunk(target, destination, camera);
+    return RetargetGrassThunks(constantsTarget, setupTarget, destination, static_cast<const GrassInputs*>(inputs),
+                               upload, *setupThunk);
+}
+
+extern "C" const void* __cdecl vf_test_grass_doodad_thunks(uintptr_t fillTarget, uintptr_t drawTarget,
+                                                           uintptr_t passEndTarget, GrassBandsFn bands,
+                                                           GrassShadowFn shadow, int modelBend,
+                                                           const void** drawThunk, const void** passEndThunk)
+{
+    return RetargetGrassDoodadThunks(fillTarget, drawTarget, passEndTarget, bands, shadow, modelBend != 0, *drawThunk,
+                                     *passEndThunk);
+}
+
+extern "C" void __cdecl vf_test_set_grass_density(float multiplier, float radius, float spread)
+{
+    SetGrassDensityForTest(multiplier, radius, spread);
 }
 
 extern "C" void __cdecl vf_test_enable_grass_shaders(int enabled)

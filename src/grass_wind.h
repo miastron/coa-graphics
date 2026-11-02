@@ -2,11 +2,18 @@
  * Copyright (C) 2026 WarcraftXL
  * Derived from wxl-grasswind (https://github.com/WarcraftXL/wxl-grasswind), licensed under the GNU General Public
  * License version 3; see LICENSE.
+ *
+ * Copyright (C) 2026 Morfium-G
+ * The wind grid, the unit parting and the motion block derive from seyris-living-azeroth
+ * (https://github.com/Morfium-G/seyris-living-azeroth), licensed under the GNU General Public License version 3.
  */
 #pragma once
 
 #include "client_code.h"
 #include "config.h"
+#include "engine_actors.h"
+#include "grass_doodads.h"
+#include "wind_model.h"
 
 #include <windows.h>
 #include <d3dcompiler.h>
@@ -14,50 +21,66 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <unordered_map>
 #include <vector>
 
 struct GrassWindSettings
 {
     bool wind;
-    float directionDeg;
-    float speed;
     float amplitude;
-    float wavelength;
-    float crossAmplitude;
-    float crossWavelength;
-    float crossAngleDeg;
-    float lean;
-    float variance;
-    float distanceFade;
+    float flutter;
+    float flutterSpeed;
     float anchor;
+    float windStrength;
+    bool modelBend;
     bool parting;
-    float radius;
     float force;
-    float edgeForce;
-    float coneHeight;
-    float minBladeHeight;
+    float radiusScale;
+    float minRadius;
+    float mountedScale;
 };
 
 GrassWindSettings GrassWindSettingsFrom(const Config& config);
 
-constexpr size_t kGrassConstantRegisters = 8;
+constexpr int kGrassGridSide = 8;
+constexpr float kGrassGridSpacing = 8.0f;
+constexpr size_t kGrassGridRegisters = kGrassGridSide * kGrassGridSide;
+constexpr size_t kGrassActorRegisters = kMaxNearbyUnits;
+constexpr size_t kGrassUploadRegisters = kGrassGridRegisters + kGrassActorRegisters;
+constexpr size_t kGrassConstantRegisters = 6;
+constexpr float kGrassActorRange = 40.0f;
+constexpr float kGrassFarAway = 1.0e5f;
 
-struct GrassConstants
+struct GrassInputs
 {
-    float registers[kGrassConstantRegisters][4];
+    float camera[3];
+    float player[3];
+    bool havePlayer;
+    float dt;
+    wind::Place place;
+    const NearbyUnitFrame* units;
 };
 
-GrassConstants GrassFrameConstants(const GrassWindSettings& settings, const float camera[3], const float* player,
-                                   uint32_t tickMs);
+struct GrassFrame
+{
+    float registers[kGrassConstantRegisters][4];
+    float upload[kGrassUploadRegisters][4];
+};
+
+const float* GrassGridRegisters(const GrassFrame& frame);
+const float* GrassActorRegisters(const GrassFrame& frame);
 
 namespace engine
 {
 constexpr uintptr_t kInitializeShaderConstants = 0x007B15D0;
 constexpr uintptr_t kInitializeShaderConstantsSite = 0x007B2E25;
+constexpr uintptr_t kSetupGrassShader = 0x007B10E0;
+constexpr uintptr_t kSetupGrassShaderSite = 0x007985EE;
 constexpr uintptr_t kDetailDoodadShaderConstants = 0x00D1C518;
 constexpr size_t kDetailDoodadFirstFreeRegister = 14;
 constexpr size_t kDetailDoodadUploadedRegisters = 23;
 constexpr size_t kRegisterBytes = 4 * sizeof(float);
+constexpr unsigned kGrassGridFirstRegister = 40;
 
 const ClientCodeGuard* GrassWindGuards(size_t& count);
 bool GrassWindCodeMatches(const ClientCodeView& code);
@@ -100,16 +123,30 @@ private:
     unsigned m_foreign = 0;
 };
 
-class GrassWind
+class GrassMotion
 {
 public:
     void Configure(const GrassWindSettings& settings) { m_settings = settings; }
     const GrassWindSettings& Settings() const { return m_settings; }
     GrassShaderRewriter& Shaders() { return m_shaders; }
+    void Build(const GrassInputs& in, wind::WindModel& model, GrassFrame& out);
+    size_t TrackedCells() const { return m_cells.size(); }
 
 private:
+    struct Cell
+    {
+        float value[3] = {};
+        float lastSeen = 0.0f;
+        bool fresh = true;
+    };
+
+    void FillCells(const GrassInputs& in, wind::WindModel& model, float* grid);
+    void ForgetOldCells();
+
     GrassWindSettings m_settings = GrassWindSettingsFrom(Config());
     GrassShaderRewriter m_shaders;
+    std::unordered_map<uint64_t, Cell> m_cells;
+    float m_clock = 0.0f;
 };
 
-GrassWind& GlobalGrassWind();
+GrassMotion& GlobalGrassWind();

@@ -12,4 +12,5 @@ public:
 };
 
 bool TerrainContractSupported();
+bool TerrainAreaIdAt(float x, float y, int32_t& areaId);
 }

@@ -523,38 +523,42 @@ bool DrawGrassWind(Config& c)
     if (!section)
         return false;
     bool changed = Toggle("Grass sways", c.grassWind,
-                          "Move the client's grass blades with travelling waves of wind. The shader rewrite is made "
-                          "when the game starts, so switching this on needs a restart if both grass switches were off");
-    changed |= Slider(c, &Config::grassWindDirection, "Direction", "%.0f",
-                      "Wind heading in the world plane, degrees");
-    changed |= Slider(c, &Config::grassWindSpeed, "Speed", "%.2f", "How fast the waves travel, yards per second");
-    changed |= Slider(c, &Config::grassWindAmplitude, "Amplitude", "%.3f",
-                      "Sway of the primary wave at the blade tip, yards");
-    changed |= Slider(c, &Config::grassWindWavelength, "Wavelength", "%.1f", "Length of the primary wave, yards");
-    changed |= Slider(c, &Config::grassWindCrossAmplitude, "Cross amplitude", "%.3f",
-                      "Sway of the secondary swell, yards");
-    changed |= Slider(c, &Config::grassWindCrossWavelength, "Cross wavelength", "%.1f",
-                      "Length of the secondary swell, yards");
-    changed |= Slider(c, &Config::grassWindCrossAngle, "Cross angle", "%.0f",
-                      "Heading of the secondary swell relative to the primary wave, degrees");
-    changed |= Slider(c, &Config::grassWindLean, "Lean", "%.2f",
-                      "Constant downwind lean, a share of the primary amplitude");
-    changed |= Slider(c, &Config::grassWindVariance, "Variance", "%.2f",
-                      "Spread of the sway between blades, 0 = uniform");
-    changed |= Slider(c, &Config::grassWindDistanceFade, "Distance fade", "%.3f",
-                      "Sway attenuation per yard of view distance, 0 = none");
+                          "Move the client's grass blades with the wind model: steady wind and travelling gusts from "
+                          "WindProfile.cdbc, stronger in bad weather. The shader rewrite is made when the game "
+                          "starts, so switching this on needs a restart if both grass switches were off");
+    changed |= Slider(c, &Config::windStrength, "Wind strength", "%.2f",
+                      "Scale of the whole wind, 0 = calm, 1 = as authored");
+    changed |= Slider(c, &Config::grassWindAmplitude, "Amplitude", "%.2f",
+                      "Sway of the blade tip at wind strength 1, yards");
+    changed |= Slider(c, &Config::grassWindFlutter, "Flutter", "%.2f", "Extra shimmer of single blades, yards");
+    changed |= Slider(c, &Config::grassWindFlutterSpeed, "Flutter speed", "%.1f",
+                      "How fast the shimmer runs, radians per second");
     changed |= Slider(c, &Config::grassWindAnchor, "Anchor", "%.2f",
                       "Share of the blade, from the base, that never moves");
-    changed |= Toggle("Grass parts around you", c.grassParting,
-                      "Blades lean away from your character as it walks through them");
-    changed |= Slider(c, &Config::grassPartingRadius, "Parting radius", "%.1f",
-                      "Distance around your character that parts the grass, yards");
-    changed |= Slider(c, &Config::grassPartingForce, "Parting force", "%.2f", "Lean strength at your character");
-    changed |= Slider(c, &Config::grassPartingEdgeForce, "Edge force", "%.2f", "Lean strength at the radius edge");
-    changed |= Slider(c, &Config::grassPartingHeight, "Parting height", "%.2f",
-                      "Height above the ground where the lean reaches full weight, yards");
-    changed |= Slider(c, &Config::grassPartingMinBladeHeight, "Min blade height", "%.2f",
-                      "Blades shorter than this stay still, yards");
+    changed |= Toggle("Bend by model", c.grassModelBend,
+                      "Bend each kind of grass and flower from its own root to its own tip, measured from its model; "
+                      "flat doodads such as pebbles stay still");
+    changed |= Toggle("Grass parts around units", c.grassParting,
+                      "Blades lean away from your character and every unit within 40 yards");
+    changed |= Slider(c, &Config::grassPartingForce, "Parting force", "%.2f",
+                      "How far blades lean away from a unit, yards");
+    changed |= Slider(c, &Config::grassPartingRadiusScale, "Radius scale", "%.1f",
+                      "Parting radius as a multiple of the unit's collision radius");
+    changed |= Slider(c, &Config::grassPartingMinRadius, "Min radius", "%.2f",
+                      "Smallest parting radius, yards");
+    changed |= Slider(c, &Config::grassPartingMountedScale, "Mounted scale", "%.1f",
+                      "Extra parting radius factor while mounted");
+    changed |= Slider(c, &Config::grassDensity, "Density", "%.1f",
+                      "Plants drawn per plant the client places, near you: copies of the client's own grass, drawn "
+                      "again on the GPU. 1 = the client's density");
+    changed |= Slider(c, &Config::grassDensityRadius, "Density radius", "%.0f",
+                      "Copies thin out plant by plant from half of this distance from the camera to this distance, "
+                      "yards");
+    changed |= Slider(c, &Config::grassDensitySpread, "Density spread", "%.2f",
+                      "How far a copy lies from its plant, yards");
+    changed |= Slider(c, &Config::grassDensityFade, "Density fade", "%.1f",
+                      "Distance over which a plant grows out of the ground as you approach it, yards; longer = "
+                      "slower");
     return changed;
 }
 
