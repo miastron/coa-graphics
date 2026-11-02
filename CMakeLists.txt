@@ -162,7 +162,7 @@ set(COA_MODULE_SOURCES
     src/grass_wind.cpp src/ini_section.cpp src/local_light_stabiliser.cpp src/log.cpp src/noise_volume.cpp
     src/spell_lights.cpp src/status_log.cpp src/terrain_shadows.cpp src/texture_filtering.cpp src/texture_tint.cpp
     src/transparent_fog.cpp src/tree_wind.cpp src/water_contacts.cpp src/water_data.cpp src/water_fft.cpp
-    src/water_ripples.cpp src/water_spectrum.cpp src/wdbc.cpp src/wind_model.cpp)
+    src/water_ripples.cpp src/water_spectrum.cpp src/water_visibility.cpp src/wdbc.cpp src/wind_model.cpp)
 set(COA_RUNTIME_SOURCES
     src/d3d9_wrap.cpp src/dllmain.cpp src/engine.cpp src/engine_environment.cpp src/engine_shadows.cpp
     src/engine_terrain.cpp src/forever_look.cpp src/grading_renderer.cpp src/hooks.cpp src/image_quality.cpp

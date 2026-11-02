@@ -1631,6 +1631,74 @@ void CheckWaterStatusListsTheShadedClasses(BasinClient& client, const Config& ba
           "the settings window lists the water classes End shaded, not a drawn class without a preset");
 }
 
+const WaterStrip kBuriedLake[] = {
+    {-kBasinHalfWidth, kBasinHalfWidth, kLakeClass, kStockWaterColour, kBasinFloorZ - 10.0f}};
+constexpr int kWaterCountFrames = 8;
+
+bool WaterStatusIs(const char* expected)
+{
+    const char* status = "";
+    return vf_test_water_status(&status) == 0 && std::strcmp(status, expected) == 0;
+}
+
+int FramesUntil(BasinClient& client, const WaterFrame& frame, bool armed, WaterFrameResult& last)
+{
+    for (int i = 1; i <= kWaterCountFrames; ++i)
+    {
+        last = client.Render(frame);
+        if (last.began == armed)
+            return i;
+    }
+    return 0;
+}
+
+void RenderFrameWithoutQueuedLiquids()
+{
+    const uint32_t emptyRenderer[kLiquidRendererWords] = {};
+    vf_test_hook_water_pass_begin(emptyRenderer);
+    vf_test_hook_water_pass_end();
+    vf_test_hook_frame_end();
+}
+
+void CheckHiddenWaterSkipsThePass(BasinClient& client, const Config& base)
+{
+    const Config on = WaterConfig(base);
+    vf_test_set_config(&on);
+    WaterFrame buried;
+    buried.calls = WaterCalls::Hooks;
+    buried.strips = kBuriedLake;
+    buried.otherPass = false;
+    WaterFrame visible = buried;
+    visible.strips = kLakeBasin;
+    WaterFrame stockBuried = buried;
+    stockBuried.calls = WaterCalls::None;
+    const WaterFrameResult stock = client.Render(stockBuried);
+
+    WaterFrameResult first = client.Render(buried);
+    WaterFrameResult last;
+    const int hiddenAfter = FramesUntil(client, buried, false, last);
+    const bool hiddenStatus = WaterStatusIs("water hidden behind the scene");
+    const WaterFrameResult held = client.Render(buried);
+    std::printf("     buried lake: armed on its first frame %d, skipped after %d more frames\n", first.began ? 1 : 0,
+                hiddenAfter);
+    Check(first.began && hiddenAfter > 0 && hiddenStatus && !held.began && SameImage(held.image, stock.image),
+          "queued water the scene hides completely stops arming the water pass once its pixel count arrives, and the "
+          "frame is the client's own");
+
+    const int visibleAfter = FramesUntil(client, visible, true, last);
+    const char* status = "";
+    const bool drawn = vf_test_water_status(&status) != 0;
+    std::printf("     visible lake armed again after %d frames, status %s\n", visibleAfter, status);
+    Check(visibleAfter > 0 && drawn,
+          "water that comes into sight arms the pass again once its pixel count arrives");
+
+    FramesUntil(client, buried, false, last);
+    RenderFrameWithoutQueuedLiquids();
+    const WaterFrameResult returned = client.Render(visible);
+    Check(!last.began && returned.began,
+          "after a frame without queued liquids the pass arms at once instead of waiting for a pixel count");
+}
+
 void CheckFaultedFirstBeginReleasesItsResources(BasinClient& client, const Config& base)
 {
     const Config on = WaterConfig(base);
@@ -2816,6 +2884,7 @@ void CheckWaterPass(Harness& h, const std::wstring& outDir, const std::string& w
     CheckWaterGpuTimeSummary(client, base);
     CheckFaultInsideThePassRestoresTheDevice(h, client, base);
     CheckWaterStatusListsTheShadedClasses(client, base);
+    CheckHiddenWaterSkipsThePass(client, base);
     CheckWaterOffReleasesResources(client, base);
     CheckFaultedFirstBeginReleasesItsResources(client, base);
     CheckFailedFoamMaskUploadsRetry(client, base);

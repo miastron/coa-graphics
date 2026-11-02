@@ -58,6 +58,10 @@ struct WaterPassEnd
 
 WaterPassEnd EndWaterPass(FogDevice* device);
 void AbortWaterPass(FogDevice* device);
+bool WaterHidden(FogDevice* device);
+void BeginWaterCount(FogDevice* device);
+void EndWaterCount(FogDevice* device, bool counted);
+void ForgetWaterVisibility(FogDevice* device);
 void ReleaseWaterResources(FogDevice* device);
 unsigned HeldWaterResources(FogDevice* device);
 bool WaterPassArmed(FogDevice* device);

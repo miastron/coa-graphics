@@ -346,7 +346,12 @@ depth writes for the whole call. Each water draw is classified from its liquid t
 pixels with that class in the stencil. After the call, the DLL simulates the waves of the classes drawn this frame, copies
 the water surface's depth, and draws one stencil-tested full-screen pass per class that replaces the client's water colour.
 This runs before weather, alpha models and the fog, so the fog is integrated against the water surface. Frames without
-queued water skip the pass entirely.
+queued water skip the pass entirely. The client queues water it cannot see: it culls liquids only against the view
+frustum and a coarse terrain horizon, never against trees, models or most buildings (in Duskwood most of the zone
+reported `Drawing (lake)` with no water on screen), so an occlusion query counts the pixels of the client's water draws in every pass. While the newest finished count is 0 the
+pass is not armed and the client draws its own (hidden) water; the first count above 0 arms it again, so water coming
+into sight shows the client's look for the one or two frames the count takes to arrive. A frame without queued water
+forgets the count, so water entering the view is shaded at once.
 
 The waves are a GPU FFT (Tessendorf/Phillips spectra with Forever's tile parameters, 256² or 128² per tile, normalised to
 256² so the wave height does not depend on the resolution). It yields slopes, slope variance and a persistent foam state per
@@ -1162,6 +1167,19 @@ Engine notes behind the code:
   `0x8A5900` (vtable `0xA59578`, slot `0xA59580`), both `ret 0x1C` (`0x8A58FB`, `0x8A5C6B`). Stock water is
   alpha-blended without depth writes on D3D9 hardware, and the client never uses the stencil: its D3D9 backends set
   no stencil state and its clear (`0x6A74B0`) passes only the target and depth flags.
+- Liquid culling (wowdecomp, not checked against the 12340 bytes). `CWorldScene::CullSortTable` `0x79A790` walks the
+  64 distance rings of 33.3 yd from the camera outwards and, per ring, runs `CullLiquid` `0x7935A0` before
+  `UpdateOcclusion` `0x793760` adds that ring's terrain to the clip buffer. `CullLiquid` queues a chunk's liquid
+  (`Liquid::CRenderer::Draw` `0x8A20C0`) unless its box is outside the frustum, under the clip buffer
+  (`CWorldOcclusion::QueryBuffer` `0x78FDC0`) or inside one of the hand-placed occlusion volumes
+  (`QueryVolumes` `0x7CCE00`). The clip buffer is one horizon height per screen column (384 columns): each map chunk
+  adds only its two far edges, nine vertices each, taking the lower end of every edge segment
+  (`CMapChunk::ClipBufferUpdate` `0x7CFB10`, `UpdateBufferChunk` `0x78F6A0`), plus WMO occluder segments
+  (`CWorldOccluder::ClipBufferUpdate` `0x7CC880`); terrain holes clear their columns. A box is hidden only if its top
+  is under the horizon in every column it covers, and never when a corner is nearer than 50 yd or the camera pitch is
+  steeper than `|camVec.z| > 0.9`, where the buffer is neither filled nor queried. Trees, doodads and fog hide
+  nothing, so water behind a forest, at the far clip or below a ridge the coarse horizon misses still reaches the
+  transparent bucket.
 - Water classification. The settings bank `0x8A28F0` bounds a liquid type id by `[0xD43B18]` (`0x8A28F8`) and
   keeps one settings object per id in `[0xD43B1C]` (`0x8A2900`, `0x8A2952`), so the draw's settings map back to its
   id. The settings builder `0x8A27C0` copies `LiquidType.Texture[k]` (`+0x3C`, `0x8A280C`) into the settings at
@@ -1373,8 +1391,9 @@ the grading curve and each noisy layer.
 
 Every 60 s the water adds a line such as `water gpu 1.24 ms (median of 3500 frames, 0 skipped), classes lake+ocean, waves
 256 (7 tiles)`: its GPU time without the client's own water draws. `water:` lines name each liquid type the first time it is
-classified. Idle states (no water in view, camera under water) are logged once, and repeated only at `LogLevel=2`. Each
-settled change from the settings window, an INI reload or Revert is logged as one line, for example
+classified. Idle states (no water in view, water hidden behind the scene, camera under water) are logged once, and
+repeated only at `LogLevel=2`. Each settled change from the settings window, an INI reload or Revert is logged as one line,
+for example
 `settings: WaterFoam 1 -> 1.5, WaterWind 2 -> 4`. The water line goes on with the ripples (`ripples 512 at 0.125 yd, 30 Hz,
 up to 3 contacts, 0 steps dropped`, or `ripples idle`/`off`). `water: the client's splash and wake sprites are hidden` or
 `shown again` reports the hold.

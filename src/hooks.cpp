@@ -171,6 +171,7 @@ bool g_waterFaultLogged = false;
 bool g_waterPassBeginReusesArgumentSlot = false;
 FogDevice* g_waterPassDevice = nullptr;
 FogDevice* g_waterResourcesDevice = nullptr;
+FogDevice* g_waterCountDevice = nullptr;
 bool g_waterPassRanThisFrame = false;
 bool g_waterShadedThisFrame = false;
 bool g_waterRipplesAvailable = true;
@@ -980,8 +981,22 @@ WaterArming ArmWaterPass(FogDevice* device, const Config& cfg, const char** reas
     return WaterArming::Failed;
 }
 
+void StartWaterCount(FogDevice* device)
+{
+    g_waterCountDevice = device;
+    BeginWaterCount(device);
+}
+
+void FinishWaterCount(bool counted)
+{
+    FogDevice* device = g_waterCountDevice;
+    g_waterCountDevice = nullptr;
+    EndWaterCount(device, counted);
+}
+
 void OnWaterPassBegin(const void* liquidRenderer)
 {
+    FinishWaterCount(false);
     g_waterPassRanThisFrame = true;
     g_waterPassDevice = nullptr;
     g_waterClassesThisPass = 0;
@@ -995,6 +1010,7 @@ void OnWaterPassBegin(const void* liquidRenderer)
     }
     if (!engine::TransparentLiquidsQueued(liquidRenderer))
     {
+        ForgetWaterVisibility(g_waterClient->device());
         RecordWaterIdle("no water in view");
         return;
     }
@@ -1004,10 +1020,17 @@ void OnWaterPassBegin(const void* liquidRenderer)
         RecordWaterSkip("no fog device");
         return;
     }
+    g_waterResourcesDevice = device;
+    if (WaterHidden(device))
+    {
+        RecordWaterIdle("water hidden behind the scene");
+        StartWaterCount(device);
+        return;
+    }
     const char* reason = "the water pass could not start";
     g_waterPassDevice = device;
-    g_waterResourcesDevice = device;
     const WaterArming arming = ArmWaterPass(device, cfg, &reason);
+    StartWaterCount(device);
     if (arming == WaterArming::Armed)
         return;
     g_waterPassDevice = nullptr;
@@ -1019,6 +1042,7 @@ void OnWaterPassBegin(const void* liquidRenderer)
 
 void OnWaterPassEnd()
 {
+    FinishWaterCount(true);
     if (!g_waterPassDevice)
         return;
     const WaterPassEnd end = EndWaterPass(g_waterPassDevice);
@@ -1078,6 +1102,7 @@ void EndWaterFrame()
 {
     if (!g_waterHooksInstalled)
         return;
+    FinishWaterCount(false);
     if (g_waterPassDevice)
     {
         AbortArmedWaterPass();

@@ -11,6 +11,7 @@
 #include "texture_tint.h"
 #include "time_of_day.h"
 #include "water_renderer.h"
+#include "water_visibility.h"
 
 #include <cstdio>
 
@@ -159,12 +160,17 @@ public:
     bool BeginWater(const FrameInputs& in, const WaterInputs& water, const Config& cfg, const char** skip);
     void TagWater(WaterClass waterClass) { m_water.Tag(m_real, waterClass); }
     void UntagWater() { m_water.Untag(m_real); }
+    bool WaterHidden() { return m_waterVisibility.Hidden(); }
+    void BeginWaterCount() { m_waterVisibility.BeginCount(m_real); }
+    void EndWaterCount(bool counted) { m_waterVisibility.EndCount(counted); }
+    void ForgetWaterVisibility() { m_waterVisibility.Forget(); }
     WaterPassEnd EndWater();
     void AbortWater();
     void ReleaseWater()
     {
         AbortWater();
         m_water.ReleaseDefaultPool();
+        m_waterVisibility.Release();
     }
     const WaterRenderer& Water() const { return m_water; }
     bool Grade(const D3DVIEWPORT9& world, const float* curve, float strength, const char** skip);
@@ -618,6 +624,7 @@ private:
     MultisamplingStatus m_multisampling;
     Renderer m_renderer;
     WaterRenderer m_water;
+    WaterVisibility m_waterVisibility;
     GradingRenderer m_grading;
     ImageRenderer m_image;
     TextureFilterOverride m_filtering;
@@ -993,6 +1000,7 @@ FogDevice::~FogDevice()
     m_grading.ReleaseAll();
     m_image.ReleaseAll();
     m_water.ReleaseAll();
+    m_waterVisibility.Release();
     m_renderer.ReleaseAll();
     ReleaseDepth();
     m_real->Release();
@@ -1154,6 +1162,7 @@ HRESULT FogDevice::ResetDevice(D3DPRESENT_PARAMETERS* pp)
     ReleaseOverlayDeviceObjects(m_real);
     AbortWater();
     m_water.ReleaseDefaultPool();
+    m_waterVisibility.Release();
     m_grading.ReleaseDefaultPool();
     m_image.ReleaseDefaultPool();
     if (!m_fogRequested)
@@ -1447,6 +1456,29 @@ void AbortWaterPass(FogDevice* device)
 {
     if (device)
         device->AbortWater();
+}
+
+bool WaterHidden(FogDevice* device)
+{
+    return device && device->WaterHidden();
+}
+
+void BeginWaterCount(FogDevice* device)
+{
+    if (device)
+        device->BeginWaterCount();
+}
+
+void EndWaterCount(FogDevice* device, bool counted)
+{
+    if (device)
+        device->EndWaterCount(counted);
+}
+
+void ForgetWaterVisibility(FogDevice* device)
+{
+    if (device)
+        device->ForgetWaterVisibility();
 }
 
 void ReleaseWaterResources(FogDevice* device)
