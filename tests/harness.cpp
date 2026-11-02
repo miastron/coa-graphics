@@ -32,6 +32,7 @@
 #include "water_ripples.h"
 #include "water_spectrum.h"
 #include "status_log.h"
+#include "target_facing.h"
 #include "terrain_shadows.h"
 #include "transparent_fog.h"
 
@@ -109,6 +110,9 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_set_grass_density(float, f
 extern "C" __declspec(dllimport) void __cdecl vf_test_enable_grass_shaders(int);
 extern "C" __declspec(dllimport) uint32_t __cdecl vf_test_publish_spell_lights(LocalPointLight*, uint32_t, float);
 extern "C" __declspec(dllimport) const void* __cdecl vf_test_mesh_batch_draw_thunk(uintptr_t);
+extern "C" __declspec(dllimport) const void* __cdecl vf_test_target_circle_thunk(uintptr_t, uintptr_t);
+extern "C" __declspec(dllimport) int __cdecl vf_test_begin_target_arrow(IDirect3DDevice9*);
+extern "C" __declspec(dllimport) void __cdecl vf_test_end_target_arrow(IDirect3DDevice9*);
 extern "C" __declspec(dllimport) int __cdecl vf_test_texture_tint(uintptr_t, int, float*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_record_fog_frame(int, int, const char*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_use_fog_hook_client(const FrameInputs*);
@@ -2275,6 +2279,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "grass_density_checks.h"
 #include "image_quality_checks.h"
 #include "surface_light_checks.h"
+#include "target_arrow_checks.h"
 
 void CheckFirstColumnIsFogged(const Image& transmittance, const D3DVIEWPORT9& world)
 {
@@ -2437,6 +2442,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
         RUN_GROUP(CheckHdrLocalLightColours());
         RUN_GROUP(local_light_stabiliser_checks::CheckLocalLightStabiliser());
         RUN_GROUP(spell_light_checks::CheckSpellLights());
+        RUN_GROUP(target_arrow_checks::CheckTargetArrow());
         RUN_GROUP(client_light_stay_checks::CheckClientLightStay());
         RUN_GROUP(client_game_clock_checks::CheckGameClock());
         RUN_GROUP(tree_wind_checks::CheckTreeWind());
@@ -2535,6 +2541,8 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(local_light_stabiliser_checks::CheckLocalLightStabiliser());
     RUN_GROUP(spell_light_checks::CheckSpellLights());
     RUN_GROUP(spell_light_checks::CheckTextureTintOnTheDevice(h.dev));
+    RUN_GROUP(target_arrow_checks::CheckTargetArrow());
+    RUN_GROUP(target_arrow_checks::CheckTargetArrowOnTheDevice(h.dev));
     RUN_GROUP(client_light_stay_checks::CheckClientLightStay());
     RUN_GROUP(client_game_clock_checks::CheckGameClock());
     RUN_GROUP(tree_wind_checks::CheckTreeWind());

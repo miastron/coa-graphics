@@ -48,6 +48,9 @@ EXPORTS
     vf_test_particle_render_thunks
     vf_test_publish_spell_lights
     vf_test_mesh_batch_draw_thunk
+    vf_test_target_circle_thunk
+    vf_test_begin_target_arrow
+    vf_test_end_target_arrow
     vf_test_texture_tint
     vf_test_water_pass_begin_reuses_argument_slot
     vf_test_use_fog_hook_client

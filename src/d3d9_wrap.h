@@ -82,3 +82,5 @@ bool EnhanceWorldImage(FogDevice* device, const D3DVIEWPORT9& world, const Image
                        const char** skipReason);
 void ReleaseImage(FogDevice* device);
 ImageStats ImageStatsOf(FogDevice* device);
+bool BeginTargetArrow(FogDevice* device);
+void EndTargetArrow(FogDevice* device);

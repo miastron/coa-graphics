@@ -302,6 +302,21 @@ extern "C" const void* __cdecl vf_test_mesh_batch_draw_thunk(uintptr_t target)
     return RetargetMeshBatchDrawThunk(target);
 }
 
+extern "C" const void* __cdecl vf_test_target_circle_thunk(uintptr_t render, uintptr_t renderFacing)
+{
+    return RetargetTargetCircleThunk(render, renderFacing);
+}
+
+extern "C" int __cdecl vf_test_begin_target_arrow(IDirect3DDevice9* dev)
+{
+    return BeginTargetArrow(WrapperOrLatestFogDevice(dev)) ? 1 : 0;
+}
+
+extern "C" void __cdecl vf_test_end_target_arrow(IDirect3DDevice9* dev)
+{
+    EndTargetArrow(WrapperOrLatestFogDevice(dev));
+}
+
 extern "C" int __cdecl vf_test_texture_tint(uintptr_t texture, int alphaWeighted, float* tint)
 {
     return engine::TextureTint(texture, alphaWeighted != 0, tint) ? 1 : 0;

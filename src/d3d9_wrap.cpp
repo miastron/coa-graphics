@@ -9,6 +9,7 @@
 #include "renderer.h"
 #include "texture_filtering.h"
 #include "texture_tint.h"
+#include "target_facing.h"
 #include "time_of_day.h"
 #include "water_renderer.h"
 #include "water_visibility.h"
@@ -179,6 +180,8 @@ public:
     bool EnhanceImage(const D3DVIEWPORT9& world, const ImageSettings& settings, const char** skip);
     void ReleaseImage() { m_image.ReleaseDefaultPool(); }
     ImageStats Image() const { return m_image.Stats(); }
+    bool BeginTargetArrow() { return m_stageSwap.Begin(m_real, m_chevron.Get(m_real)); }
+    void EndTargetArrow();
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) override;
     ULONG STDMETHODCALLTYPE AddRef() override;
@@ -385,6 +388,8 @@ public:
     }
     HRESULT STDMETHODCALLTYPE SetTexture(DWORD i, IDirect3DBaseTexture9* t) override
     {
+        if (m_stageSwap.HoldTexture(i, t))
+            return D3D_OK;
         return m_filtering.SetTexture(m_real, i, t, ForcedAnisotropy());
     }
     HRESULT STDMETHODCALLTYPE GetTextureStageState(DWORD i, D3DTEXTURESTAGESTATETYPE t, DWORD* v) override
@@ -401,6 +406,8 @@ public:
     }
     HRESULT STDMETHODCALLTYPE SetSamplerState(DWORD i, D3DSAMPLERSTATETYPE t, DWORD v) override
     {
+        if (m_stageSwap.HoldSamplerState(i, t, v))
+            return D3D_OK;
         return m_filtering.SetSamplerState(m_real, i, t, v, ForcedAnisotropy());
     }
     HRESULT STDMETHODCALLTYPE ValidateDevice(DWORD* passes) override { return m_real->ValidateDevice(passes); }
@@ -628,6 +635,8 @@ private:
     GradingRenderer m_grading;
     ImageRenderer m_image;
     TextureFilterOverride m_filtering;
+    ChevronTexture m_chevron;
+    StageTextureSwap m_stageSwap;
 };
 
 namespace
@@ -1002,6 +1011,8 @@ FogDevice::~FogDevice()
     m_water.ReleaseAll();
     m_waterVisibility.Release();
     m_renderer.ReleaseAll();
+    EndTargetArrow();
+    m_chevron.Release();
     ReleaseDepth();
     m_real->Release();
     m_parent->Release();
@@ -1014,6 +1025,17 @@ void FogDevice::ReleaseDepth()
     ReleaseReference(m_depthSurface);
     ReleaseReference(m_depthTexture);
     m_depthWrittenSinceRefresh = true;
+}
+
+void FogDevice::EndTargetArrow()
+{
+    if (!m_stageSwap.Active())
+        return;
+    IDirect3DBaseTexture9* restored = nullptr;
+    m_stageSwap.End(m_real, restored);
+    m_filtering.SetTexture(m_real, 0, restored, ForcedAnisotropy());
+    if (restored)
+        restored->Release();
 }
 
 SceneDepth FogDevice::Depth()
@@ -1567,4 +1589,15 @@ void ReleaseImage(FogDevice* device)
 ImageStats ImageStatsOf(FogDevice* device)
 {
     return device ? device->Image() : ImageStats();
+}
+
+bool BeginTargetArrow(FogDevice* device)
+{
+    return device && device->BeginTargetArrow();
+}
+
+void EndTargetArrow(FogDevice* device)
+{
+    if (device)
+        device->EndTargetArrow();
 }

@@ -74,6 +74,7 @@ struct Config
     float colorGrading = 0.0f;
     int anisotropicFiltering = 16;
     bool antialiasing = false;
+    bool targetArrow = true;
     float sharpening = 0.0f;
     float bloom = 0.0f;
     float farClipMax = kFarClipMaxKeepsClientCap;

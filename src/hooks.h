@@ -22,6 +22,7 @@ bool InstallTransparentFogHooks();
 bool InstallSpellLightHooks();
 bool InstallTreeWindHooks();
 bool InstallGrassWindHooks();
+bool InstallTargetArrowHooks();
 
 void InstallFarClipHooks();
 
@@ -76,6 +77,7 @@ void ClearTransparentFogFailure();
 const void* RetargetM2BatchFogThunk(uintptr_t target);
 const void* RetargetGlarePassThunk(uintptr_t target);
 const void* RetargetWorldTextDrawThunk(uintptr_t target);
+const void* RetargetTargetCircleThunk(uintptr_t render, uintptr_t renderFacing);
 void UseTestWaterClient(const FrameInputs& in, const WaterInputs& water);
 unsigned TestWaterContactReads();
 void RefuseTestWaterContacts(bool refused);

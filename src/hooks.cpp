@@ -22,6 +22,7 @@
 #include "water_classify.h"
 #include "water_renderer.h"
 #include "status_log.h"
+#include "target_facing.h"
 
 #include <windows.h>
 
@@ -2149,6 +2150,85 @@ const void* RetargetWorldTextDrawThunk(uintptr_t target)
 
 namespace
 {
+uintptr_t g_projectedTextureRenderTarget = engine::kProjectedTextureRender;
+uintptr_t g_unitRenderFacingTarget = engine::kUnitRenderFacing;
+FogDevice* (*g_targetArrowDevice)() = &GameFogDevice;
+bool g_targetArrowFailed = false;
+
+void RenderProjectedTexture(const ProjectedTextureArgs& args, const float* box, const float* rotation)
+{
+    reinterpret_cast<ProjectedTextureRenderFn>(g_projectedTextureRenderTarget)(
+        box, args.color, rotation, args.fade, args.triangleFlags, args.flags, args.polygonOffset);
+}
+
+void DrawTargetArrow(const ProjectedTextureArgs& args, uintptr_t unit)
+{
+    const Config& cfg = GlobalConfig().Get();
+    if (g_targetArrowFailed || !cfg.enable || !cfg.targetArrow)
+        return;
+    const float facing = reinterpret_cast<UnitRenderFacingFn>(g_unitRenderFacingTarget)(unit);
+    if (!std::isfinite(facing))
+        return;
+    float box[kAabbFloats];
+    float rotation[kMatrixFloats];
+    TargetArrowBox(args.box, box);
+    TargetArrowRotation(facing, rotation);
+    FogDevice* device = g_targetArrowDevice();
+    if (!BeginTargetArrow(device))
+        return;
+    __try
+    {
+        RenderProjectedTexture(args, box, rotation);
+    }
+    __finally
+    {
+        EndTargetArrow(device);
+    }
+}
+
+int TargetArrowGuardFilter(unsigned code)
+{
+    VF_LOG_ERROR("exception 0x%08X in the target arrow; the target circle has no arrow for this session", code);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+}
+
+extern "C" void __cdecl vf_on_target_circle(const ProjectedTextureArgs* args, uintptr_t unit)
+{
+    RenderProjectedTexture(*args, args->box, args->rotation);
+    __try
+    {
+        DrawTargetArrow(*args, unit);
+    }
+    __except (TargetArrowGuardFilter(GetExceptionCode()))
+    {
+        g_targetArrowFailed = true;
+    }
+}
+
+__declspec(naked) static void TargetCircleThunk()
+{
+    __asm {
+        push esi
+        lea eax, [esp + 8]
+        push eax
+        call vf_on_target_circle
+        add esp, 8
+        ret
+    }
+}
+
+const void* RetargetTargetCircleThunk(uintptr_t render, uintptr_t renderFacing)
+{
+    g_projectedTextureRenderTarget = render;
+    g_unitRenderFacingTarget = renderFacing;
+    g_targetArrowDevice = &LatestFogDevice;
+    g_targetArrowFailed = false;
+    return reinterpret_cast<const void*>(&TargetCircleThunk);
+}
+
+namespace
+{
 struct CallSite
 {
     uintptr_t site;
@@ -2413,6 +2493,21 @@ bool InstallSpellLightHooks()
                 static_cast<unsigned>(engine::kSingleParticleRenderSite),
                 static_cast<unsigned>(engine::kBatchedParticleRenderSite),
                 static_cast<unsigned>(engine::kM2BatchDrawSite), GlobalConfig().Get().spellLights ? 1 : 0);
+    return true;
+}
+
+bool InstallTargetArrowHooks()
+{
+    const CallSite sites[] = {
+        {engine::kTargetCircleRenderSite, engine::kProjectedTextureRender,
+         reinterpret_cast<const void*>(&TargetCircleThunk)},
+    };
+    if (!engine::TargetFacingCodeMatches(ClientCodeView()))
+        return false;
+    if (!SitesHoldTheClientCalls(sites, "target arrow") || !PatchCallSites(sites))
+        return false;
+    VF_LOG_INFO("target arrow hook installed at 0x%08X (TargetArrow=%d)",
+                static_cast<unsigned>(engine::kTargetCircleRenderSite), GlobalConfig().Get().targetArrow ? 1 : 0);
     return true;
 }
 

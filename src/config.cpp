@@ -127,6 +127,7 @@ const BoolSetting kBoolSettings[] = {
 
 const BoolSetting kImageBoolSettings[] = {
     {"Antialiasing", &Config::antialiasing},
+    {"TargetArrow", &Config::targetArrow},
 };
 
 const BoolSetting kWaterBoolSettings[] = {

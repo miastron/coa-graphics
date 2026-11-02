@@ -134,6 +134,7 @@ void Attach(HMODULE module)
         InstallSpellLightHooks();
         InstallTreeWindHooks();
         InstallGrassWindHooks();
+        InstallTargetArrowHooks();
         EnableForeverLookOnHookedClient();
     }
     g_waterHooks = engineHooks && InstallWaterHooks();

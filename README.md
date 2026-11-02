@@ -59,6 +59,11 @@ after it say how each works and what is checked.
 - **Antialiasing, sharpening and bloom** (`Antialiasing`, `Sharpening`, `Bloom`): SMAA, a contrast-adaptive sharpen and a
   bloom halo, all off by default.
 
+**Interface**
+
+- **Target facing arrow** (`TargetArrow`): a small arrow on the rim of the target's ground circle points the way the
+  target faces, as in the modern game.
+
 ## What it draws
 
 - **Distance haze** thickening toward the horizon and fading with altitude, tinted by the zone's stock fog colour.
@@ -826,6 +831,54 @@ Grasswind extension are not needed and must not be loaded at the same time.
   not establish in-game behaviour: the area and weather reads, the unit walk, the doodad hooks and the density copies
   have not been seen in the game yet.
 
+## Target facing arrow
+
+The client draws the target's ground circle as a projected texture and turns it toward the camera, so it never shows
+which way the target faces. CoAGraphics draws a second projected texture after the circle, with an arrow at its rim
+turned to the target's facing (`TargetArrow`).
+
+- **How the circle is drawn** (wowdecomp `Unit_C.cpp`, `Object_C.cpp`, `shadow.cpp`, `ProjectTex.cpp`).
+  `CGWorldFrame::ClearTrackedObjects` (`0x004F6F90`) calls the locked target's `RenderTargetSelection` through vtable
+  slot `+0x6C` (`mov eax, [edx+6Ch]; call eax` at `0x004F6FC9`); `CGObject_C::PreAnimate` (`0x00743EC0`) only tracks a target that is
+  not the active player and only while `ObjectSelectionCircle` is set. `CGUnit_C::RenderTargetSelection`
+  (`0x00725980`) keeps `this` in `esi` from `0x00725990` (`56 8B F1`), builds the box as the model position ± the
+  selection radius (`+0xB0C`), the colour from `GetSelectionHighlightColor` and the camera-facing rotation from
+  `CGObject_C::BuildSelectionRotMatrix` (`0x00744150`), sets the circle's states with
+  `CGObject_C::SetCircleRenderStates` (`0x00744EB0`: `Textures\UnitSelectTexture.blp` on stage 0, the add fade
+  texture on stage 1, additive blending), then calls `ProjectTex::Render2d` (`0x007E4370`, cdecl, seven arguments:
+  box, colour, rotation, fade 0.5 from `0x009E2EC4`, `0x200122`, 1, polygon offset 0.4 from `0x009F98D8`) at
+  `0x00725A8A` (`E8 E1 E8 0B 00`) and pops them with `add esp, 1Ch` at `0x00725A8F`. The combat flash circle later in
+  the function calls `Render2d` from another site and is left alone, as is the pet target circle
+  (`RenderPetTargetSelection`, `0x00725BF0`).
+- **Where it hooks.** The call at `0x00725A8A` goes to a thunk that passes the seven arguments and `esi` (the unit) to
+  the DLL. It calls `Render2d` with the client's arguments, then, when `TargetArrow=1`, reads the unit's facing with
+  `CGUnit_C::GetRenderFacing` (`0x007156A0`, thiscall, `float` in `st0`: `m_renderFacing` at `+0xA94` through
+  `CPassenger::GetFacing` at `0x004F42A0`, which adds the transport's facing for a passenger) and calls `Render2d` a
+  second time with the same colour, fade, flags and polygon offset, a box widened to 1.35 times the circle's half size
+  in x and y (z unchanged, so the depth fade is the circle's), and the rotation `RotationAroundZ(-facing)`, the form
+  `UnitMissileTrajectory_C` uses for its facing-dependent impact texture. The bytes guarded before patching are the
+  unit register, the render-state call, the argument pushes and the cleanup of the circle call, and `GetRenderFacing`
+  with its call into `CPassenger::GetFacing` (`TargetFacingGuards`, bytes in `0x00725A56`–`0x00725A91` and
+  `0x007156A0`–`0x007156B5`).
+- **Why the arrow lands in the facing.** `ProjectTex2dMakeMatrices` builds the texture matrix as
+  `T(camera - centre) * S(1/size) * Rz(-90°) * rotation` plus 0.5 on u and v; the texture coordinates are the vertex
+  position minus the camera (the world transform is the batch matrix times a translation by `-camera`). With
+  `C44Matrix::Rotation` and `RotationAroundZ` both `a0 = c, a1 = s, b0 = -s, b1 = c` (row vectors), a world direction
+  `(cos f, sin f)` becomes `(sin f, -cos f)` after the spin and `(0, -1)` after `RotationAroundZ(-f)`: the top of the
+  texture. The arrow texture has the arrowhead at the top, from 1.0 to 1.22 circle radii out (notch at 1.08, half width
+  0.16).
+- **The arrow texture.** The ring and colour are the client's; only the stage 0 texture changes. While the second
+  `Render2d` runs, the device wrapper holds stage 0 on a 128 × 128 A8R8G8B8 managed texture with a full mip chain
+  (white, alpha = antialiased coverage × 0.9, every level's edge texels clear) and clamps its addressing; a
+  `SetTexture` or address-mode change the client makes on stage 0 meanwhile is kept and put back afterwards. Only
+  standard `SetTexture` and `SetSamplerState` calls are involved, so no driver difference applies (DXVK not checked).
+
+The harness checks, through a C++ copy of the client's texture matrices, that the arrow lies outside the circle in the
+facing for seven facings and nowhere behind, beside or inside it; that every texture level has a clear border; the
+guards; the stage 0 hold and restore on the wrapped device; and that the thunk draws the circle unchanged, then the
+arrow with the unit's facing under the arrow texture, keeps `esi` and the stack, and draws only the circle with
+`TargetArrow=0`. That does not establish in-game behaviour: the arrow has not been seen in the game yet.
+
 ## Engine inputs
 
 All addresses are static in the 12340 image (base `0x400000`, timestamp `0x4C2452FE`, both checked at start-up);
@@ -1461,6 +1514,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `Antialiasing` | 0 | SMAA antialiasing of the 3D view |
 | `Sharpening` | 0 | Contrast-adaptive sharpening of the 3D view, 0..1; 0 = off |
 | `Bloom` | 0 | Halo around the brightest parts of the 3D view, 0..1; 0 = off |
+| `TargetArrow` | 1 | Arrow on the target circle's rim in the target's facing; 0 = the plain circle |
 | `FarClipMax` | 1583 | Continent view distance up to 1583 yd, within `farclip`; 0 keeps Ascension's 791 cap |
 | `MaxDistance` | 5000 | Fog range: sky integration length and the Classic distance-curve scale |
 | `Temporal` | 0.85 | History weight; 0 = off |

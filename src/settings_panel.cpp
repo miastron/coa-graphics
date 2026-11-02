@@ -371,6 +371,9 @@ bool DrawWorld(Config& c)
                       "Outdoor fog density retained indoors");
     changed |= Slider(c, &Config::interiorFarFog, "Interior far fog", "%.2f",
                       "Native distance-fog density retained indoors; outdoor distance fog is unchanged");
+    changed |= Toggle("Target facing arrow", c.targetArrow,
+                      "A small arrow on the rim of your target's ground circle points the way the target faces, in "
+                      "the circle's colour");
     changed |= DrawViewDistance(c);
     return changed;
 }
