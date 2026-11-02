@@ -767,6 +767,34 @@ int ReadCurrentMap()
     return Read<int32_t>(kCurrentMap);
 }
 
+bool ReadSceneLightUnsafe(float toLight[3], uint32_t& ambientColor, uint32_t& directColor)
+{
+    const float dayFraction = Read<float>(kDayFraction);
+    const bool moon = !(dayFraction >= Read<float>(kSunDayStart) && dayFraction <= Read<float>(kSunDayEnd));
+    float centre[3];
+    float body[3];
+    ReadFloats(kSkyCenter, centre, 3);
+    ReadFloats(moon ? kMoonPosition : kSunPosition, body, 3);
+    for (int i = 0; i < 3; ++i)
+        toLight[i] = body[i] - centre[i];
+    Normalize(toLight);
+    ambientColor = Read<uint32_t>(kAmbientColor);
+    directColor = Read<uint32_t>(kDirectColor);
+    return Finite(toLight, 3);
+}
+
+bool ReadSceneLight(float toLight[3], uint32_t& ambientColor, uint32_t& directColor)
+{
+    __try
+    {
+        return ReadSceneLightUnsafe(toLight, ambientColor, directColor);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
 ScreenEffects ReadScreenEffects()
 {
     ScreenEffects effects;
@@ -920,6 +948,24 @@ void CaptureOpaqueState(IDirect3DDevice9* device, const float* cameraRelativeVie
 bool HasOpaqueState()
 {
     return g_opaque.valid;
+}
+
+bool ReadWorldProjection(IDirect3DDevice9* device, float* glProjection, float& minZ, float& maxZ)
+{
+    __try
+    {
+        OpaqueState state = {};
+        if (!CaptureOpaqueStateUnsafe(device, state))
+            return false;
+        std::memcpy(glProjection, state.glProjection, sizeof(state.glProjection));
+        minZ = state.viewport.MinZ;
+        maxZ = state.viewport.MaxZ;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
 }
 
 bool OpaqueViewport(D3DVIEWPORT9& out)

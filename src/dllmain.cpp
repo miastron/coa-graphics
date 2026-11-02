@@ -134,6 +134,7 @@ void Attach(HMODULE module)
         InstallSpellLightHooks();
         InstallTreeWindHooks();
         InstallGrassWindHooks();
+        InstallSnow();
         InstallTargetArrowHooks();
         EnableForeverLookOnHookedClient();
     }

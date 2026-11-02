@@ -115,6 +115,7 @@ void* GameD3DDevice();
 bool CameraInLiquid();
 void ReadCameraPosition(float out[3]);
 int ReadCurrentMap();
+bool ReadSceneLight(float toLight[3], uint32_t& ambientColor, uint32_t& directColor);
 
 ScreenEffects ReadScreenEffects();
 bool GlowScreenEffectRuns();
@@ -141,6 +142,7 @@ void CaptureOpaqueState(IDirect3DDevice9* device);
 void CaptureOpaqueState(IDirect3DDevice9* device, const float* cameraRelativeView, const float* glProjection);
 bool HasOpaqueState();
 bool OpaqueViewport(D3DVIEWPORT9& out);
+bool ReadWorldProjection(IDirect3DDevice9* device, float* glProjection, float& minZ, float& maxZ);
 void ClearOpaqueState();
 
 bool BuildFrameInputs(FrameInputs& out, bool withPointLights, const PointLightUpload& upload);

@@ -1,12 +1,15 @@
 #include "d3d9_wrap.h"
 
 #include "client_ripple_sprites.h"
+#include "engine_snow.h"
 #include "grass_wind.h"
 #include "log.h"
 #include "test_seams.h"
 #include "msaa_depth.h"
 #include "overlay.h"
 #include "renderer.h"
+#include "snow_shaders.h"
+#include "snow_surface.h"
 #include "texture_filtering.h"
 #include "texture_tint.h"
 #include "target_facing.h"
@@ -181,6 +184,9 @@ public:
     void ReleaseImage() { m_image.ReleaseDefaultPool(); }
     ImageStats Image() const { return m_image.Stats(); }
     bool BeginTargetArrow() { return m_stageSwap.Begin(m_real, m_chevron.Get(m_real)); }
+    bool UploadSnow(const SnowMap& map) { return m_snow.Upload(m_real, map); }
+    bool UploadTrenches(TrenchMap& map) { return m_snow.UploadTrenches(m_real, map); }
+    const SnowSurface& Snow() const { return m_snow; }
     void EndTargetArrow();
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) override;
@@ -227,6 +233,7 @@ public:
     HRESULT STDMETHODCALLTYPE Present(const RECT* src, const RECT* dst, HWND wnd, const RGNDATA* dirty) override
     {
         HoldTimeOfDay();
+        m_terrainPixelChosen = false;
         DrawOverlay(m_real);
         return m_real->Present(src, dst, wnd, dirty);
     }
@@ -445,6 +452,10 @@ public:
                                                    UINT start, UINT count) override
     {
         NoteDepthWrite();
+        if (m_terrainVertex)
+            m_snow.KeepBoundForDraw(m_real, GlobalSnowFrame());
+        if (m_terrainPixel && !m_terrainPixelChosen)
+            ChooseTerrainPixelShader();
         return m_real->DrawIndexedPrimitive(t, base, minIndex, vertices, start, count);
     }
     HRESULT STDMETHODCALLTYPE DrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, const void* data, UINT stride) override
@@ -481,11 +492,22 @@ public:
     HRESULT STDMETHODCALLTYPE GetFVF(DWORD* fvf) override { return m_real->GetFVF(fvf); }
     HRESULT STDMETHODCALLTYPE CreateVertexShader(const DWORD* code, IDirect3DVertexShader9** out) override
     {
-        return m_real->CreateVertexShader(GlobalGrassWind().Shaders().Rewrite(code), out);
+        SnowShaderRewriter& snow = GlobalSnowShaders();
+        if (!snow.Enabled() || !engine::IsTerrainVertexShaderCode(code))
+            return m_real->CreateVertexShader(GlobalGrassWind().Shaders().Rewrite(code), out);
+        const DWORD* rewritten = snow.Rewrite(code, SnowShaderKind::Vertex);
+        const HRESULT result = m_real->CreateVertexShader(rewritten, out);
+        if (SUCCEEDED(result) && out && rewritten != code)
+            m_snow.NoteTerrainShader(*out);
+        return result;
     }
     HRESULT STDMETHODCALLTYPE SetVertexShader(IDirect3DVertexShader9* s) override
     {
-        return m_real->SetVertexShader(s);
+        const HRESULT result = m_real->SetVertexShader(s);
+        m_terrainVertex = m_snow.Carries(s);
+        if (m_terrainVertex)
+            m_snow.Bind(m_real, GlobalSnowFrame());
+        return result;
     }
     HRESULT STDMETHODCALLTYPE GetVertexShader(IDirect3DVertexShader9** out) override
     {
@@ -536,9 +558,25 @@ public:
     HRESULT STDMETHODCALLTYPE GetIndices(IDirect3DIndexBuffer9** b) override { return m_real->GetIndices(b); }
     HRESULT STDMETHODCALLTYPE CreatePixelShader(const DWORD* code, IDirect3DPixelShader9** out) override
     {
-        return m_real->CreatePixelShader(code, out);
+        SnowShaderRewriter& snow = GlobalSnowShaders();
+        const bool terrain = snow.Enabled() && engine::IsTerrainPixelShaderCode(code);
+        const DWORD* rewritten = terrain ? snow.Rewrite(code, SnowShaderKind::Pixel) : code;
+        const HRESULT result = m_real->CreatePixelShader(rewritten, out);
+        if (FAILED(result) || !out || !*out)
+            return result;
+        IDirect3DPixelShader9* twin = nullptr;
+        const DWORD* deep = rewritten != code ? snow.Rewrite(code, SnowShaderKind::DepthPixel) : code;
+        if (deep != code && FAILED(m_real->CreatePixelShader(deep, &twin)))
+            twin = nullptr;
+        m_snow.NotePixelShader(*out, twin);
+        return result;
     }
-    HRESULT STDMETHODCALLTYPE SetPixelShader(IDirect3DPixelShader9* s) override { return m_real->SetPixelShader(s); }
+    HRESULT STDMETHODCALLTYPE SetPixelShader(IDirect3DPixelShader9* s) override
+    {
+        m_terrainPixel = m_snow.DepthTwin(s) ? s : nullptr;
+        m_terrainPixelChosen = false;
+        return m_real->SetPixelShader(s);
+    }
     HRESULT STDMETHODCALLTYPE GetPixelShader(IDirect3DPixelShader9** out) override
     {
         return m_real->GetPixelShader(out);
@@ -593,6 +631,22 @@ private:
         if (DepthWriteToApply())
             m_depthWrittenSinceRefresh = true;
     }
+    void ChooseTerrainPixelShader()
+    {
+        m_terrainPixelChosen = true;
+        float projection[16];
+        float minZ = 0.0f;
+        float maxZ = 1.0f;
+        float row[4];
+        if (GlobalSnowFrame().trenchDepth && engine::ReadWorldProjection(m_real, projection, minZ, maxZ) &&
+            TrenchDepthRow(projection, minZ, maxZ, row))
+        {
+            m_real->SetPixelShaderConstantF(kTrenchDepthRegister, row, 1);
+            m_real->SetPixelShader(m_snow.DepthTwin(m_terrainPixel));
+            return;
+        }
+        m_real->SetPixelShader(m_terrainPixel);
+    }
     bool DepthWriteOverridden() const { return m_suppressDepthWrite || m_forceDepthWrite || m_waterForcesDepthWrite; }
     DWORD DepthWriteToApply() const
     {
@@ -637,6 +691,10 @@ private:
     TextureFilterOverride m_filtering;
     ChevronTexture m_chevron;
     StageTextureSwap m_stageSwap;
+    SnowSurface m_snow;
+    bool m_terrainVertex = false;
+    IDirect3DPixelShader9* m_terrainPixel = nullptr;
+    bool m_terrainPixelChosen = false;
 };
 
 namespace
@@ -1013,6 +1071,7 @@ FogDevice::~FogDevice()
     m_renderer.ReleaseAll();
     EndTargetArrow();
     m_chevron.Release();
+    m_snow.Release();
     ReleaseDepth();
     m_real->Release();
     m_parent->Release();
@@ -1600,4 +1659,23 @@ void EndTargetArrow(FogDevice* device)
 {
     if (device)
         device->EndTargetArrow();
+}
+
+bool UploadSnowMap(FogDevice* device, const SnowMap& map)
+{
+    return device && device->UploadSnow(map);
+}
+
+bool UploadTrenchMap(FogDevice* device, TrenchMap& map)
+{
+    return device && device->UploadTrenches(map);
+}
+
+SnowSurfaceStats SnowSurfaceStatsOf(FogDevice* device)
+{
+    if (!device)
+        return SnowSurfaceStats();
+    const SnowSurface& snow = device->Snow();
+    return {snow.Ready(), snow.Uploads(), static_cast<unsigned>(snow.TerrainShaders()), snow.TerrainDraws(),
+            snow.ReboundDraws()};
 }

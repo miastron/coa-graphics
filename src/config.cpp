@@ -186,6 +186,22 @@ const BoolSetting kGrassWindBoolSettings[] = {
     {"GrassParting", &Config::grassParting},
 };
 
+const FloatSetting kSnowFloatSettings[] = {
+    {"SnowDepth", &Config::snowDepth, 0.0f, 1.5f},
+    {"SnowMaxSlope", &Config::snowMaxSlope, 10.0f, 80.0f},
+    {"SnowSlopeFade", &Config::snowSlopeFade, 0.0f, 40.0f},
+    {"SnowDrift", &Config::snowDrift, 0.0f, 1.0f},
+    {"SnowEdges", &Config::snowEdges, 0.0f, 1.0f},
+    {"SnowBreakup", &Config::snowBreakup, 0.0f, 1.0f},
+    {"SnowTrenchSeconds", &Config::snowTrenchSeconds, 2.0f, 300.0f},
+    {"SnowTrenchRim", &Config::snowTrenchRim, 0.0f, 1.0f},
+};
+
+const BoolSetting kSnowBoolSettings[] = {
+    {"Snow", &Config::snow},
+    {"SnowTrenches", &Config::snowTrenches},
+};
+
 const BoolSetting kTreeWindBoolSettings[] = {
     {"TreeWind", &Config::treeWind},
     {"TreeDoodadsOnly", &Config::treeDoodadsOnly},
@@ -225,6 +241,8 @@ void ForEachFloatSetting(Visit visit)
         visit(s);
     for (const FloatSetting& s : kGrassWindFloatSettings)
         visit(s);
+    for (const FloatSetting& s : kSnowFloatSettings)
+        visit(s);
 }
 
 template <typename Visit>
@@ -239,6 +257,8 @@ void ForEachBoolSetting(Visit visit)
     for (const BoolSetting& s : kTreeWindBoolSettings)
         visit(s);
     for (const BoolSetting& s : kGrassWindBoolSettings)
+        visit(s);
+    for (const BoolSetting& s : kSnowBoolSettings)
         visit(s);
 }
 
@@ -455,7 +475,8 @@ bool SameLiveSettings(const Config& a, const Config& b)
            SameValues(kWaterIntSettings, a, b) && SameValues(kWaterFloatSettings, a, b) &&
            SameValues(kWaterBoolSettings, a, b) && SameValues(kTreeWindFloatSettings, a, b) &&
            SameValues(kTreeWindBoolSettings, a, b) && SameValues(kGrassWindFloatSettings, a, b) &&
-           SameValues(kGrassWindBoolSettings, a, b);
+           SameValues(kGrassWindBoolSettings, a, b) && SameValues(kSnowFloatSettings, a, b) &&
+           SameValues(kSnowBoolSettings, a, b);
 }
 
 SettingRange FloatSettingRange(float Config::*member)

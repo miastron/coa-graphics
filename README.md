@@ -104,6 +104,8 @@ after it say how each works and what is checked.
   seen from below keep the client's look. Players, creatures, pets and mounts that wade or swim drag a V-shaped wake and
   stir the water as they start and stop (`WaterRipples`), in place of the client's flat splash and wake sprites
   (`WaterClientSplashes`).
+- **Snow cover** (`Snow`): ground the zone paints with snow is raised by a layer of snow, so characters sink in and
+  grass is buried, with ragged edges spreading past the painted ground.
 - **Multisampling**: the game's Multisampling option is kept where the DLL can copy the multisampled depth
   (`Multisampling`); fog and water edges are resolved per sample.
 - **Anisotropic filtering** (`AnisotropicFiltering`): the device wrapper turns the game's linear minification of every
@@ -831,6 +833,168 @@ Grasswind extension are not needed and must not be loaded at the same time.
   not establish in-game behaviour: the area and weather reads, the unit walk, the doodad hooks and the density copies
   have not been seen in the game yet.
 
+## Snow
+
+Ground that the zone paints with snow gets a layer of snow on top of it: the client's own terrain is raised by the
+snow's depth, so characters sink in up to their ankles, grass is buried and steep ground stays bare, and the snow
+spreads past the painted ground with ragged edges. The snow rules (painted snow ground, a slope limit, drifts, ragged
+edges) follow the Living Azeroth module's surface cover
+([Morfium-G/seyris-living-azeroth](https://github.com/Morfium-G/seyris-living-azeroth)); its separate clipmap mesh, its
+cover tables, fallen snow and melting are not ported. The terrain keeps drawing itself, so its lighting, shadows and
+fog stay the client's.
+
+- **Where snow lies.** A terrain layer is snow when its ground effect's `TerrainType` is 3 (Snow), the client's own
+  ground type query `CMap::QueryGroundTypeTerrain` (`0x7A0530`, `Map.cpp:5404`; the 3.3.5 `GroundEffectTexture.dbc`
+  has 347 such rows), or when its texture's path contains `snow`. The query reads the chunk's layers at chunk `+0x12C`
+  (`8B 80 2C 01 00 00` at `0x7A0638`), the layer's ground effect at `+0x0C` (`8B 4C 02 0C 51 B9 00 3B AD 00` at
+  `0x7A064C`: the effect id, then `this` = `0xAD3B00`, the `IDatabase` part of `g_groundEffectTextureDB` at
+  `0xAD3AE8`), and the record's `+0x28` (`8B 50 28` at `0x7A0667`; the decomp calls the field `m_sound`, the dbc
+  column is `TerrainType`). `GetRecord` (`0x65C290`, `55 8B EC 8B 51 F8 8B 45 08 3B C2 7C 11 3B 41 F4`) bounds the id
+  by the minimum at `this - 8` (`0xAD3AF8`) and the maximum at `this - 0xC` (`0xAD3AF4`) and reads `records[id - min]`
+  from `this + 8` (`0xAD3B08`). A layer's texture is the area's texture list entry its `+0x00` names:
+  `CMapArea::LoadTextures` (`0x7D6D20`, `MapArea.cpp:278`) keeps the list at area `+0x58` (`83 C7 58` at `0x7D6D47`),
+  its count at `+0x5C` and entries at `+0x60`, eight bytes each with the name first (`8B 47 04 8B 4F 08 8B 55 08 8D 0C
+  C1 83 C0 01 89` at `0x7D6DAB`).
+- **How much.** A layer's painted strength is its alpha map: `CMapRenderChunk::CollectLayerAlphaPtrs` (`0x7B7860`,
+  `MapRenderChunk.cpp:1025`) takes it at the chunk's `+0x130` plus the layer's `+0x08` when the layer's flags
+  (`+0x04`) have `0x100` (`8B 96 2C 01 00 00 F7 42 04 00 01 00 00 74 0C 8B` at `0x7B7876`, `8B BE 30 01 00 00 03 7A 08`
+  at `0x7B7885`; the decomp names `+0x130` `m_additionalShadowmap`, but `ProcessIffChunks` `0x7C3A10` stores the
+  `MCAL` data there). Flags `0x200` mean run-length compressed; otherwise the map is 8-bit when the map header's flags
+  (`0xCF08D0`) have `0x4` (`F6 05 D0 08 CF 00 04` at `0x7B7A74`, `CMapRenderChunk::AllocTexture`) and 4-bit, low
+  nibble first, when not, its last row and column repeating the ones before unless the chunk's `MCNK` flags have
+  `0x8000`. The decode is bounded by the `MCAL` size in the chunk header (`+0x28`, which counts its 8-byte chunk
+  header; the layer count is at `+0x0C`, the `MCNK` layout). The base layer has what the others leave, as the client's
+  blend does. The terrain heights for the slope are the chunk's `MCVT` (`+0x11C`, the same read as the terrain
+  shadows).
+- **The snow map.** A 512 x 512 texture, one texel per 1.04 yd (32 per chunk), covers the 16 x 16 chunks around the
+  camera, about 533 yd across. It wraps: world texel `floor(x / 1.04)` sits at `that mod 512`, so the window moves by
+  filling the chunks it gains in place, nearest first, eight chunks a frame. A chunk is read again when its address,
+  its layer pointer or its alpha pointer change. Each texel holds the share of snow layers (green; four alpha texels
+  averaged), the depth over 2 yd (red: `SnowDepth` x `1 + SnowDrift x (2 noise - 1)`, the noise smooth over 8 texels,
+  x the lowest, within 2 texels each way, of a smoothstep of the share from 0.5 to 0.9 times the slope factor), the
+  slope factor (alpha: 1 below `SnowMaxSlope - SnowSlopeFade` falling to 0 at `SnowMaxSlope`, from the gradient of each
+  terrain cell, blended between cells) and a fixed per-texel noise (blue). The texture has mipmaps where
+  `D3DUSAGE_AUTOGENMIPMAP` is available. The client paints rock and snow blended on the same terrain, and the raised
+  ground carries every layer with it, so rock was lifted with the snow and a character on it stood inside the rock (seen
+  in Dun Morogh, 2026-11-02): ground at most half snow is not raised, and the lowest-of-the-neighbours step keeps the
+  snow down for 2 yd around any such patch, so the vertices on and beside the rock stay at the client's height. The
+  depth is recomputed for a chunk and the 2 texels around it whenever the chunk is read or cleared.
+- **The terrain shaders.** `CMap::Initialize` (`0x79E7C0`, `Map.cpp:686`) loads the terrain shader sets into tables
+  of `CGxShader*`: 128 vertex shaders at `0xCE0008` (`68 08 00 CE 00 FF D2` at `0x79E9A2`), `Terrain0` at `0xCE0488`
+  (`0x79E9C5`), `Terrain0_env` at `0xCE0004` (`0x79E9E8`), `Terrain1` at `0xCE0408` (`0x79EA36`), and from
+  `CMap::InitializePCFShaders` (`0x79E4F0`) `Terrain2` at `0xCE0388` (`0x79E574`) and `Terrain3` at `0xCE0208`
+  (`0x79E5A0`). The client creates each variant when it is first bound: `IShaderCreateVertex` (`0x6AA0D0`) and
+  `IShaderCreatePixel` (`0x6AA070`) hand `CreateVertexShader` and `CreatePixelShader` the shader's `m_code.m_data`, its
+  `+0x50` (`83 7E 4C 00 C7 46 30 01 00 00 00 74 2C 8B 56 50` at `0x6AA0E7` and `0x6AA087`). So the device wrapper knows
+  a terrain shader by its bytecode pointer: it is the `+0x50` of an entry of those tables. Nothing in the client is
+  patched for this. The vertex shaders the client loads are `Shaders\Vertex\vs_3_0\Terrain.bls` from `patch-E.mpq`
+  (a custom build with six more point lights in c236 to c251); the pixel shaders are the stock `patch.MPQ` ones.
+- **The lift.** Every vertex shader takes `v0` as the world position (`mul r0, c1, v0.y` ... `add r0, r0, c3` is the
+  view transform). The rewrite puts a block first that reads the snow map at `v0.xy / 533.3` with `texldl` from vertex
+  sampler 0, scales red by 2 yd and by a fade over the last 16 yd of the window, and adds that to `z` in `r12`; every
+  later read of `v0` reads `r12`. The lift is a function of the world position alone, so vertices shared by two chunks
+  stay together. The lifted world position leaves through `texcoord7`: a new output where the shader has fewer than 11,
+  and in the 32 variants that use all 11 the unread view position output (`dcl_texcoord3 oN.xyz`, `mov oN.xyz, r0`)
+  is relabelled; no terrain pixel shader declares `texcoord3` with three components (checked on the extracted
+  shaders; the Living Azeroth module relies on the same output). The constants are c200 to c202, which no client
+  vertex shader reads (checked on all 86 vs_3_0 and ps_3_0 shader files of the client's MPQs). Because
+  `IShaderConstantsFlush` (`0x6A9FE0`, `A1 E8 FF C5 00 56 8B F1 8B 0D EC FF C5 00`) uploads the whole span between the
+  lowest and highest register changed since the last flush, and a terrain draw changes c0 and c251, the frame's values
+  are also written into the client's own copy (`CGxDevice::s_shadowConstants`, the vertex array at `0xC5EFE8`, its
+  `dirtyMax` at `0xC5FFE8` and `dirtyMin` at `0xC5FFEC`) and marked changed, so the flush sends them rather than stale
+  ones.
+- **The edges.** The pixel shaders with the stock fog ending (`add rN.xyz, rN, -c2`, `mad oC0.xyz, vM.x, rN, c2`; all
+  but two of `Terrain0` and `Terrain0_env`) get a block before it. It reads the snow map at the pixel's world position
+  (`v9`, sampler s9) and again at 4.7 times the frequency, turns the coverage plus the two noises times `SnowBreakup`
+  into an amount with a sharp ramp around 0.5, and whitens only the part that exceeds the coverage the client already
+  paints, times the slope factor, the window fade and `SnowEdges`. The white is the snow's albedo (0.9) lit by the
+  vertex light (`2 v0`, as the stock shaders light their layers) and dimmed toward the pixel's own brightness in shade,
+  so it follows the sun and the shadows. Fully painted snow keeps the client's own texture. The pixel constants are
+  c220 to c223; client pixel shaders read nothing above c26. A pixel shader is only fed a world position when every
+  terrain vertex shader took the lift; otherwise `SnowEdges` acts as 0.
+- **Trenches.** Your character and the 16 nearest units within 30 yd press trenches into the snow as they walk, with a
+  rim beside them, and the trenches fill back in over `SnowTrenchSeconds` (30). They follow the Living Azeroth
+  module's trenches (round stamps along the path, a rim of a share of the depth, linear relaxing), stamped from the
+  unit list the grass parting reads; the module's sizes from `CreatureModelData` footprints are not read, the radius
+  is 1.3 times the unit's collision radius (0.3 to 1.5 yd). A unit stamps only while it stands on the terrain: its
+  height within 0.6 yd of the terrain under it, from the chunk's `MCVT` over the four triangles of each cell meeting in
+  its centre vertex (the vertex grid `0x7C3C60`), so units on bridges, in buildings, flying or swimming leave none. A
+  unit that moves more than 3 yd in a frame starts a new trench rather than drawing a line. The trench map is 256 x 256
+  texels of 0.25 yd, 64 yd around the player, wrapped like the snow map: red is how far the snow is pressed (0.9 of
+  its depth on a flat floor out to 0.35 radii, then a smoothstep up to the surface at the radius), green the rim (a
+  sine bump from 0.8 to 1.7 radii, kept below what the press leaves). The trenches are not geometry: the rewritten
+  terrain pixel shader, inside the trench window and where the snow has depth, marches the view ray from the camera
+  through the height field `depth x (rim x SnowTrenchRim - press)` below the raised surface in 13 probes (`texldl` on
+  sampler s10, so it may run inside the branch), takes the first point under the field and moves it back to where the
+  ray crosses the field between that probe and the one before (one secant step), and lights the ground there by the
+  field's normal from central differences over two texels: the colour the client drew times
+  `(ambient + (1 - ambient) N.L) / (ambient + (1 - ambient) L.z)`, at most 2, and darkened by 0.35 of the press.
+  The first version, nine probes without the secant step, a one-texel forward difference and a `sqrt(1 - (d/r)^2)`
+  wall, drew stepped contour lines across the walls and along relaxing trenches, which looked blocky in the game.
+  `L` is the direction to the sun or moon from the sky's positions (`0xD38B18`, `0xD38E28`, `0xD38E48` by the day
+  window `0xA41CA4` and `0xA41CA0`) and the ambient share the ambient colour's (`0xD38BD4`) part of the ambient plus
+  direct (`0xD38BD8`), the reads the fog's frame inputs already use. So the trench keeps the client's own snow
+  texture, light and shadow, its far wall lit and its near wall in shade; at a grazing view its edge does not cut the
+  silhouette. The pixel constants are c204 to c207 (switch, rim share, window, camera, light) and the shader defines
+  c208 and c209.
+- **Trench depth.** Without it the depth buffer holds the raised surface, so a character standing in a trench was cut
+  off at the old snow line. The rewritten vertex shader also hands the pixel shader its view depth in texcoord7's `w`
+  (the `z` row of the world-view transform in c0 to c3, which all 128 variants start with
+  `mul r0, c1, v0.y / mad r0, v0.x, c0, r0 / mad r0, v0.z, c2, r0 / add r0, r0, c3`, the projection `o0` from c4 to
+  c7). Each rewritten terrain pixel shader is assembled twice, and the wrapper creates the second, depth-writing
+  copy beside the one it hands the client. At the first indexed draw after the client binds a terrain pixel shader
+  (and once a frame), while the trench constants are on and the trench map has texels in use, it binds that copy and
+  sets c210 to the depth mapping the fog uses to read depth back (`depth = a + b / viewDepth`, `a` and `b` from the
+  client's current projection `_33` and `_43` and the viewport's depth range with the client's pending range, the
+  same reads as the opaque state capture); otherwise the client's copy stays bound. The depth copy writes `oDepth`
+  for every pixel: the surface's view depth, or at the trench point the view depth scaled by how far that point lies
+  behind the surface along the view ray, pushed back by a factor 1.00001 so that a decal drawn later with the same
+  geometry still passes its depth test. Writing `oDepth` turns off early depth rejection for those draws, which is
+  why the copy is used only near trenches.
+- **Binding.** When the client binds a rewritten terrain vertex shader, the wrapper binds the snow map to vertex
+  sampler 0 and to sampler s9 (wrap, linear), the trench map to s10, and sets the constants. The client's terrain
+  uses samplers s0 to s8. In the game, with depth above 0, neighbouring terrain chunks were sometimes raised on one
+  side of their shared edge and not on the other, opening a gap the sky showed through, and which side was raised
+  changed as the camera turned. The lift itself cannot do that: with shader vertices the client builds every chunk's
+  vertices in world coordinates (`CMapChunk::CreateVertices` `0x7C54C0` calls `CreateVerticesWorld` `0x7C3F30`
+  while `enableTerrainShaderVertex` is set), so the two chunks' edge vertices read the same texels of the same map.
+  It can only happen when a chunk is drawn without the snow constants or the snow map. The client sets its terrain
+  constants per chunk from c0 (`CMapRenderChunk::SetVertexShader` `0x7D0050`), and the wrapper binds ours only when
+  the client changes the vertex shader. So before every indexed draw with a rewritten terrain vertex shader, the
+  wrapper now reads c200 to c202 and the texture on vertex sampler 0 back from the device, and binds them again if
+  anything replaced them. The status line counts those draws and the ones that had to be rebound. In the game, in
+  Dun Morogh, about 5% of the terrain draws had to be rebound (50,648 of 969,781 after four minutes), and the gaps were
+  gone.
+- **Limits.** The terrain vertices are 2 to 4 yd apart, so the raised ground ramps up over a few yards at a snow edge;
+  the sharp outline comes from the edges. Collision stays the client's, which is why characters sink in. Selection
+  circles, spell ground effects and footprints are drawn at the old ground and are hidden under deep snow until the
+  decal lift. Doodads and buildings stand in the snow as placed. Snow beyond about 260 yd is not raised.
+- **Settings.** `Snow`, `SnowDepth`, `SnowMaxSlope`, `SnowSlopeFade`, `SnowDrift`, `SnowEdges`, `SnowBreakup`,
+  `SnowTrenches`, `SnowTrenchSeconds` and `SnowTrenchRim` in
+  `CoAGraphics.ini` and the Snow section of the settings window. The shader rewrite is made as the client creates its
+  shaders, so it needs `Snow=1` at start; the keys then apply within a second, and `Snow=0` lowers the ground again.
+  The log line `snow: map ...` once a minute counts the chunks read, those with snow, the shaders rewritten, the
+  trench texels in use and the unit stamps since the line before.
+- **Checks.** The harness reads the client's terrain shaders from `tests/shaders` (the vs_3_0 vertex shaders of
+  `patch-E.mpq` and the `Terrain0` to `Terrain3` ps_3_0 pixel shaders of `patch.MPQ`) and checks that all 128 vertex
+  shaders and the 161 pixel shaders with the fog ending take the rewrite and reassemble, that the 32 full variants
+  hand over the view position output, and that a rewritten shader is refused a second time. It checks the layer rule,
+  the three alpha map formats (and refuses cut-short ones), the depth, slope and drift rules, the texel packing, and the
+  snow map with a synthetic terrain: chunks nearest first and a few a frame, the window box, an unchanged window read
+  no more, the alpha rows along world x, refills on a changed identity, unloaded chunks, a moved window, steep ground
+  and a new map. On the device it draws a point with the rewritten vertex shader and the uploaded map: raised by the
+  map's depth, not raised outside the window and half raised in the fade. For the trenches it checks the stamp
+  shape and rim, a walked segment, an unchanged restamp, relaxing, the moved window (no stale trench at its wrapped
+  place), units on and off the ground, a jump, the constants and the ambient share, and on the device draws a
+  trench under a light from one side with a stand-in for the client's pixel shader rewritten the same way: the
+  floor darker, the wall toward the light brighter than the one away, untouched snow and a switched-off trench map
+  as the client drew them. It checks that every pixel shader also reassembles with the depth write, the depth row,
+  and on the device draws the trench with the depth-writing copy into a depth buffer and then a plane 0.05 yd under
+  the snow: the plane shows in the trench and stays hidden behind untouched snow. In the game the first trenches
+  were stamped by the player and nearby units (about 3,000 to 6,000 unit stamps a minute in Dun Morogh) and looked
+  blocky, and the character was hidden below the old snow line; the secant step, the rounder profile and the depth
+  write answer that and have not been seen in the game yet.
+
 ## Target facing arrow
 
 The client draws the target's ground circle as a projected texture and turns it toward the camera, so it never shows
@@ -1007,8 +1171,10 @@ Engine notes behind the code:
   corner's Z (`0x79054C 8B 81 1C 01 00 00`). The vertex grid `0x7C3C60` lays out the 145 heights as nine rows of nine
   outer vertices 4.17 yd apart, each row but the last followed by eight centre vertices, so outer vertex `(r, c)` is
   index `17r + c` at `(−4.17r, −4.17c)` from the corner. The fog reads a chunk only when its corner lies at its row
-  and column. The shadow map render `0x7BBC50` draws WMO groups and M2 batches only; the terrain queries `0x7BCF20`
-  and `0x7BCC00` walk the chunks for the doodads on them, so the client's shadow maps hold no terrain.
+  and column. The heights point into the tile's file buffer and need not be 4-byte aligned (in Dun Morogh, chunk
+  674/531 on 2026-11-02 had them at `0x36ECCD2E`), so only their range is checked; an alignment test once left
+  whole tiles out of the terrain shadows and the snow. The shadow map render `0x7BBC50` draws WMO groups and M2
+  batches only; the terrain queries `0x7BCF20` and `0x7BCC00` walk the chunks for the doodads on them, so the client's shadow maps hold no terrain.
 - Window messages. `EventInitialize` is called as `EventInitialize(1, 0)` (`0x406A0B`, `push 1` for the thread count),
   so no scheduler thread exists. `OsInputGet` (`PeekMessageA`/`GetMessageA`/`DispatchMessageA`, `Input.cpp:1237-1254` in
   the wowdecomp reconstruction) and `CGxDeviceD3d::ScenePresent` (`0x6A3450`) both run on the main thread, so
@@ -1548,6 +1714,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `GrassModelBend` | 1 | Each kind of grass, flower and pebble bends from its own root to its own tip, measured from its model; 0 = every doodad bends by its texture row |
 | `GrassDensity` | 2 | Plants drawn per plant the client places, near you (1 to 4): the client's own grass drawn again on the GPU, each copy moved sideways in a direction of its plant's own and kept on its ground slope; `GrassDensityRadius` 150 (yd from the camera, the copies thin out plant by plant from half of it to all of it, each plant sinking into the ground), `GrassDensitySpread` 1 (yd), `GrassDensityFade` 32 (yd of approach over which a plant grows out of the ground). Needs the doodad hooks; 1 here, in `GrassWind` and in `GrassParting` at start leaves the shaders alone |
 | `GrassParting` | 1 | Grass leans away from your character and the 16 nearest units within 40 yd; `GrassPartingForce` 0.25 (yd), `GrassPartingRadiusScale` 4.5 (times the collision radius), `GrassPartingMinRadius` 1 (yd), `GrassPartingMountedScale` 2 |
+| `Snow` | 1 | Ground painted with snow is raised by a layer of snow with ragged edges; `SnowDepth` 0.35 (yd), `SnowMaxSlope` 40 and `SnowSlopeFade` 15 (degrees), `SnowDrift` 0.35 (share of the depth), `SnowEdges` 1 (0 = the client's own snow texture alone), `SnowBreakup` 0.5; `SnowTrenches` 1 (units press trenches with a rim), `SnowTrenchSeconds` 30 (fill-in time), `SnowTrenchRim` 0.3 (share of the depth). Needs 1 at start to rewrite the terrain shaders |
 
 Turning `FarClipMax` on from 0 needs a restart. Other changes, including turning it off, apply at the next `farclip`
 change, map load or zone change, where raising it shows a loading screen.
@@ -1680,8 +1847,8 @@ game, so by default colours still differ from Classic.
   [wxl-grasswind](https://github.com/WarcraftXL/wxl-grasswind), whose GPLv3 tree, bush and grass wind the Tree and bush
   wind and Grass wind and parting sections port.
 - **Morfium-G** ([seyris-living-azeroth](https://github.com/Morfium-G/seyris-living-azeroth)), whose GPLv3 Living Azeroth
-  module the wind model, the `WindProfile.cdbc` table, the wind grid, the parting around units and the grass motion block
-  come from.
+  module the wind model, the `WindProfile.cdbc` table, the wind grid, the parting around units, the grass motion
+  block and the snow rules come from.
 - **Luca Foscili** added the interior distance-fog control and the Steam Deck and Proton notes upstream
   (pull requests #9 and #10).
 - **St0ny** and the AIO WoW EXE Patcher, whose patch No. 70 "lightstay" byte the `LightStay` setting reproduces.

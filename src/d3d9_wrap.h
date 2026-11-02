@@ -5,6 +5,7 @@
 #include "grading_renderer.h"
 #include "image_renderer.h"
 #include "msaa_depth.h"
+#include "snow_cover.h"
 #include "transparent_fog.h"
 #include "water_types.h"
 
@@ -84,3 +85,16 @@ void ReleaseImage(FogDevice* device);
 ImageStats ImageStatsOf(FogDevice* device);
 bool BeginTargetArrow(FogDevice* device);
 void EndTargetArrow(FogDevice* device);
+
+struct SnowSurfaceStats
+{
+    bool ready = false;
+    unsigned uploads = 0;
+    unsigned terrainShaders = 0;
+    unsigned terrainDraws = 0;
+    unsigned reboundDraws = 0;
+};
+
+bool UploadSnowMap(FogDevice* device, const SnowMap& map);
+bool UploadTrenchMap(FogDevice* device, TrenchMap& map);
+SnowSurfaceStats SnowSurfaceStatsOf(FogDevice* device);

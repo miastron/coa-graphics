@@ -21,6 +21,9 @@
 #include "grass_doodads.h"
 #include "engine_grass.h"
 #include "grass_wind.h"
+#include "snow_cover.h"
+#include "snow_shaders.h"
+#include "snow_surface.h"
 #include "wdbc.h"
 #include "wind_model.h"
 #include "texture_tint.h"
@@ -2277,6 +2280,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "grass_wind_checks.h"
 #include "grass_doodad_checks.h"
 #include "grass_density_checks.h"
+#include "snow_checks.h"
 #include "image_quality_checks.h"
 #include "surface_light_checks.h"
 #include "target_arrow_checks.h"
@@ -2451,6 +2455,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
         RUN_GROUP(grass_wind_checks::CheckGrassWind());
         RUN_GROUP(grass_doodad_checks::CheckGrassDoodads());
         RUN_GROUP(grass_density_checks::CheckGrassDensity(outDir, FullPath(iniPath)));
+        RUN_GROUP(snow_checks::CheckSnow());
         RUN_GROUP(CheckInteriorFogInputs());
         RUN_GROUP(water_contact_checks::CheckWaterContacts());
         CoUninitialize();
@@ -2557,6 +2562,11 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(grass_wind_checks::CheckCopiesOnTheDevice(h.dev));
     RUN_GROUP(grass_wind_checks::CheckSinkOnTheDevice(h.dev));
     RUN_GROUP(grass_wind_checks::CheckAlphaOnTheDevice(h.dev));
+    RUN_GROUP(snow_checks::CheckSnow());
+    RUN_GROUP(snow_checks::CheckLiftOnTheDevice(h.dev));
+    RUN_GROUP(snow_checks::CheckTrenchShadingOnTheDevice(h.dev));
+    RUN_GROUP(snow_checks::CheckTrenchDepthOnTheDevice(h.dev));
+    RUN_GROUP(snow_checks::CheckSnowStaysBoundOnTheDevice(h.dev));
     RUN_GROUP(CheckInteriorFogInputs());
     RUN_GROUP(CheckNoiseVariation(h.dev));
     RUN_GROUP(authored_noise::CheckAuthoredNoiseOnTheGpu(h.dev));

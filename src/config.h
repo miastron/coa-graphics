@@ -152,6 +152,16 @@ struct Config
     float grassDensityRadius = 150.0f;
     float grassDensitySpread = 1.0f;
     float grassDensityFade = 32.0f;
+    bool snow = true;
+    float snowDepth = 0.35f;
+    float snowMaxSlope = 40.0f;
+    float snowSlopeFade = 15.0f;
+    float snowDrift = 0.35f;
+    float snowEdges = 1.0f;
+    float snowBreakup = 0.5f;
+    bool snowTrenches = true;
+    float snowTrenchSeconds = 30.0f;
+    float snowTrenchRim = 0.3f;
 };
 
 bool SameFogSettings(const Config& a, const Config& b);

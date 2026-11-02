@@ -26,10 +26,12 @@ constexpr uintptr_t kTerrainAreaChunkSite = 0x007BCFC1;
 constexpr uintptr_t kChunkVertexOriginSite = 0x00790534;
 constexpr uintptr_t kChunkVertexHeightSite = 0x0079054C;
 
-uintptr_t ChunkAddress(int chunkRow, int chunkCol)
+uintptr_t ChunkAddress(int chunkRow, int chunkCol, uintptr_t* areaOut = nullptr)
 {
     const int areaIndex = (chunkRow / kAreaChunkSide) * kMapAreaTableSide + chunkCol / kAreaChunkSide;
     const uintptr_t area = Read<uintptr_t>(kMapAreaTable + areaIndex * sizeof(uintptr_t));
+    if (areaOut)
+        *areaOut = area;
     if (!ValidPointer(area, kAreaChunks + kAreaChunkSide * kAreaChunkSide * sizeof(uintptr_t)) ||
         Read<uintptr_t>(area + kAreaAsyncLoad) != 0)
         return 0;
@@ -37,7 +39,7 @@ uintptr_t ChunkAddress(int chunkRow, int chunkCol)
     const uintptr_t chunk = Read<uintptr_t>(area + kAreaChunks + chunkIndex * sizeof(uintptr_t));
     if (!ValidPointer(chunk, kChunkHeights + sizeof(uintptr_t)))
         return 0;
-    return ValidPointer(Read<uintptr_t>(chunk + kChunkHeights), kChunkHeightCount * sizeof(float)) ? chunk : 0;
+    return ValidRange(Read<uintptr_t>(chunk + kChunkHeights), kChunkHeightCount * sizeof(float)) ? chunk : 0;
 }
 
 bool ChunkSitsAt(uintptr_t chunk, int chunkRow, int chunkCol, float* origin)
@@ -95,6 +97,13 @@ bool TerrainAreaIdAt(float x, float y, int32_t& areaId)
     {
         return false;
     }
+}
+
+uintptr_t TerrainChunkUnsafe(int chunkRow, int chunkCol, uintptr_t& area)
+{
+    float origin[3];
+    const uintptr_t chunk = ChunkAddress(chunkRow, chunkCol, &area);
+    return chunk && ChunkSitsAt(chunk, chunkRow, chunkCol, origin) ? chunk : 0;
 }
 
 bool TerrainContractSupported()

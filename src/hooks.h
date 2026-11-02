@@ -22,6 +22,7 @@ bool InstallTransparentFogHooks();
 bool InstallSpellLightHooks();
 bool InstallTreeWindHooks();
 bool InstallGrassWindHooks();
+bool InstallSnow();
 bool InstallTargetArrowHooks();
 
 void InstallFarClipHooks();

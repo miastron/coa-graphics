@@ -61,7 +61,11 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
   stencil tagging, shading);
   wind: `tree_wind` (CPU sway of placed trees and bushes at the two model animate call sites, pristine placement
   cache), `grass_wind` (grass vertex shader rewrite in the device wrapper, constants block at the detail doodad
-  setup, wind grid and unit parting per chunk), `wind_model` (wind profiles from `WindProfile.cdbc`, weather, gusts); look: `forever_look` (Forever glow byte before the fog composite, grading decisions at
+  setup, wind grid and unit parting per chunk), `wind_model` (wind profiles from `WindProfile.cdbc`, weather,
+  gusts); snow: `snow_cover` (snow map around the camera from the painted snow layers), `snow_shaders` (terrain shader
+  rewrite: lift, ragged edges, trench march and its depth-writing twin), `snow_surface` (the maps' textures, bound
+  with the terrain shaders), `snow_trenches` (trench map stamped by nearby units), `engine_snow` (chunk layers, alpha
+  maps, terrain shader tables); look: `forever_look` (Forever glow byte before the fog composite, grading decisions at
   world done and frame end), `grading_renderer` (colour grading pass); image: `image_quality` (world viewport at world
   done, the pass at frame end), `image_renderer` (SMAA, sharpening and bloom passes).
 - `shaders/` — the ps_3_0 passes: `vf_*` fog (march, temporal, composite and its multisampled silhouette split, god

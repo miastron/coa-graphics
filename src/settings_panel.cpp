@@ -565,6 +565,35 @@ bool DrawGrassWind(Config& c)
     return changed;
 }
 
+bool DrawSnow(Config& c)
+{
+    const Section section("Snow");
+    if (!section)
+        return false;
+    bool changed = Toggle("Snow lies on snowy ground", c.snow,
+                          "Raise the ground the zone paints with snow by a layer of snow, so characters sink in and "
+                          "grass is buried, and let its edges spread raggedly onto the ground beside it. The terrain "
+                          "shader rewrite is made when the game starts, so switching this on needs a restart if it "
+                          "was off then");
+    changed |= Slider(c, &Config::snowDepth, "Depth", "%.2f", "How deep the snow lies on flat ground, yards");
+    changed |= Slider(c, &Config::snowMaxSlope, "Max slope", "%.0f", "Ground steeper than this holds no snow, degrees");
+    changed |= Slider(c, &Config::snowSlopeFade, "Slope fade", "%.0f",
+                      "Degrees below the max slope over which the snow thins out");
+    changed |= Slider(c, &Config::snowDrift, "Drifts", "%.2f", "Depth variation, share of the depth");
+    changed |= Slider(c, &Config::snowEdges, "Edges", "%.2f",
+                      "How strongly the snow spreads past the painted snow ground with ragged edges, 0 = the "
+                      "client's own snow texture alone");
+    changed |= Slider(c, &Config::snowBreakup, "Edge breakup", "%.2f", "0 smooth edges .. 1 ragged, patchy ones");
+    changed |= Toggle("Trenches", c.snowTrenches,
+                      "Your character and the units near you press trenches into the snow as they walk, with a "
+                      "raised rim beside them");
+    changed |= Slider(c, &Config::snowTrenchSeconds, "Trench fill-in", "%.0f",
+                      "Seconds a trench takes to fill back in");
+    changed |= Slider(c, &Config::snowTrenchRim, "Trench rim", "%.2f",
+                      "Height of the rim beside a trench, share of the snow depth");
+    return changed;
+}
+
 void DrawTimeOfDay()
 {
     const Section section("Time of day");
@@ -653,6 +682,7 @@ bool SettingsPanel::DrawSettings(Config& edited, const FogFrameStatus& fogStatus
     changed |= DrawTreeWind(edited);
     changed |= DrawBushWind(edited);
     changed |= DrawGrassWind(edited);
+    changed |= DrawSnow(edited);
     changed |= DrawDebug(edited);
     ImGui::PopItemWidth();
     ImGui::EndChild();

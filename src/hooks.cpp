@@ -6,6 +6,7 @@
 #include "engine.h"
 #include "engine_environment.h"
 #include "engine_grass.h"
+#include "engine_snow.h"
 #include "fog_model.h"
 #include "forever_look.h"
 #include "frame_copies.h"
@@ -14,6 +15,9 @@
 #include "grass_wind.h"
 #include "image_quality.h"
 #include "log.h"
+#include "snow_cover.h"
+#include "snow_shaders.h"
+#include "snow_trenches.h"
 #include "test_seams.h"
 #include "spell_lights.h"
 #include "texture_tint.h"
@@ -56,6 +60,10 @@ constexpr unsigned kGrassUploadedEnd = kGrassDoodadFirstRegister + kGrassDoodadE
 constexpr unsigned kGrassUploadedCount = kGrassUploadedEnd - engine::kGrassGridFirstRegister;
 constexpr DWORD kGrassStatusFirstMs = 5000;
 constexpr DWORD kGrassStatusIntervalMs = 60000;
+constexpr DWORD kSnowStatusFirstMs = 5000;
+constexpr DWORD kSnowStatusIntervalMs = 60000;
+constexpr int kNoMap = -1;
+constexpr float kTrenchMaxFrameSeconds = 0.5f;
 constexpr size_t kGlarePassEntryTextSize = 64;
 constexpr double kPercent = 100.0;
 
@@ -103,6 +111,13 @@ bool g_grassConstantsDirty = false;
 bool g_grassDoodadHooksInstalled = false;
 bool g_grassWindHooksInstalled = false;
 bool g_grassWindFailed = false;
+bool g_snowInstalled = false;
+bool g_snowFailed = false;
+DWORD g_snowLastStatus = 0;
+int g_trenchMapId = -1;
+LARGE_INTEGER g_trenchLastTick = {};
+unsigned g_trenchStamps = 0;
+engine::ClientSnowTerrain g_snowTerrain;
 unsigned g_grassConstantFrames = 0;
 unsigned g_grassChunkUploads = 0;
 unsigned g_grassChunkUploadsLogged = 0;
@@ -424,12 +439,142 @@ void ReloadConfigAfterInterval()
     }
 }
 
+void LogSnowStatus(const SnowMap& map, int mapId)
+{
+    const DWORD now = GetTickCount();
+    if (!g_snowLastStatus)
+    {
+        g_snowLastStatus = (now ? now : 1) - (kSnowStatusIntervalMs - kSnowStatusFirstMs);
+        return;
+    }
+    if (now - g_snowLastStatus < kSnowStatusIntervalMs)
+        return;
+    g_snowLastStatus = now ? now : 1;
+    const SnowShaderRewriter& shaders = GlobalSnowShaders();
+    const SnowSurfaceStats surface = SnowSurfaceStatsOf(GameFogDevice());
+    VF_LOG_INFO("snow: map %d, %d of %d chunks around the camera read, %d with snow, %d waiting; terrain shaders "
+                "rewritten: %u vertex (%u not), %u pixel (%u left stock), %u in use on the device; snow map %s, %u "
+                "uploads; %u terrain draws so far, %u of them found the snow constants or map unbound and rebound "
+                "them; %d trench texels, %u unit stamps since the last line",
+                mapId, map.FilledChunks(), kSnowWindowChunks * kSnowWindowChunks, map.SnowChunks(),
+                map.PendingChunks(), shaders.VertexInjected(), shaders.VertexFailed(), shaders.PixelInjected(),
+                shaders.PixelLeft(), surface.terrainShaders, surface.ready ? "ready" : "not ready", surface.uploads,
+                surface.terrainDraws, surface.reboundDraws, GlobalTrenchMap().ActiveTexels(), g_trenchStamps);
+    g_trenchStamps = 0;
+}
+
+float TrenchSeconds()
+{
+    LARGE_INTEGER now;
+    LARGE_INTEGER frequency;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&frequency);
+    const float seconds = g_trenchLastTick.QuadPart && frequency.QuadPart
+                              ? static_cast<float>(now.QuadPart - g_trenchLastTick.QuadPart) / frequency.QuadPart
+                              : 0.0f;
+    g_trenchLastTick = now;
+    return std::clamp(seconds, 0.0f, kTrenchMaxFrameSeconds);
+}
+
+void MarkUnitsOnGround(const NearbyUnitFrame& units, bool* onGround)
+{
+    for (uint32_t i = 0; i < units.count; ++i)
+    {
+        const NearbyUnit& unit = units.units[i];
+        float ground = 0.0f;
+        onGround[i] = engine::TerrainHeightAt(unit.position[0], unit.position[1], ground) &&
+                      std::fabs(unit.position[2] - ground) < kTrenchGroundTolerance;
+    }
+}
+
+TrenchConstants UpdateTrenches(const Config& cfg, FogDevice* device, int mapId, bool snowActive)
+{
+    TrenchMap& map = GlobalTrenchMap();
+    TrenchStamper& stamper = GlobalTrenchStamper();
+    TrenchLight light = {{}, {0.0f, 0.0f, 1.0f}, 1.0f};
+    if (!snowActive || !cfg.snowTrenches || mapId != g_trenchMapId)
+    {
+        if (map.Placed())
+        {
+            map.Reset();
+            stamper.Reset();
+        }
+        g_trenchMapId = mapId;
+        TrenchSeconds();
+        if (!snowActive || !cfg.snowTrenches)
+            return TrenchConstantsFor(map, false, cfg.snowTrenchRim, light);
+    }
+    engine::ReadCameraPosition(light.camera);
+    float centre[3];
+    if (!engine::ReadActivePlayerPosition(centre))
+        std::memcpy(centre, light.camera, sizeof(centre));
+    map.Place(centre[0], centre[1]);
+    NearbyUnitFrame units;
+    bool onGround[kMaxNearbyUnits] = {};
+    if (engine::CaptureNearbyUnits(centre, kTrenchUnitRange, units))
+        MarkUnitsOnGround(units, onGround);
+    g_trenchStamps += stamper.Step(map, units, onGround);
+    map.Relax(TrenchSeconds(), cfg.snowTrenchSeconds);
+    const bool uploaded = UploadTrenchMap(device, map);
+    uint32_t ambient = 0;
+    uint32_t direct = 0;
+    if (engine::ReadSceneLight(light.toLight, ambient, direct))
+        light.ambientShare = AmbientShare(ambient, direct);
+    return TrenchConstantsFor(map, uploaded, cfg.snowTrenchRim, light);
+}
+
+void UpdateSnowUnsafe()
+{
+    const Config& cfg = GlobalConfig().Get();
+    SnowMap& map = GlobalSnowMap();
+    map.Configure(SnowSettingsFrom(cfg));
+    const int mapId = engine::ReadCurrentMap();
+    FogDevice* device = GameFogDevice();
+    bool active = false;
+    if (cfg.snow && device && mapId != kNoMap)
+    {
+        float camera[3];
+        engine::ReadCameraPosition(camera);
+        map.Track(camera, mapId, g_snowTerrain, kSnowChunksPerFrame);
+        active = UploadSnowMap(device, map);
+        LogSnowStatus(map, mapId);
+    }
+    else if (map.Placed())
+    {
+        map.Reset();
+    }
+    SnowFrame& frame = GlobalSnowFrame();
+    frame.vertex = SnowVertexConstantsFor(map, active);
+    frame.pixel = SnowPixelConstantsFor(map, active && GlobalSnowShaders().Paired());
+    frame.trench = UpdateTrenches(cfg, device, mapId, active && GlobalSnowShaders().Paired());
+    frame.trenchDepth = frame.trench.registers[0][3] > 0.0f && GlobalTrenchMap().ActiveTexels() > 0;
+    engine::WriteVertexShadowConstants(kSnowVertexRegister, &frame.vertex.registers[0][0], kSnowVertexRegisterCount);
+}
+
+void UpdateSnow()
+{
+    if (!g_snowInstalled || g_snowFailed)
+        return;
+    __try
+    {
+        UpdateSnowUnsafe();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        g_snowFailed = true;
+        GlobalSnowFrame() = {};
+        VF_LOG_ERROR("exception 0x%08X in the snow update; the snow stops for this session",
+                     static_cast<unsigned>(GetExceptionCode()));
+    }
+}
+
 void OnFrameBegin()
 {
     GlobalFrameCopies().CountFrame();
     ReloadConfigAfterInterval();
     PublishSpellLights();
     ConfigureWind();
+    UpdateSnow();
     g_renderedThisFrame = false;
     ResetTransparentFogFrame();
     if (FogDrawsInPlaceOfStockFog())
@@ -2453,6 +2598,25 @@ bool InstallGrassWindHooks()
                 static_cast<unsigned>(engine::kInitializeShaderConstantsSite),
                 static_cast<unsigned>(engine::kSetupGrassShaderSite), cfg.grassWind ? 1 : 0, cfg.grassParting ? 1 : 0,
                 cfg.grassDensity, copiesLost ? ", no copies without the doodad hooks" : "");
+    return true;
+}
+
+bool InstallSnow()
+{
+    const Config& cfg = GlobalConfig().Get();
+    if (!cfg.snow)
+    {
+        VF_LOG_INFO("snow not installed (Snow=0 at start)");
+        return false;
+    }
+    if (!engine::SnowCodeMatches(ClientCodeView()))
+        return false;
+    GlobalSnowMap().Configure(SnowSettingsFrom(cfg));
+    GlobalSnowShaders().Enable(true);
+    g_snowInstalled = true;
+    VF_LOG_INFO("snow installed: terrain shaders are rewritten as the client creates them (SnowDepth=%.2f, "
+                "SnowEdges=%.2f)",
+                cfg.snowDepth, cfg.snowEdges);
     return true;
 }
 
