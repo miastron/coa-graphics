@@ -42,10 +42,6 @@ constexpr int kCodes = 256;
 constexpr int kLastCode = kCodes - 1;
 constexpr int kBlueCodeStride = 37;
 constexpr UINT kStripeSampleRow = 300;
-constexpr UINT kStandInGlowTop = 620;
-constexpr UINT kStandInGlowBottom = 680;
-constexpr UINT kStandInGlowSampleRow = 650;
-constexpr int kStandInGlowCode = 128;
 constexpr float kUnormConversionTolerance = 0.6f;
 constexpr float kDeliveredGlowTolerance = 1e-6f;
 constexpr float kClampedDayNightGlow = 1.0f;
@@ -82,6 +78,18 @@ struct FakeGlowEffect
     uint32_t unknown28;
     uint32_t underwaterFlag;
 };
+
+struct StandInBand
+{
+    UINT top;
+    UINT bottom;
+    int code;
+
+    UINT SampleRow() const { return (top + bottom) / 2; }
+};
+
+constexpr StandInBand kStandInGlow = {620, 680, 128};
+constexpr StandInBand kStandInWorldName = {540, 600, 96};
 
 static_assert(offsetof(FakeGlowPass, colour) == 0x30, "the composite pass colour is at +0x30");
 static_assert(offsetof(FakePassList, count) == 4 && offsetof(FakePassList, data) == 8, "pass list layout");
@@ -585,13 +593,20 @@ CurveMatch CompareStripes(const Image& image, const D3DVIEWPORT9& area, UINT row
     return match;
 }
 
-CurveMatch CompareStandInGlow(const Image& image, const D3DVIEWPORT9& area, const float* curve, float strength)
+CurveMatch CompareStandIn(const Image& image, const D3DVIEWPORT9& area, const StandInBand& band, const float* curve,
+                          float strength)
 {
     CurveMatch match;
-    const unsigned char* pixel = image.At(area.X + area.Width / 2, kStandInGlowSampleRow);
+    const unsigned char* pixel = image.At(area.X + area.Width / 2, band.SampleRow());
     for (int channel = 0; channel < 3; ++channel)
-        match.Add(ChannelOf(pixel, channel), ReferenceGraded(kStandInGlowCode, curve, strength));
+        match.Add(ChannelOf(pixel, channel), ReferenceGraded(band.code, curve, strength));
     return match;
+}
+
+void FillStandIn(IDirect3DDevice9* dev, const D3DVIEWPORT9& area, const StandInBand& band)
+{
+    ClearRect(dev, static_cast<LONG>(area.X), static_cast<LONG>(band.top), static_cast<LONG>(area.X + area.Width),
+              static_cast<LONG>(band.bottom), D3DCOLOR_XRGB(band.code, band.code, band.code));
 }
 
 void PrintCurveMatch(const char* what, const CurveMatch& m)
@@ -619,6 +634,7 @@ struct GradedFrameRequest
     float colorGrading = 1.0f;
     bool worldDone = true;
     bool throughTheWorldDoneHook = false;
+    bool standInWorldName = false;
     bool standInGlow = false;
 };
 
@@ -691,12 +707,12 @@ GradedFrame RenderGradedFrame(Harness& h, const GradedFrameRequest& request)
     FillStripes(h.dev, request.filled);
     CaptureWorldViewport(h.dev, request.world);
     vf_test_grading_stats(&result.before);
+    if (request.standInWorldName)
+        FillStandIn(h.dev, request.filled, kStandInWorldName);
     if (request.worldDone)
         RunWorldDone(request.throughTheWorldDoneHook);
     if (request.standInGlow)
-        ClearRect(h.dev, static_cast<LONG>(request.filled.X), kStandInGlowTop,
-                  static_cast<LONG>(request.filled.X + request.filled.Width), kStandInGlowBottom,
-                  D3DCOLOR_XRGB(kStandInGlowCode, kStandInGlowCode, kStandInGlowCode));
+        FillStandIn(h.dev, request.filled, kStandInGlow);
     h.SetEngineState(request.filled);
     Sentinel s0;
     ReadSentinel(h.dev, s0);
@@ -733,6 +749,7 @@ void CheckIdentityAndShippedCurves(Harness& h, const D3DVIEWPORT9& world, const 
           "grading with the identity curve returns every 8-bit code of R, G and B unchanged");
 
     GradedFrameRequest shippedRequest = Request(world, 1.0f, shipped);
+    shippedRequest.standInWorldName = true;
     shippedRequest.standInGlow = true;
     const GradedFrame full = RenderGradedFrame(h, shippedRequest);
     const CurveMatch fullMatch = CompareStripes(full.image, world, kStripeSampleRow, shipped, 1.0f);
@@ -740,9 +757,14 @@ void CheckIdentityAndShippedCurves(Harness& h, const D3DVIEWPORT9& world, const 
     Check(full.Draws() == 1 && fullMatch.WithinConversion(),
           "the Stormwind noon curve is applied per channel with the LUT's linear interpolation, within D3D's float "
           "to 8-bit conversion tolerance");
-    const CurveMatch standIn = CompareStandInGlow(full.image, world, shipped, 1.0f);
+    const CurveMatch standIn = CompareStandIn(full.image, world, kStandInGlow, shipped, 1.0f);
     Check(standIn.WithinConversion(),
           "grading reads the frame at the frame end: what the glow drew after the world is done is graded");
+    const CurveMatch worldName = CompareStandIn(full.image, world, kStandInWorldName, shipped, 1.0f);
+    PrintCurveMatch("names drawn in the world view before the world is done", worldName);
+    Check(worldName.WithinConversion() &&
+              !CompareStandIn(full.image, world, kStandInWorldName, shipped, 0.0f).WithinConversion(),
+          "names the world render draws before the world is done (world text 0x4F9218) are graded with the 3D view");
     Check(full.statesKept,
           "grading restores render, sampler, texture, shader, pixel constant c0/c1, stream, viewport, scissor, "
           "target and depth state");

@@ -308,7 +308,8 @@ bool DrawLight(Config& c)
                       "Radial rays from the bright sky around the sun, 0 = off");
     changed |= Toggle("Glow compensation", c.glowCompensation,
                       "Pre-compensate the fog for the client's full-screen glow, which otherwise bleaches bright fog "
-                      "around the sun to white");
+                      "around the sun to white. The fog itself only with linear light, while it blends over a copy "
+                      "of the scene; otherwise only the god rays are compensated");
     return changed;
 }
 
@@ -324,12 +325,13 @@ bool DrawGlowAndGrading(Config& c)
                           "coverage. Off: the client's glow");
     changed |= Slider(c, &Config::colorGrading, "Colour grading", "%.2f",
                       "Strength of the modern client's colour curve for the lights around the camera: brighter "
-                      "midtones, and the brightest highlights clipped to white. Names, the interface, the ghost view "
-                      "and the view under water are not graded. 0 = off");
+                      "midtones, and the brightest highlights clipped to white. It grades the 3D view after the glow, "
+                      "names drawn in the world included; the interface, the ghost view and the view under water are "
+                      "not graded. 0 = off");
     changed |= Slider(c, &Config::bloom, "Bloom", "%.2f",
                       "A soft halo of light around the brightest parts of the 3D view (the sun, bright sky, spells "
-                      "and lamps) at the end of the world render, before names and the interface. It adds to the "
-                      "client's own glow. 0 = off");
+                      "and lamps) at the end of the world render, names drawn in the world included, before the "
+                      "interface. It adds to the client's own glow. 0 = off");
     return changed;
 }
 
@@ -402,11 +404,12 @@ bool DrawAntialiasing(Config& c)
         return false;
     bool changed = Toggle("SMAA antialiasing", c.antialiasing,
                           "Smooth the jagged edges of the 3D view, also those multisampling misses: leaves, grass, "
-                          "fences and hair. Runs at the end of the world render, before names and the interface");
+                          "fences and hair. Runs at the end of the world render, names drawn in the world included, "
+                          "before the interface");
     changed |= Slider(c, &Config::sharpening, "Sharpening", "%.2f",
-                      "Contrast-adaptive sharpening of the 3D view at the end of the world render, before names and "
-                      "the interface: brings back detail that blurry textures, antialiasing and the fog soften, more "
-                      "where the image is flat than at edges. 0 = off");
+                      "Contrast-adaptive sharpening of the 3D view at the end of the world render, names drawn in the "
+                      "world included, before the interface: brings back detail that blurry textures, antialiasing "
+                      "and the fog soften, more where the image is flat than at edges. 0 = off");
     changed |= Toggle("Keep the game's multisampling", c.multisampling,
                       "Keep the game's Multisampling video option (smooth edges) when the graphics driver can copy "
                       "its depth for the fog and water: NVIDIA through NVAPI, AMD and Intel through RESZ. Off: "

@@ -113,7 +113,8 @@ after it say how each works and what is checked.
   with one level (render targets, shadow maps) and point-filtered samplers keep the game's filter. A higher level the game
   asks for is kept, and the level is capped at the device's `MaxAnisotropy`. The DLL's own passes are not affected.
 - **SMAA antialiasing** (`Antialiasing`), **sharpening** (`Sharpening`) and **bloom** (`Bloom`), all off by default, applied
-  to the world viewport after colour grading and before names and the interface.
+  to the world viewport after colour grading, so names drawn in the world are included, and before the later name and
+  icon pass and the interface.
 - **Opt-in** (all off by default): Forever's per-light glow amount (`ForeverGlow`) and colour curve (`ColorGrading`) where
   Classic lights cover the camera; see-through effects fogged at their own distance (`TransparentFog`); and an
   energy-normalised phase for the Classic layers' sun and moon scattering (`ClassicPhase`).
@@ -270,7 +271,10 @@ Fog renders once after the world, including its late geometry and the native sun
 the UI. While it draws, the stock fog is pushed out of range for the world render and restored afterwards. Frames without
 volumetric fog keep the stock fog. An unexpected draw failure restores it on the next frame. The client's glow
 (`screen + g·blur²`, with `g` from the day/night light) runs afterwards and would bleach bright fog to white, so fogged
-pixels are pre-compensated with the live glow amount. God rays use the display highlight range left after the glow, and
+pixels are pre-compensated with the live glow amount while the fog blends in linear light over a scene copy
+(`ColorSpace=1`, the log line `fog blend: linear over a scene copy`). The gamma blends (`ColorSpace=0`) and the
+fixed-function blend without a scene copy leave the fog uncompensated; the god rays, which need a scene copy, are
+compensated whenever they are drawn. God rays use the display highlight range left after the glow, and
 need a scene copy and the low-resolution copy of the world viewport their mask is drawn from; without either they are
 omitted, and a failed low-resolution copy is logged once. When the late god ray pass after the early composite fails,
 the fog's temporal history stays as the early composite left it, since that pass never writes the fog or history
@@ -343,7 +347,8 @@ never writes the day/night glow, and writes nothing under the ghost effect or an
 uses the byte the composite receives, so a glow above 1, which wraps, is compensated as drawn.
 
 `ColorGrading` passes a copy of the world viewport through the blended 32-entry curve per channel, at the end of the world
-render and before names and the interface. It writes `lerp(scene, curve(scene), ColorGrading·t)`. The ghost view, the view
+render, after the world-name text (`0x4F9218`) and the glow and before the later name and icon pass (`0x4FB042`) and
+the interface. It writes `lerp(scene, curve(scene), ColorGrading·t)`. The ghost view, the view
 under water, and a view without a grading key are left alone.
 
 **Antialiasing and sharpening.** With `Antialiasing=1` or `Sharpening` above 0, the world viewport captured at the world-done
@@ -374,8 +379,10 @@ the stock client fogs it by its own distance. With `TransparentFog=1`, above wat
 end of the liquid pass instead, before the see-through models on the camera's side. Every later M2 batch fog call then gets
 a linear fog with exponent 1. That is a least-squares line in planar view depth (the depth the client's M2 shaders fog by),
 fitted through the volumetric transmittance along 15 rays within 100 yd. The fitted in-scatter, point lights included, is the
-colour where the batch uses its lighting colour. Additive, modulate and modulate-2x batches keep black, white and grey. God
-rays are added at the end of the world render. Batches the client draws unfogged (a material with the unfogged flag, a
+colour where the batch uses its lighting colour. Additive, modulate and modulate-2x batches keep black, white and grey. When
+those 100 yd keep more than 90% of the light, the fitted range grows, smoothly with how clear they are, toward the depth
+where the transmittance along the view axis halves, reached at 99.5%, and never past the far clip; when even the far clip
+keeps 99.5%, no line is fitted and the effects stay unfogged. God rays are added at the end of the world render. Batches the client draws unfogged (a material with the unfogged flag, a
 lighting without fog), among them lamp glows, wisps and other glowing effects, take the same line with the colour of
 their blend mode (blend modes 0 to 6, the client's fog table; a batch of any other mode stays unfogged): drawn after the
 composite they had no fog at all and shone through any fog at any distance, where the fog drawn after the world dims
@@ -655,8 +662,9 @@ The water is tuned by eye against this mapping, not matched to Forever captures.
   fog upload call (`0x81FD29`) is retargeted after them, on its own: when a byte run checked under M2 unfogged batch
   differs it stays unpatched and unfogged effects stay unfogged. Its thunk hands the batch (`esi`) and the upload's
   argument to the DLL, which calls the setter with the fitted line and turns the upload's 0 into 1.
-- **Water hooks.** Installed after the fog hooks and independently of them: the water pass call (`0x790AA2`) and the
-  `Render` slots of the two water material vtables (`0xA5954C`, `0xA59580`, read-only data patched under
+- **Water hooks.** Installed after the fog hooks and only when those installed (`g_waterHooks = engineHooks &&
+  InstallWaterHooks()` in `dllmain.cpp`), so a log without a water line after a fog hook mismatch is expected: the water
+  pass call (`0x790AA2`) and the `Render` slots of the two water material vtables (`0xA5954C`, `0xA59580`, read-only data patched under
   `VirtualProtect`). The call site, both slots and the layout bytes the classification reads are checked first. On any
   mismatch none are patched and the fog is unaffected. `waterdata.bin` is loaded only once they are installed. A water
   exception restores the device state, turns water off for the session and leaves the fog running.
@@ -1247,7 +1255,9 @@ Engine notes behind the code:
   calls the liquid surface pass `0x77F020` (no arguments, outside liquid only). `0x4F9281` (`E8 8A 7D 3C 00`)
   calls FFX end `0x8C1010` (no arguments); the thunk renders the fog, then tail-jumps to it.
 - Loader slot. On disk `[0xB2ED98]` holds the delay-load thunk `0x41C654`, which pushes the slot (`0x41C65F`)
-  before resolving it; `0x41C673` jumps through it. The hooks install only while the slot still holds the thunk.
+  before resolving it; `0x41C673` jumps through it. The hooks install only while the slot still holds the thunk. Any other value is another
+  hook: the engine, transparent fog and water hooks are not installed, while `LightStay` and the far-clip calls still
+  apply, and `CoAGraphics.log` names the slot's value.
 - Matrices. `0x6821A4` reads the camera-relative view matrix at Gx `+0x1B00 + 64·[+0x1AF8]` and then the projection at
   `+0xF88`. Gx `+0x1AF8` is the level of the view `CGxMatrixStack` (`m_xforms[10]`, 0x118 bytes each from `+0x1008`),
   which holds four matrices, so the level is read only below 4 (wowdecomp `CGxMatrixStack.h`). The engine builds its
@@ -1375,7 +1385,7 @@ Engine notes behind the code:
   calls the setter at `0x81FD15` (`E8 F6 34 05 00` → `0x873210`), then `0x873390(1)`, and pops the arguments
   (`0x81FD1A 6A 01 E8 6F 36 05 00 83 C4 14`).
 - M2 unfogged batch. The batch is `esi` throughout `0x81FB10` (`0x81FB18 8B F1`; wowdecomp `CM2SceneRender::SetupLighting`);
-  seven calls reach it. It reads the material (`0x81FB58 8B 8E 98 00 00 00`), takes mode 0 when its flags have bit 2
+  seven calls reach it. It reads the material (`0x81FB58 8B 8E 98 00 00 00`), takes mode 0 when its flags have 0x2
   (`0x81FB61 F6 01 02`) or the lighting's fog scale is not above 0, and otherwise the table entry of the blend mode at
   material `+2` (`0x81FB77 0F B7 49 02`). Mode 0 jumps (`0x81FB86 3B C3 89 86 80 00 00 00 0F 84 92 01 00 00`) to
   `0x81FD26 53 DD D8 E8 62 36 05 00 83 C4 04`, the upload `0x873390(0)` (`CShaderEffect::SetFogEnabled`) with `ebx` = 0,
@@ -1398,7 +1408,9 @@ Engine notes behind the code:
   `0x7F0870` (7 bytes; it then draws a second moon), the LightParams getter `0x7EB180` (it multiplies the glow by its
   `ambientGlow` CVar, so the glow can exceed 1), the light blend `0x7F3230` and M2 and DayNight functions. None
   touches `0x4F9170`, `0x81FD15`, `0x873210`, `0x4F9213`, `0x4F9281`, `0x4F8770`, `0xD38C2C` or the FFX code, or
-  overlaps a checked byte run; at `LogLevel=2` the log says what `0x7F0870` begins with.
+  overlaps a byte run checked before the M2 unfogged batch hook; at `LogLevel=2` the log says what `0x7F0870` begins
+  with. The runs of that hook (`0x81FB18`-`0x81FD30`, `0x873390`, `0x8733C6`, `0x87327F`) and its call `0x81FD29` were
+  not checked against it; when one differs the log says so and the hook stays off.
 - Screen effects. FFX end runs the current effect `[0xD45780]` when the `ffx` CVar (`[0xD45774]`, int at `+0x30`)
   and the effect's own CVar (`+4`) are on. The glow effect `[0xB74364]` keeps `ffxGlow` there (`0x8BFEDB`);
   `0x4F8770` feeds it the DayNight glow (`0xD38C2C`) as the additive weight of `lerp(screen, blur, other) +
@@ -1857,7 +1869,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `LightShafts` | 1 | Terrain, buildings and trees block the sun or moon light in the fog |
 | `WorldShadows` | 1 | Use the client's world shadow maps when available (needs `LightShafts`) |
 | `GodRays` | 0 | Radial sky rays; 0 = off |
-| `GlowCompensation` | 1 | Pre-compensate the fog for the client's glow |
+| `GlowCompensation` | 1 | Pre-compensate for the client's glow: the fog with `ColorSpace=1`, else only the god rays |
 | `ForeverGlow` | 0 | 1 gives the client's glow Forever's per-light amount where Classic lights cover the camera |
 | `ColorGrading` | 0 | Strength 0..1 of Forever's per-light colour curve over the 3D view; 0 = off |
 | `AnisotropicFiltering` | 16 | Anisotropic filtering of the game's mipmapped textures: 0 = the game's own; 2–16 |
@@ -1943,7 +1955,8 @@ game, so by default colours still differ from Classic.
 - Interior treatment follows the camera's transition weight, not rooms or portals along each ray, so views through
   doorways may differ.
 - Transparent materials without depth writes are fogged at the depth behind them. With `TransparentFog=1` (checked by the
-  harness only), M2 effects take one line fitted to the fog of the first 100 yd. That line cannot follow height fog and
+  harness only), M2 effects take one line fitted to the fog of the first 100 yd, or of a longer range where the fog in those is thin
+  (see Transparent fog). That line cannot follow height fog and
   fully fogs effects past its end (500–900 yd in tests), so far glows vanish.
 - The `gxApi d3d9ex` path is not wrapped, so fog and the settings window stay off there. The settings window also needs a
   fog device, so it is missing when INTZ depth is unsupported.
