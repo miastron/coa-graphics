@@ -34,6 +34,5 @@ namespace engine
 bool ReadStaleLightBranch(const ClientCodeView& code, StaleLightBranch& out);
 LightStayOutcome DecideLightStay(const ClientCodeView& code);
 LightStayOutcome KeepLightsOnOffScreen(const ClientCodeView& code);
-const char* LightStayOutcomeName(LightStayOutcome outcome);
 void DescribeStaleLightBranch(const ClientCodeView& code, char* text, size_t size);
 }

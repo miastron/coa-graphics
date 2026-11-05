@@ -66,22 +66,6 @@ LightStayOutcome KeepLightsOnOffScreen(const ClientCodeView& code)
                                                                         : LightStayOutcome::WriteFailed;
 }
 
-const char* LightStayOutcomeName(LightStayOutcome outcome)
-{
-    switch (outcome)
-    {
-    case LightStayOutcome::Applied:
-        return "applied";
-    case LightStayOutcome::AlreadyInClient:
-        return "already in the client";
-    case LightStayOutcome::CodeDiffers:
-        return "client code differs";
-    case LightStayOutcome::WriteFailed:
-        return "client code not writable";
-    }
-    return "unknown";
-}
-
 void DescribeStaleLightBranch(const ClientCodeView& code, char* text, size_t size)
 {
     StaleLightBranch branch;
