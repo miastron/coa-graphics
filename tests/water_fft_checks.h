@@ -49,6 +49,7 @@ constexpr DWORD kSentinelTextureStage = 5;
 constexpr DWORD kAllChannels = 0xF;
 constexpr int kExtraTargets = 3;
 constexpr uint32_t kRandomSeed = 20260929u;
+constexpr D3DCOLOR kRecycledFoamResidue = 0xFFFFFFFF;
 
 const WaterFftTile kLakeTiles[] = {
     {20, 32.0f, 7689.0f, 3.0f, 4.0f, {-1.0f, 0.0f, 1.0f}, {-1.0f, 0.0f, 1.0f}},
@@ -1297,6 +1298,54 @@ UINT LevelWidth(IDirect3DTexture9* texture)
     return texture && SUCCEEDED(texture->GetLevelDesc(0, &desc)) ? desc.Width : 0;
 }
 
+bool RunPrepared(IDirect3DDevice9* dev, WaterFft& fft, const WaterFftSettings& settings,
+                 const std::vector<WaterFftTile>& tiles, double seconds, float deltaSeconds)
+{
+    EnterCallerState(dev);
+    if (FAILED(dev->BeginScene()))
+        return false;
+    const bool ran = fft.Run(dev, settings, tiles, seconds, deltaSeconds);
+    dev->EndScene();
+    return ran;
+}
+
+bool NewFoamMapHoldsResidue(IDirect3DDevice9* dev)
+{
+    WaterFftPasses passes;
+    IDirect3DTexture9* foam = nullptr;
+    Readback residue;
+    const bool held = passes.Prepare(dev, kWaterFftLowResolution, 1) && passes.CreateFoamMap(&foam) &&
+                      ReadLevel(dev, foam, 0, residue) && FoamState(residue.At(0, 0), 0) > 0.0;
+    if (foam)
+        foam->Release();
+    return held;
+}
+
+void CheckNewFoamClearedWhenRunComesLater(IDirect3DDevice9* dev)
+{
+    const std::vector<WaterFftTile> tiles = TileList(kLakeTiles);
+    const uint32_t every = EveryTile(tiles.size());
+    const WaterFftSettings settings = SettingsFor(kWaterFftLowResolution);
+    InjectWaterFoamMapResidue(kRecycledFoamResidue);
+    const bool residue = NewFoamMapHoldsResidue(dev);
+    WaterFft late;
+    WaterFft prompt;
+    bool same = late.Prepare(dev, settings, tiles, every) && late.Prepare(dev, settings, tiles, every) &&
+                RunPrepared(dev, late, settings, tiles, kSimulatedSeconds, kFrameSeconds) &&
+                SimulateFrame(dev, prompt, settings, tiles, every, kSimulatedSeconds, kFrameSeconds);
+    InjectWaterFoamMapResidue(0);
+    for (int tile = 0; same && tile < static_cast<int>(tiles.size()); ++tile)
+    {
+        TileReadback lateTile;
+        TileReadback promptTile;
+        same = ReadTile(dev, late, tile, lateTile) && ReadTile(dev, prompt, tile, promptTile) &&
+               SameBits(lateTile.foam, promptTile.foam);
+    }
+    Check(residue && same,
+          "new water foam maps holding recycled memory start from zero even when the frame that created them "
+          "skipped the simulation");
+}
+
 void CheckResolutionsAndRecreation(IDirect3DDevice9* dev)
 {
     const std::vector<WaterFftTile> tiles = TileList(kLakeTiles);
@@ -1785,6 +1834,7 @@ void CheckWaterFft(IDirect3DDevice9* dev)
         CheckAmplitudeScaleScalesTheWaves(dev);
         CheckChangedTilesRestart(dev);
         CheckResolutionsAndRecreation(dev);
+        CheckNewFoamClearedWhenRunComesLater(dev);
         CheckStateContract(dev);
         ReportGpuTime(dev);
     }

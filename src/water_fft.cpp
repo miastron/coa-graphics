@@ -3,6 +3,7 @@
 #include "d3d_util.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
+#include "test_seams.h"
 #include "water_spectrum.h"
 
 #include "ps_vw_fft_assemble_fused.h"
@@ -29,6 +30,8 @@ constexpr UINT kLargestMapSide = kWaterFftHighResolution;
 constexpr float kLargestFoamStepSeconds = 0.1f;
 constexpr unsigned kFramesBetweenCreationAttempts = 120;
 constexpr DWORD kFirstUnusedStage = 3;
+
+D3DCOLOR g_injectedFoamResidue = 0;
 
 struct Float4
 {
@@ -75,7 +78,24 @@ float FoamStepSeconds(float deltaSeconds)
 {
     return deltaSeconds > 0.0f ? std::min(deltaSeconds, kLargestFoamStepSeconds) : 0.0f;
 }
+
+void LeaveInjectedResidue(IDirect3DDevice9* dev, IDirect3DTexture9* foam)
+{
+    const D3DCOLOR residue = Seam<D3DCOLOR>(g_injectedFoamResidue, 0);
+    IDirect3DSurface9* level = nullptr;
+    if (residue == 0 || FAILED(foam->GetSurfaceLevel(0, &level)))
+        return;
+    dev->ColorFill(level, nullptr, residue);
+    level->Release();
 }
+}
+
+#ifdef VF_TESTING
+void InjectWaterFoamMapResidue(D3DCOLOR residue)
+{
+    g_injectedFoamResidue = residue;
+}
+#endif
 
 WaterFftPasses::~WaterFftPasses()
 {
@@ -329,7 +349,10 @@ bool WaterFftPasses::CreateSurfaceMap(IDirect3DTexture9** surface) const
 bool WaterFftPasses::CreateFoamMap(IDirect3DTexture9** foam) const
 {
     const UINT side = static_cast<UINT>(m_resolution);
-    return m_device && m_resolution > 0 && CreateTarget(m_device, side, side, 1, kMapFormat, foam);
+    if (!m_device || m_resolution <= 0 || !CreateTarget(m_device, side, side, 1, kMapFormat, foam))
+        return false;
+    LeaveInjectedResidue(m_device, *foam);
+    return true;
 }
 
 void WaterFftPasses::Begin(IDirect3DDevice9* dev)
@@ -583,6 +606,7 @@ void WaterFft::ReleaseTileMaps(TileMaps& maps)
     SafeRelease(maps.foam[0]);
     SafeRelease(maps.foam[1]);
     maps.latestFoam = 0;
+    maps.foamCleared = false;
     maps.simulated = false;
 }
 
@@ -631,9 +655,8 @@ void WaterFft::ForgetChangedTiles(const std::vector<WaterFftTile>& tiles)
         }
 }
 
-bool WaterFft::EnsureTileMaps(TileMaps& maps, bool& created)
+bool WaterFft::EnsureTileMaps(TileMaps& maps)
 {
-    created = false;
     if (maps.surface && maps.foam[0] && maps.foam[1])
         return true;
     ReleaseTileMaps(maps);
@@ -643,8 +666,16 @@ bool WaterFft::EnsureTileMaps(TileMaps& maps, bool& created)
         ReleaseTileMaps(maps);
         return false;
     }
-    created = true;
     return true;
+}
+
+void WaterFft::ClearNewFoam(TileMaps& maps)
+{
+    if (maps.foamCleared)
+        return;
+    for (IDirect3DTexture9* foam : maps.foam)
+        m_passes.ClearFoam(foam);
+    maps.foamCleared = true;
 }
 
 void WaterFft::UpdateTileMaps(const std::vector<WaterFftTile>& tiles, int tile, int slot, float deltaSeconds,
@@ -752,7 +783,7 @@ bool WaterFft::Prepare(IDirect3DDevice9* dev, const WaterFftSettings& settings, 
             m_mapResolution = settings.resolution;
         }
         for (int slot = 0; slot < m_activeCount; ++slot)
-            if (!EnsureTileMaps(m_tiles[m_active[slot]], m_created[slot]))
+            if (!EnsureTileMaps(m_tiles[m_active[slot]]))
                 return FailCreation("wave map creation failed");
     }
     m_prepared = true;
@@ -769,9 +800,7 @@ bool WaterFft::Run(IDirect3DDevice9* dev, const WaterFftSettings& settings, cons
         return true;
     m_passes.Begin(dev);
     for (int slot = 0; slot < m_activeCount; ++slot)
-        if (m_created[slot])
-            for (IDirect3DTexture9* foam : m_tiles[m_active[slot]].foam)
-                m_passes.ClearFoam(foam);
+        ClearNewFoam(m_tiles[m_active[slot]]);
     const float foamStep = FoamStepSeconds(deltaSeconds);
     const int batch = m_passes.MaxSlots();
     for (int first = 0; first < m_activeCount; first += batch)
@@ -794,9 +823,7 @@ bool WaterFft::RunInterpolated(IDirect3DDevice9* dev, const WaterFftSettings& se
         return true;
     m_passes.Begin(dev);
     for (int slot = 0; slot < m_activeCount; ++slot)
-        if (m_created[slot])
-            for (IDirect3DTexture9* foam : m_tiles[m_active[slot]].foam)
-                m_passes.ClearFoam(foam);
+        ClearNewFoam(m_tiles[m_active[slot]]);
     SimulateInterpolatedBatch(tiles, settings, seconds, FoamStepSeconds(deltaSeconds), blend);
     m_passes.End();
     m_simulatedResolution = settings.resolution;
@@ -828,7 +855,7 @@ bool WaterFft::HoldsCurrentMaps(const WaterFftSettings& settings) const
     if (!m_prepared || m_activeCount == 0 || m_simulatedResolution != settings.resolution)
         return false;
     for (int slot = 0; slot < m_activeCount; ++slot)
-        if (m_created[slot] || !m_tiles[m_active[slot]].simulated)
+        if (!m_tiles[m_active[slot]].simulated)
             return false;
     return true;
 }

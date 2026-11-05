@@ -7,6 +7,10 @@
 #include <cstdint>
 #include <vector>
 
+#ifdef VF_TESTING
+void InjectWaterFoamMapResidue(D3DCOLOR residue);
+#endif
+
 struct WaterFftSettings
 {
     int resolution;
@@ -167,6 +171,7 @@ private:
         IDirect3DTexture9* surface = nullptr;
         IDirect3DTexture9* foam[2] = {};
         int latestFoam = 0;
+        bool foamCleared = false;
         bool simulated = false;
     };
 
@@ -174,7 +179,8 @@ private:
     bool FailCreation(const char* reason);
     void ReleaseTileMaps(TileMaps& maps);
     void ForgetChangedTiles(const std::vector<WaterFftTile>& tiles);
-    bool EnsureTileMaps(TileMaps& maps, bool& created);
+    bool EnsureTileMaps(TileMaps& maps);
+    void ClearNewFoam(TileMaps& maps);
     void SimulateBatch(const std::vector<WaterFftTile>& tiles, const int* indices, int count,
                        const WaterFftSettings& settings, double seconds, float deltaSeconds);
     void SimulateInterpolatedBatch(const std::vector<WaterFftTile>& tiles, const WaterFftSettings& settings,
@@ -193,7 +199,6 @@ private:
     int m_active[kWaterMaxTiles] = {};
     int m_keptLayout[kWaterMaxTiles] = {};
     int m_keptLayoutCount = 0;
-    bool m_created[kWaterMaxTiles] = {};
     int m_activeCount = 0;
     bool m_prepared = false;
     int m_simulatedResolution = 0;
