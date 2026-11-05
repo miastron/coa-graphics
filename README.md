@@ -221,8 +221,9 @@ The eight uploaded lights are chosen by a stabiliser rather than re-ranked from 
   the camera, into a pool of up to 24 candidates. Equal irradiance ranks the nearer light first. The view test comes before
   the ranking, so a light whose sphere lies wholly outside the view takes no slot. A light behind or beside the camera
   still competes while its sphere reaches into the view, which a sphere of up to 200 yd does from far away. A candidate is
-  the already-known light when it has the same node address within 2 yd, so a colour or attenuation that animates between
-  captures stays one light.
+  the nearest light already known with the same node address within 2 yd plus 40 yd for each second since the last
+  capture, so a colour or attenuation that animates between captures stays one light, and so does a light that moves at
+  up to 40 yd/s at any frame rate, while an address the client reuses 10 yd away within one frame at 60 fps is a new light.
 - **Taking a slot.** A free slot goes first to a challenger that evicted its holder, otherwise to the visible candidate with
   the highest smoothed priority (0.3 s). An occupied slot changes hands only when a candidate's smoothed priority exceeds
   1.5 times the weakest slot's, for three captures in a row.

@@ -11,6 +11,7 @@ constexpr double kLocalLightSwapMargin = 1.5;
 constexpr uint32_t kLocalLightSwapCaptures = 3;
 constexpr uint32_t kLocalLightHoldCaptures = 8;
 constexpr float kLocalLightIdentityYards = 2.0f;
+constexpr float kLocalLightIdentitySpeed = 40.0f;
 constexpr float kLocalLightViewExitYards = 5.0f;
 constexpr double kLocalLightResetSeconds = 1.0;
 constexpr double kLocalLightActivityLogSeconds = 60.0;
@@ -50,7 +51,7 @@ private:
     void Replay(LocalLightInputs& lights) const;
     bool HoldOutput(LocalLightInputs& lights);
     void MatchCandidates(const LocalLightCamera& camera, const LocalLightInputs& lights, float dt);
-    Entry* FindEntry(const LocalPointLight& light);
+    Entry* FindEntry(const LocalPointLight& light, float dt);
     Entry* AddEntry(const LocalPointLight& light, double priority);
     void AdvanceWeights(float dt);
     static bool TakesFreeSlotBefore(const Entry& entry, const Entry& other);

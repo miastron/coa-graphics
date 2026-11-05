@@ -248,6 +248,33 @@ void CheckReusedNodeAddressIsANewLight()
           "fades out");
 }
 
+void CheckLateCaptureMatchesTheNearestEntry()
+{
+    const LocalLightCamera camera = ForwardCamera();
+    LocalLightStabiliser stabiliser;
+    std::vector<LocalPointLight> lights = {StabiliserLight(1, 0.0f, 0.0f, 20.0f, 1.0f)};
+    LocalLightInputs inputs = CaptureOf(lights, camera);
+    StepFrame(stabiliser, camera, 0.0, inputs);
+    lights[0].position[0] = 10.0f;
+    inputs = CaptureOf(lights, camera);
+    StepFrame(stabiliser, camera, kStabiliserFrameSeconds, inputs);
+    inputs = CaptureOf(lights, camera);
+    StepFrame(stabiliser, camera, kStabiliserFrameSeconds + 0.3, inputs);
+    bool oldStaysBehind = false;
+    bool newGoesOn = false;
+    for (uint32_t i = 0; i < inputs.pointLightCount; ++i)
+    {
+        const float weight = inputs.pointLights[i].uploadedColor[0] / inputs.pointLights[i].color[0];
+        if (inputs.pointLights[i].position[0] == 0.0f)
+            oldStaysBehind = weight > 0.0f && weight < 1.0f;
+        else
+            newGoesOn = weight > 0.0f && weight < 1.0f;
+    }
+    Check(inputs.pointLightCount == 2 && oldStaysBehind && newGoesOn && stabiliser.Activity().admissions == 2,
+          "a capture 0.3 s late, whose wider identity radius reaches both the faded light and the new one at a "
+          "reused node address, continues the nearer one and leaves the other fading where it was");
+}
+
 void CheckLightsOutsideTheViewFreeTheirSlot()
 {
     const LocalLightCamera camera = ForwardCamera();
@@ -589,6 +616,36 @@ void CheckEvictionWhoseHeirTookAnotherSlotRampsBack()
           "full strength instead of fading out and in again");
 }
 
+void CheckMovingLightKeepsItsEntry()
+{
+    constexpr double kCaptureSeconds = 0.1;
+    constexpr float kMissileYardsPerSecond = 28.0f;
+    constexpr int kCaptures = 15;
+    const LocalLightCamera camera = ForwardCamera();
+    LocalLightStabiliser stabiliser;
+    LocalLightInputs inputs;
+    StepFrame(stabiliser, camera, 0.0, inputs);
+    LocalPointLight missile = StabiliserLight(1, 0.0f, 0.0f, 10.0f, 1.0f);
+    bool followed = true;
+    float previous = 0.0f;
+    float weight = 0.0f;
+    for (int capture = 1; capture <= kCaptures; ++capture)
+    {
+        const double seconds = capture * kCaptureSeconds;
+        missile.position[2] = 10.0f + kMissileYardsPerSecond * static_cast<float>(seconds);
+        inputs = CaptureOf({missile}, camera);
+        StepFrame(stabiliser, camera, seconds, inputs);
+        const LocalPointLight* uploaded = UploadedLight(inputs, 1);
+        followed = followed && inputs.pointLightCount == 1 && uploaded &&
+                   uploaded->position[2] == missile.position[2] && Uploads(inputs, 1, &weight) && weight >= previous;
+        previous = weight;
+    }
+    Check(followed && weight == 1.0f && stabiliser.Activity().admissions == 1 &&
+              stabiliser.Activity().fadeOuts == 0,
+          "a light moving 28 yd/s and captured every 0.1 s stays one light: it fades in where it is and shines at "
+          "full strength once the fade time has passed");
+}
+
 void CheckLocalLightStabiliser()
 {
     CheckBoundaryChurnIsAbsorbed();
@@ -596,6 +653,7 @@ void CheckLocalLightStabiliser()
     CheckLightsFadeInOnceTheSceneRuns();
     CheckRejectedCapturesHoldTheLastSet();
     CheckReusedNodeAddressIsANewLight();
+    CheckLateCaptureMatchesTheNearestEntry();
     CheckLightsOutsideTheViewFreeTheirSlot();
     CheckLightLeavingTheViewFreesItsSlotAtOnce();
     CheckLightJitteringAtTheViewEdgeKeepsItsSlot();
@@ -608,5 +666,6 @@ void CheckLocalLightStabiliser()
     CheckNoSwapWhileASlotFadesOut();
     CheckEvictionWithoutHeirRampsBack();
     CheckEvictionWhoseHeirTookAnotherSlotRampsBack();
+    CheckMovingLightKeepsItsEntry();
 }
 }

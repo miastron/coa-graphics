@@ -8,7 +8,7 @@
 
 namespace
 {
-bool SameLight(const LocalPointLight& a, const LocalPointLight& b)
+double SquaredDistance(const LocalPointLight& a, const LocalPointLight& b)
 {
     double distanceSquared = 0.0;
     for (int i = 0; i < 3; ++i)
@@ -16,7 +16,12 @@ bool SameLight(const LocalPointLight& a, const LocalPointLight& b)
         const double delta = static_cast<double>(a.position[i]) - b.position[i];
         distanceSquared += delta * delta;
     }
-    return a.nativeId == b.nativeId && distanceSquared <= kLocalLightIdentityYards * kLocalLightIdentityYards;
+    return distanceSquared;
+}
+
+double IdentityYards(float dt)
+{
+    return kLocalLightIdentityYards + static_cast<double>(kLocalLightIdentitySpeed) * dt;
 }
 
 double Smoothed(double previous, double current, float dt)
@@ -129,12 +134,24 @@ bool LocalLightStabiliser::TakesFreeSlotBefore(const Entry& entry, const Entry& 
     return entry.smoothedPriority > other.smoothedPriority;
 }
 
-LocalLightStabiliser::Entry* LocalLightStabiliser::FindEntry(const LocalPointLight& light)
+LocalLightStabiliser::Entry* LocalLightStabiliser::FindEntry(const LocalPointLight& light, float dt)
 {
+    const double identityYards = IdentityYards(dt);
+    double nearestSquared = identityYards * identityYards;
+    Entry* nearest = nullptr;
     for (uint32_t i = 0; i < m_count; ++i)
-        if (SameLight(m_entries[i].light, light))
-            return &m_entries[i];
-    return nullptr;
+    {
+        Entry& entry = m_entries[i];
+        if (entry.light.nativeId != light.nativeId)
+            continue;
+        const double distanceSquared = SquaredDistance(entry.light, light);
+        if (distanceSquared <= nearestSquared && (!nearest || distanceSquared < nearestSquared))
+        {
+            nearest = &entry;
+            nearestSquared = distanceSquared;
+        }
+    }
+    return nearest;
 }
 
 LocalLightStabiliser::Entry* LocalLightStabiliser::AddEntry(const LocalPointLight& light, double priority)
@@ -163,7 +180,7 @@ void LocalLightStabiliser::MatchCandidates(const LocalLightCamera& camera, const
         const LocalPointLight& candidate = lights.candidates[i];
         const double priority = engine::LocalLightPriority(candidate, camera.position);
         const bool inView = PointLightMeetsView(candidate, camera);
-        Entry* entry = FindEntry(candidate);
+        Entry* entry = FindEntry(candidate, dt);
         if (!entry && !inView)
             continue;
         if (!entry)
