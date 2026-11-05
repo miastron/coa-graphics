@@ -486,16 +486,58 @@ band (band 7) at the template's luminance scaled by the ratio of the two lights'
 scattering and the direct light likewise from the direct band (band 0), and the density follows the ratio of the fog
 distances (float band 0, 0.5–2, median 0.87 over Outland and Northrend). The glow is the Forever glow of the template's params in the same slot: the 3.3.5
 `LightParams` glow drives the old client's bloom, is far higher (1.0 in Ashenvale where Forever has 0) and washed the
-colours out when a test build used it on every map. Recipes shared by several lights are written once; the run is
-repeatable on its own output and leaves the Classic lights byte for byte. Run it again after `convert_classic_fog.py`,
-which keeps only the kit's light params. 445 lights on 47 maps come from 194 templates (2.3 MB in all).
+colours out when a test build used it on every map. Recipes shared by several lights are written once; the run first drops the lights, params and zone lights it generated
+(ids from 1000000 up), so it is repeatable on its own output and leaves the Classic lights and zone lights byte for
+byte. Run it again after `convert_classic_fog.py`, which keeps only the kit's light params and the zone lights the kit
+has points for. 445 lights on 47 maps come from 194 templates, and one more light is a copy for Northrend's zone
+outlines (below; 3.2 MB in all).
 
-A layer carries flag 0x10 where the client draws its sky without sun and moon, and flag 0x20 where the sky is clear.
-With 0x10 the scene layers of that light and the distance fog scatter neither sun nor moon and no god rays are drawn
-(the share follows the blend weights of the lights in range). With 0x20 the distance fog is off and the scene layers
-fall off on sky pixels by `exp(−upward·falloff)` with `falloff = −ln(1−clear)/0.005`, so a fully clear sky has no fog
-on it a tenth of a degree above the horizon. The converter sets both from the `LightParams` skybox and the `LightSkybox`
-flags; fogdata.bin built before them carries neither flag and draws as it did.
+The converted layers carry flag 0x10 where the client draws its sky without sun and moon: the light params' skybox
+(`LightParams` column 2) lacks `LightSkybox` flag 0x2, which adds the procedural sky to the skybox model, or the sun
+colour (`LightIntBand` band 9) is black all day. That holds for Hellfire Peninsula, Netherstorm, Shadowmoon Valley,
+Zangarmarsh (`shadowmoon_sky_forest01.mdx` in the Reforged HD client), Blade's Edge, the Bone Wastes, Icecrown, the
+Storm Peaks, Wintergrasp, Zul'Drak, Dragonblight, the Howling Fjord, Crystalsong Forest and Northrend's global light;
+Shattrath City, Terokkar Forest, Eversong Woods and the Netherstorm eco-domes keep the sun, and Grizzly Hills,
+Sholazar Basin and Borean Tundra keep it by the exceptions below. There the scene layers and the distance fog scatter
+neither sun nor moon and no god rays are drawn. The 17 lights with Hellfire Peninsula's skybox (`hellfireskybox.mdx`)
+keep only the ground fog, at 0.3 of the template's density, and carry flag 0x20: testers found the template's haze
+and far wall too strong there and its fog on the sky out of place. Under that clear sky the distance fog is off and
+the scene layers fall off on sky pixels by `exp(−upward·falloff)` with `falloff=−ln(1−clear)/0.005` (1842 fully clear,
+so the ground fog is gone from the sky a tenth of a degree above the horizon; at a light's edge the share fades with
+the blend).
+
+Northrend's global light is 1406. Four client lights on map 571 sit at the origin, which wowdev.wiki's `Light` page
+calls the fallback where no other light applies, but 752 among them has a falloff (32.6 to 46.1 client units). The
+converter and the DLL take only an origin light without falloff for map-wide, so 752 becomes a sphere of about 1 yd at
+(17066.7, 17066.7), the corner of the map grid, that reaches no reachable position, and the DLL's background is the
+first map-wide light in file order, 1406 (1407 and 1408 repeat it; which origin light the client itself shows is not
+known). 1406 borrows the Howling Fjord's sky, `fiord.mdx`, whose sun band is black, and is the only light over 90% of
+Grizzly Hills, 63% of Sholazar Basin and 88% of Borean Tundra, so the rule above took the sun from those zones, which
+testers missed. Two exceptions on map 571 give it back. The skyboxes `shalozar.mdx`, `shalozar(red).mdx`,
+`ashrand_sky01.mdx`, `8riv_stormsongsky01.mdx` and `10drg_sky01.mdx` (Coldarra, part of Borean Tundra) keep the sun in
+every slot that uses them, ahead of both tests; the 32 lights with them have their centres in those three zones
+(`10drg_sky01.mdx` also serves the Oculus, map 578, which keeps the rule), but Borean Tundra's light 1386
+(`ashrand_sky01.mdx`, falloff 247 to 347 yd) reaches about 240 yd into Wintergrasp and Dragonblight and causes most of
+their change below. And two zone outlines, Borean Tundra with Sholazar Basin as one, so that no sunless seam opens at
+their shared border, and Grizzly Hills, hold light 2001406, a copy of 1406 whose clear and storm slots keep the sun:
+the same layers, colours, densities, glow and grading, only flag 0x10 dropped, while its other slots, the ghost's
+spirit sky among them, are 1406's own. The copy sits at the client origin's world position without falloff, so it is
+not map-wide and its sphere reaches no reachable position; it acts only through the outlines (zone lights 1000000 and
+1000001, heights −64000 to 64000 as the Classic outlines have, vertices traced from the 3.3.5 `WorldMapOverlay`
+subzone boxes and simplified to 150 yd, good to about 150–300 yd at the inner borders). `fiord.mdx` stays sunless, as
+the Howling Fjord's own sky, and so does light 1411, the Howling Fjord's 611 yd highland light over Camp Winterhoof.
+Sampled every 50 yd at an estimated ground height (+5 yd), at 18:00 in clear weather, the DLL's blend now leaves
+Grizzly Hills 12.6% sunless (99.0% before: 1411 on the southern rim, the 100 yd fade inside the outline and the
+Zul'Drak cliff lights), Sholazar Basin 7.5% (100%) and Borean Tundra 4.7% (99.3%), while Icecrown (96.4%, from 96.6%),
+the Storm Peaks (99.8%), Dragonblight (99.7%, from 100%), the Howling Fjord (96.2%, from 96.4%) and Wintergrasp
+(98.7%, from 100%) stay sunless and Outland is unchanged. These shares are an offline estimate over zones labelled by
+the overlay boxes, not a measurement in the game.
+
+The converted data, its counts and the shares above are the upstream converter's own, as LuxVelum's README reports
+them for the `fogdata.bin` it ships; this repository ships that file, whose Classic lights, params, keys, layers, zone
+lights and grading curves are identical to the previous `fogdata.bin`, and the harness checks its sunless, clear-sky
+and sun-keeping lights. They were not re-measured against the client tables here, which are not on this machine. A
+`fogdata.bin` built before the two flags carries neither and draws as it did.
 
 `OutlandDensity` and `NorthrendDensity` start at 0.15, as the fog read as too strong there in play, and
 `OutlandClassicFog=0` or `NorthrendClassicFog=0` brings back the derived layers with the client's glow.
