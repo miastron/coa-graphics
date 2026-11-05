@@ -94,6 +94,7 @@ void LocalLightStabiliser::Step(const LocalLightCamera& camera, int mapId, uint3
     AdvanceWeights(dt);
     RemoveSpentEntries();
     FillFreeSlots();
+    CancelEvictionsWithoutHeirs();
     m_sceneStarting = false;
     ChallengeWeakestSlot();
     WriteOutput(lights);
@@ -227,6 +228,29 @@ void LocalLightStabiliser::FillFreeSlots()
         best->challengeCaptures = 0;
         ++slotted;
         ++m_activity.admissions;
+    }
+}
+
+void LocalLightStabiliser::CancelEvictionsWithoutHeirs()
+{
+    uint32_t evictions = 0;
+    uint32_t waitingHeirs = 0;
+    for (uint32_t i = 0; i < m_count; ++i)
+    {
+        const Entry& entry = m_entries[i];
+        evictions += entry.slotted && entry.evicted ? 1 : 0;
+        waitingHeirs += !entry.slotted && entry.present && entry.heirToEvictedSlot ? 1 : 0;
+    }
+    for (; evictions > waitingHeirs; --evictions)
+    {
+        Entry* leastFaded = nullptr;
+        for (uint32_t i = 0; i < m_count; ++i)
+        {
+            Entry& entry = m_entries[i];
+            if (entry.slotted && entry.evicted && (!leastFaded || entry.weight > leastFaded->weight))
+                leastFaded = &entry;
+        }
+        leastFaded->evicted = false;
     }
 }
 

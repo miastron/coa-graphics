@@ -55,6 +55,7 @@ private:
     void AdvanceWeights(float dt);
     static bool TakesFreeSlotBefore(const Entry& entry, const Entry& other);
     void FillFreeSlots();
+    void CancelEvictionsWithoutHeirs();
     void ChallengeWeakestSlot();
     void RemoveSpentEntries();
     void WriteOutput(LocalLightInputs& lights);

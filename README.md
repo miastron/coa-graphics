@@ -232,7 +232,9 @@ The eight uploaded lights are chosen by a stabiliser rather than re-ranked from 
   toward it. A light that leaves the client's table, is evicted, dims to nothing or is crowded out of the candidate pool
   fades out over 1 s along the same curve instead of vanishing.
 - **Swaps.** The evicted light fades out before its challenger takes the slot and fades in. Swaps run side by side while
-  every fading-out slot has a challenger waiting, so a light that left holds back further swaps until its slot is free. A
+  every fading-out slot has a challenger waiting, so a light that left holds back further swaps until its slot is free. An
+  eviction that no challenger waits for any more, because the challenger left or took a slot freed elsewhere first, is
+  called off, and the evicted light ramps back up instead of fading out and in again. A
   light that has faded keeps its smoothed priority while it is still captured inside the view, and fades back in if it wins
   a slot again. The slot it lost goes to its challenger, so the challenger is not undercut by its momentary rank.
 - **Forgetting.** A slotted light whose last captured sphere lies more than 5 yd outside the view is forgotten at once, freeing

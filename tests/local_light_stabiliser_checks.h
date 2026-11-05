@@ -15,6 +15,16 @@ LocalLightCamera ForwardCamera()
     return ForwardViewCamera(kStabiliserNear, kStabiliserFar);
 }
 
+LocalLightCamera TurnedCamera(float yaw)
+{
+    LocalLightCamera camera = ForwardCamera();
+    camera.cameraRelativeView[0] = std::cos(yaw);
+    camera.cameraRelativeView[2] = std::sin(yaw);
+    camera.cameraRelativeView[8] = -std::sin(yaw);
+    camera.cameraRelativeView[10] = std::cos(yaw);
+    return camera;
+}
+
 void SetPeak(LocalPointLight& light, float peak)
 {
     light.color[0] = peak;
@@ -525,6 +535,60 @@ void CheckNoSwapWhileASlotFadesOut()
           "evicting the weakest steady light");
 }
 
+void CheckEvictionWithoutHeirRampsBack()
+{
+    const LocalLightCamera camera = ForwardCamera();
+    LocalLightStabiliser stabiliser;
+    std::vector<LocalPointLight> lights = NineLightsAhead();
+    lights.pop_back();
+    LocalLightInputs inputs = CaptureOf(lights, camera);
+    StepFrame(stabiliser, camera, 0.0, inputs);
+    lights.push_back(StabiliserLight(9, 0.0f, 0.0f, 10.0f, 4.0f));
+    bool weakestKeptShining = true;
+    float weight = 0.0f;
+    for (int frame = 1; frame <= 2 * kFadeFrames; ++frame)
+    {
+        if (frame == 10)
+            lights.pop_back();
+        inputs = CaptureOf(lights, camera);
+        StepFrame(stabiliser, camera, frame * kStabiliserFrameSeconds, inputs);
+        weakestKeptShining = weakestKeptShining && Uploads(inputs, 8, &weight) && weight > 0.9f;
+    }
+    Check(weakestKeptShining && weight == 1.0f && stabiliser.Activity().evictions == 1 &&
+              stabiliser.Activity().admissions == 8 && stabiliser.Activity().fadeOuts == 0,
+          "an evicted light whose challenger leaves the client's table before taking the slot ramps back to full "
+          "strength instead of fading out and in again");
+}
+
+void CheckEvictionWhoseHeirTookAnotherSlotRampsBack()
+{
+    LocalLightStabiliser stabiliser;
+    std::vector<LocalPointLight> lights = {StabiliserLight(1, -300.0f, 0.0f, 300.0f, 8.0f)};
+    lights[0].attenuation[2] = 0.0001f;
+    for (uintptr_t i = 2; i <= 8; ++i)
+        lights.push_back(StabiliserLight(i, 0.0f, 0.0f, 20.0f + 2.0f * static_cast<float>(i), 0.3f));
+    LocalLightCamera camera = ForwardCamera();
+    LocalLightInputs inputs = CaptureInView(lights, camera);
+    StepFrame(stabiliser, camera, 0.0, inputs);
+    const bool eightSlotted = inputs.pointLightCount == 8 && Uploads(inputs, 1);
+    lights.push_back(StabiliserLight(9, 0.0f, 0.0f, 10.0f, 4.0f));
+    bool weakestKeptShining = true;
+    float weight = 0.0f;
+    for (int frame = 1; frame <= 2 * kFadeFrames; ++frame)
+    {
+        if (frame == 10)
+            camera = TurnedCamera(1.4f);
+        inputs = CaptureInView(lights, camera);
+        StepFrame(stabiliser, camera, frame * kStabiliserFrameSeconds, inputs);
+        weakestKeptShining = weakestKeptShining && Uploads(inputs, 8, &weight) && weight > 0.9f;
+    }
+    Check(eightSlotted && weakestKeptShining && weight == 1.0f && !Uploads(inputs, 1) && Uploads(inputs, 9) &&
+              stabiliser.Activity().evictions == 1 && stabiliser.Activity().admissions == 9 &&
+              stabiliser.Activity().fadeOuts == 0,
+          "an evicted light whose challenger takes the slot of a light the camera turned away from ramps back to "
+          "full strength instead of fading out and in again");
+}
+
 void CheckLocalLightStabiliser()
 {
     CheckBoundaryChurnIsAbsorbed();
@@ -542,5 +606,7 @@ void CheckLocalLightStabiliser()
     CheckAttenuationDriftKeepsOneLight();
     CheckSameFrameStepReplaysTheOutput();
     CheckNoSwapWhileASlotFadesOut();
+    CheckEvictionWithoutHeirRampsBack();
+    CheckEvictionWhoseHeirTookAnotherSlotRampsBack();
 }
 }
