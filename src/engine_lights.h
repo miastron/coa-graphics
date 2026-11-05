@@ -36,6 +36,7 @@ struct PointLightUpload
     float intensity = 1.0f;
     float spellIntensity = 0.0f;
     bool followObjects = true;
+    float reach = 1.0f;
 };
 
 struct LocalLightCamera
@@ -97,7 +98,7 @@ namespace engine
 constexpr uintptr_t kWorldM2Scene = 0x00CD754C;
 
 void UploadedPointLightColor(const float captured[3], const PointLightUpload& upload, float uploaded[3]);
-float PointLightCutoff(const float color[3], const float attenuation[3]);
+float PointLightCutoff(const float color[3], const float attenuation[3], float reach = 1.0f);
 double LocalLightPriority(const LocalPointLight& light, const float cameraPosition[3]);
 bool SelectLocalPointLight(LocalLightInputs& out, const LocalPointLight& light, const float cameraPosition[3],
                            const PointLightUpload& upload);

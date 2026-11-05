@@ -289,8 +289,9 @@ void CheckLocalLightLogLines(Harness& h)
                                       LoggedLight(eye, forward, 60.0f, lantern, 0x1003)};
     auto inputsWith = [&](int count) {
         FrameInputs inputs = empty;
+        const PointLightUpload upload = LocalLightUpload(config, inputs.mapId);
         for (int i = 0; i < count; ++i)
-            engine::SelectLocalPointLight(inputs.localLights, lights[i], inputs.camPos, LocalLightUpload(config));
+            engine::SelectLocalPointLight(inputs.localLights, lights[i], inputs.camPos, upload);
         return inputs;
     };
     const FrameInputs two = inputsWith(2);

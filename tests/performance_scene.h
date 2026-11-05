@@ -229,7 +229,8 @@ bool AddPointLight(FrameInputs& inputs, Vec3 position, const float* color, float
     std::memcpy(light.color, color, sizeof(light.color));
     light.attenuation[0] = 1.0f;
     light.attenuation[2] = quadraticAttenuation;
-    return engine::SelectLocalPointLight(inputs.localLights, light, inputs.camPos, LocalLightUpload(Config{}));
+    const PointLightUpload upload = LocalLightUpload(Config{}, inputs.mapId);
+    return engine::SelectLocalPointLight(inputs.localLights, light, inputs.camPos, upload);
 }
 
 bool AddFloodLights(FrameInputs& inputs, const Street& street)

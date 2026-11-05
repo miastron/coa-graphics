@@ -423,14 +423,14 @@ bool CandidateInputsValid(const LocalLightInputs& out, const LocalPointLight& li
            ValidVector(cameraPosition, -kMaxWorldCoordinate, kMaxWorldCoordinate) &&
            ValidVector(light.position, -kMaxWorldCoordinate, kMaxWorldCoordinate) &&
            ValidVector(light.color, 0.0f, kMaxLightComponent) && std::isfinite(upload.intensity) &&
-           upload.intensity >= 0.0f;
+           upload.intensity >= 0.0f && std::isfinite(upload.reach) && upload.reach >= 0.0f;
 }
 
 bool BoundCandidate(const LocalPointLight& light, const PointLightUpload& upload, LocalPointLight& candidate)
 {
     candidate = light;
     engine::UploadedPointLightColor(candidate.color, upload, candidate.uploadedColor);
-    candidate.cutoff = engine::PointLightCutoff(candidate.uploadedColor, candidate.attenuation);
+    candidate.cutoff = engine::PointLightCutoff(candidate.uploadedColor, candidate.attenuation, upload.reach);
     return candidate.cutoff > 0.0f;
 }
 
@@ -473,12 +473,12 @@ void UploadedPointLightColor(const float captured[3], const PointLightUpload& up
                                            : std::max(captured[channel], 0.0f)) * upload.intensity;
 }
 
-float PointLightCutoff(const float color[3], const float attenuation[3])
+float PointLightCutoff(const float color[3], const float attenuation[3], float reach)
 {
     if (!ValidVector(color, 0.0f, kMaxUploadedLightComponent) ||
-        !ValidVector(attenuation, 0.0f, kMaxAttenuationCoefficient))
+        !ValidVector(attenuation, 0.0f, kMaxAttenuationCoefficient) || !std::isfinite(reach) || reach < 0.0f)
         return 0.0f;
-    const double peak = PeakColor(color);
+    const double peak = PeakColor(color) * reach;
     const double target = peak / kLocalPointLightContributionCutoff;
     if (peak <= 0.0 || target <= std::max(static_cast<double>(attenuation[0]), 1.0))
         return 0.0f;

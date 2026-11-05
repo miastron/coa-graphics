@@ -250,6 +250,7 @@ struct WorldClient
     void (*writeStockFog)(const engine::StockFog& fog);
     void (*endWorld)();
     bool (*glowScreenEffectRuns)();
+    int (*mapId)();
 };
 
 void CaptureGameOpaqueState(IDirect3DDevice9* device)
@@ -265,7 +266,8 @@ const WorldClient kGameWorldClient = {&GameFogDevice,
                                       &engine::ReadStockFog,
                                       &engine::WriteStockFog,
                                       &engine::ClearOpaqueState,
-                                      &engine::GlowScreenEffectRuns};
+                                      &engine::GlowScreenEffectRuns,
+                                      &engine::ReadCurrentMap};
 
 FrameInputs g_testWorldFrame = {};
 bool g_testGlowScreenEffectRuns = false;
@@ -321,6 +323,11 @@ bool TestGlowScreenEffectRuns()
     return g_testGlowScreenEffectRuns;
 }
 
+int TestMapId()
+{
+    return g_testWorldFrame.mapId;
+}
+
 const WorldClient kTestOpaqueCaptureClient = {&LatestFogDevice,
                                               &CaptureTestOpaqueState,
                                               &engine::HasOpaqueState,
@@ -329,7 +336,8 @@ const WorldClient kTestOpaqueCaptureClient = {&LatestFogDevice,
                                               &TestReadStockFog,
                                               &TestWriteStockFog,
                                               &engine::ClearOpaqueState,
-                                              &TestGlowScreenEffectRuns};
+                                              &TestGlowScreenEffectRuns,
+                                              &TestMapId};
 const WorldClient kTestFogClient = {&LatestFogDevice,
                                     &CaptureTestOpaqueState,
                                     &TestWorldCaptured,
@@ -338,7 +346,8 @@ const WorldClient kTestFogClient = {&LatestFogDevice,
                                     &TestReadStockFog,
                                     &TestWriteStockFog,
                                     &TestEndWorld,
-                                    &TestGlowScreenEffectRuns};
+                                    &TestGlowScreenEffectRuns,
+                                    &TestMapId};
 const WorldClient* g_worldClient = &kGameWorldClient;
 
 bool FogDrawsInPlaceOfStockFog()
@@ -808,7 +817,8 @@ struct WorldFogInputs
 WorldFogInputs ReadWorldFogInputs(const Config& cfg)
 {
     WorldFogInputs world = {};
-    world.valid = g_worldClient->frameInputs(world.in, cfg.localLights, LocalLightUpload(cfg));
+    const PointLightUpload upload = LocalLightUpload(cfg, g_worldClient->mapId());
+    world.valid = g_worldClient->frameInputs(world.in, cfg.localLights, upload);
     if (g_stockFogPushed)
         UseClientFogRangeInsteadOfPushed(world.in);
     UseDeliveredGlow(world.in);

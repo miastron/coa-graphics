@@ -6,6 +6,8 @@
 constexpr float kEngineFarClipMin = 183.333f;
 constexpr float kEngineFarClipMax = 1583.33f;
 constexpr float kFarClipMaxKeepsClientCap = 0.0f;
+constexpr float kRegionLocalLightsMax = 128.0f;
+constexpr float kRegionLocalLightsSliderMax = 96.0f;
 
 constexpr unsigned kVirtualKeyF7 = 0x76;
 

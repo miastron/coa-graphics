@@ -225,9 +225,9 @@ bool RegionLocalLights(Config& c, float Config::*member, const char* label, cons
     char help[kStatusTextSize];
     std::snprintf(help, sizeof(help),
                   "Local light intensity in %s, on top of Local light intensity; the region's density does not "
-                  "change the lamps' glow",
+                  "change the lamps' glow, and a higher value lets each lamp's glow reach further",
                   region);
-    return Slider(c, member, label, "%.2f", help);
+    return Slider(label, c.*member, 0.0f, kRegionLocalLightsSliderMax, "%.2f", help, ImGuiSliderFlags_Logarithmic);
 }
 
 bool DrawRegions(Config& c)

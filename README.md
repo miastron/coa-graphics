@@ -218,7 +218,10 @@ gain of the region's intensity (`AzerothLocalLights`, `OutlandLocalLights`, `Nor
 (`AzerothDensity`, `OutlandDensity`, `NorthrendDensity`, at least 0.05), here and in the fitted stock fog of see-through
 models, so a region thinned to 0.15 keeps the glow of its lamps. Outland and Northrend start at 3: their converted
 layers are far thinner than the old world's (Borean Tundra at night 0.00013/yd of ground fog against Tirisfal's 0.0045
-in a tester's log), and the tester needed three to four times the intensity there.
+in a tester's log), and the tester needed three to four times the intensity there. The region's intensity also scales
+each lamp's cutoff radius, as for a lamp that much brighter, so the glow reaches further with the slider (a tester found
+Outland's lamps at 24 barely stronger than at 8 before); Azeroth at 1 keeps its radius. The region values range to 128 in
+the INI, and the settings window's sliders are logarithmic up to 96.
 
 The eight uploaded lights are chosen by a stabiliser rather than re-ranked from scratch each frame:
 
@@ -1789,7 +1792,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `ColorSpace` | 1 | 1 scatters and blends in linear light with a highlight roll-off; 0 uses gamma |
 | `SunScatter`, `Ambient`, `Exposure` | 1, 1, 1 | Light in the fog |
 | `MoonScatter` | 0.2 | Moon light in the fog at night, on its own (`SunScatter` is the sun's), Classic and derived |
-| `AzerothLocalLights`, `OutlandLocalLights`, `NorthrendLocalLights` | 1, 3, 3 | Local light intensity per region |
+| `AzerothLocalLights`, `OutlandLocalLights`, `NorthrendLocalLights` | 1, 3, 3 | Local light intensity per region, 0..128; it also lengthens each lamp's reach |
 | `ClassicExposure` | 1 | Brightness of the Classic layers (1 = as authored) |
 | `ClassicPhase` | 0 | Classic sun and moon scattering: 0 peaks at 1 toward the light; 1 is energy-normalised |
 | `LocalLights`, `LocalLightIntensity` | 1, 1 | Scatter up to eight world point lights in view; intensity 0..8 |

@@ -169,6 +169,64 @@ void CheckLocalLightInputs()
           "whether or not the point-light walk is requested (the walk skip itself needs the client image)");
 }
 
+LocalPointLight RegionLampFixture(float x, float z)
+{
+    LocalPointLight lamp;
+    lamp.position[0] = x;
+    lamp.position[2] = z;
+    lamp.color[0] = 1.0f;
+    lamp.color[1] = 0.49f;
+    lamp.color[2] = 0.15f;
+    lamp.attenuation[1] = 0.7f;
+    lamp.attenuation[2] = 0.1f;
+    return lamp;
+}
+
+void CheckLocalLightReachFollowsRegion()
+{
+    const Config defaults;
+    const PointLightUpload azeroth = LocalLightUpload(defaults, kEasternKingdoms);
+    const PointLightUpload outland = LocalLightUpload(defaults, kOutland);
+    const PointLightUpload northrend = LocalLightUpload(defaults, kNorthrend);
+    const LocalPointLight lamp = RegionLampFixture(0.0f, 300.0f);
+    float uploaded[3];
+    engine::UploadedPointLightColor(lamp.color, northrend, uploaded);
+    float brighterLamp[3];
+    for (int c = 0; c < 3; ++c)
+        brighterLamp[c] = uploaded[c] * northrend.reach;
+    const float plain = engine::PointLightCutoff(uploaded, lamp.attenuation);
+    const float inAzeroth = engine::PointLightCutoff(uploaded, lamp.attenuation, azeroth.reach);
+    const float inNorthrend = engine::PointLightCutoff(uploaded, lamp.attenuation, northrend.reach);
+    const float brighter = engine::PointLightCutoff(brighterLamp, lamp.attenuation);
+    std::printf("     lamp glow reach: Azeroth %.1f yd, Northrend %.1f yd (a lamp %.0fx brighter %.1f yd)\n",
+                inAzeroth, inNorthrend, northrend.reach, brighter);
+    Check(azeroth.reach == 1.0f && outland.reach == defaults.outlandLocalLights &&
+              northrend.reach == defaults.northrendLocalLights && inAzeroth == plain && inNorthrend > plain &&
+              inNorthrend < kMaxLocalPointLightRadius && LocalNear(inNorthrend, brighter),
+          "a lamp's glow reaches as far as its region's local light intensity carries it: at Outland's and "
+          "Northrend's 3 as far as a lamp 3 times brighter, in Azeroth at 1 as before");
+
+    const LocalLightCamera ahead = ForwardViewCamera(1.0f, 2000.0f);
+    LocalLightInputs azerothView;
+    LocalLightInputs northrendView;
+    const bool aheadInAzeroth = engine::SelectLocalPointLightInView(azerothView, lamp, ahead, azeroth);
+    const bool aheadInNorthrend = engine::SelectLocalPointLightInView(northrendView, lamp, ahead, northrend);
+    const float besidePlane = 0.5f * (inAzeroth + inNorthrend);
+    const float besideX = lamp.position[2] + besidePlane * std::sqrt(2.0f);
+    const LocalPointLight beside = RegionLampFixture(besideX, lamp.position[2]);
+    const bool besideInAzeroth = engine::SelectLocalPointLightInView(azerothView, beside, ahead, azeroth);
+    const bool besideInNorthrend = engine::SelectLocalPointLightInView(northrendView, beside, ahead, northrend);
+    std::printf("     selected lamp bounds: Azeroth %.1f yd, Northrend %.1f yd; a lamp %.1f yd beside the view %s in "
+                "Azeroth, %s in Northrend\n",
+                azerothView.pointLights[0].cutoff, northrendView.pointLights[0].cutoff, besidePlane,
+                besideInAzeroth ? "selected" : "left out", besideInNorthrend ? "selected" : "left out");
+    Check(aheadInAzeroth && aheadInNorthrend && LocalNear(azerothView.pointLights[0].cutoff, inAzeroth) &&
+              LocalNear(northrendView.pointLights[0].cutoff, inNorthrend) && !besideInAzeroth && besideInNorthrend &&
+              azerothView.pointLightCount == 1 && northrendView.pointLightCount == 2,
+          "a lamp selected for the view carries its region's reach in its bounds, so beside the view a Northrend "
+          "lamp still reaches into it where the same lamp in Azeroth is left out");
+}
+
 struct TablePointLight
 {
     uintptr_t scene = 0;
@@ -525,8 +583,10 @@ void CheckHdrLocalLightColours()
           "with ColorSpace=0 the captured colour is uploaded unchanged");
     Config decodeOff;
     decodeOff.decodeLightColours = false;
-    Check(LocalLightUpload(Config{}).linear && !LocalLightUpload(decodeOff).linear &&
-              UploadedColourIs(statue, LocalLightUpload(decodeOff), {kStatueRed, kStatueGreen, kStatueGreen}),
+    const PointLightUpload decoded = LocalLightUpload(Config{}, kEasternKingdoms);
+    const PointLightUpload undecoded = LocalLightUpload(decodeOff, kEasternKingdoms);
+    Check(decoded.linear && !undecoded.linear &&
+              UploadedColourIs(statue, undecoded, {kStatueRed, kStatueGreen, kStatueGreen}),
           "DecodeLightColours=0 uploads a point light's colour as it is, and the default still decodes it");
 
     const float camera[3] = {};

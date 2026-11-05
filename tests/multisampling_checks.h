@@ -1167,7 +1167,7 @@ FrameInputs HarbourStormInputs(const WorldCamera& camera, bool lamp, const Confi
     in.dayFraction = kNoon;
     in.lightParams = Storm(authored_noise::kFullStorm);
     if (lamp)
-        engine::SelectLocalPointLight(in.localLights, LampAhead(camera), in.camPos, LocalLightUpload(cfg));
+        engine::SelectLocalPointLight(in.localLights, LampAhead(camera), in.camPos, LocalLightUpload(cfg, in.mapId));
     return in;
 }
 

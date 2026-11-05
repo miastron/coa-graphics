@@ -1847,6 +1847,34 @@ void CheckIniSectionMatchesProfileApi(const std::wstring& outDir, const std::wst
 
 constexpr float kShippedFarClipMax = 1583.0f;
 
+void CheckRegionLocalLightsSetting(const std::wstring& outDir, const std::wstring& shippedIni)
+{
+    ConfigStore shipped;
+    shipped.Load(NarrowPath(shippedIni));
+    const Config& s = shipped.Get();
+    std::printf("     shipped region local lights: Azeroth %.2f, Outland %.2f, Northrend %.2f\n", s.azerothLocalLights,
+                s.outlandLocalLights, s.northrendLocalLights);
+    Check(s.azerothLocalLights == 1.0f && s.outlandLocalLights == 3.0f && s.northrendLocalLights == 3.0f &&
+              ReadText(shippedIni).find("; Local light intensity per region, 0..128 (the settings window's sliders "
+                                        "reach 96),") != std::string::npos &&
+              kRegionLocalLightsSliderMax == 96.0f && kRegionLocalLightsMax == 128.0f,
+          "the shipped INI starts Outland's and Northrend's local lights at 3 and Azeroth's at 1, and documents "
+          "their range 0..128 and the sliders' 96");
+
+    const std::wstring savedIni = FullPath(outDir + L"\\region-local-lights.ini");
+    CopyFileW(shippedIni.c_str(), savedIni.c_str(), FALSE);
+    WritePrivateProfileStringW(L"CoAGraphics", L"AzerothLocalLights", L"12", savedIni.c_str());
+    WritePrivateProfileStringW(L"CoAGraphics", L"OutlandLocalLights", L"96", savedIni.c_str());
+    WritePrivateProfileStringW(L"CoAGraphics", L"NorthrendLocalLights", L"200", savedIni.c_str());
+    ConfigStore written;
+    written.Load(NarrowPath(savedIni));
+    const Config& w = written.Get();
+    std::printf("     written 12, 96 and 200: Azeroth %.2f, Outland %.2f, Northrend %.2f\n", w.azerothLocalLights,
+                w.outlandLocalLights, w.northrendLocalLights);
+    Check(w.azerothLocalLights == 12.0f && w.outlandLocalLights == 96.0f && w.northrendLocalLights == 128.0f,
+          "region local lights read from the INI up to 128 and clamp to 128 above it");
+}
+
 void CheckShippedIniMatchesSettingsTable(const std::wstring& shippedIni)
 {
     const std::string text = ReadText(shippedIni);
@@ -2725,6 +2753,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(CheckFrameCopySummary());
     RUN_GROUP(CheckIniSectionMatchesProfileApi(outDir, FullPath(iniPath)));
     RUN_GROUP(CheckShippedIniMatchesSettingsTable(FullPath(iniPath)));
+    RUN_GROUP(CheckRegionLocalLightsSetting(outDir, FullPath(iniPath)));
     RUN_GROUP(CheckSettingsSaveKeepsTheIni(outDir, FullPath(iniPath)));
     RUN_GROUP(CheckFogDataBounds(outDir, dataPath));
     RUN_GROUP(forever_look_checks::CheckForeverGlow());
@@ -2742,6 +2771,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     if (cpuOnly)
     {
         RUN_GROUP(CheckLocalLightInputs());
+        RUN_GROUP(CheckLocalLightReachFollowsRegion());
         RUN_GROUP(CheckPointLightTableCapture());
         RUN_GROUP(CheckLightsFollowTheirObjects());
         RUN_GROUP(CheckInteriorInputsSurviveAnIncompleteWalk());
@@ -2841,6 +2871,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(texture_filtering_checks::CheckForcedAnisotropyOnTheDevice(h.dev));
     RUN_GROUP(CheckFogIntegration(h.dev));
     RUN_GROUP(CheckLocalLightInputs());
+    RUN_GROUP(CheckLocalLightReachFollowsRegion());
     RUN_GROUP(CheckPointLightTableCapture());
     RUN_GROUP(CheckLightsFollowTheirObjects());
     RUN_GROUP(CheckInteriorInputsSurviveAnIncompleteWalk());

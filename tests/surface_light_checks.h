@@ -69,7 +69,7 @@ FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1
         light.color[channel] = kLightColour[channel] * lightScale;
     light.attenuation[0] = kLightConstantAttenuation;
     light.attenuation[2] = kLightQuadraticAttenuation;
-    engine::SelectLocalPointLight(input.localLights, light, input.camPos, LocalLightUpload(config));
+    engine::SelectLocalPointLight(input.localLights, light, input.camPos, LocalLightUpload(config, input.mapId));
     return input;
 }
 

@@ -551,10 +551,11 @@ float EnergyNormalisedPhaseScale(float g)
     return (1.0f + capped) / (kFourPi * (1.0f - capped) * (1.0f - capped));
 }
 
-PointLightUpload LocalLightUpload(const Config& cfg)
+PointLightUpload LocalLightUpload(const Config& cfg, int mapId)
 {
     return {ScattersInLinearLight(cfg) && cfg.decodeLightColours, cfg.localLightIntensity,
-            cfg.spellLights ? cfg.spellLightIntensity : 0.0f, cfg.lightsFollowObjects};
+            cfg.spellLights ? cfg.spellLightIntensity : 0.0f, cfg.lightsFollowObjects,
+            RegionLocalLights(cfg, RegionOfMap(mapId))};
 }
 
 namespace
