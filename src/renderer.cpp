@@ -120,6 +120,7 @@ constexpr UINT kTerrainShadowRegister = 67;
 constexpr int kHardwareShadowModeBit = 8;
 constexpr double kMaxNoiseStepSeconds = 0.25;
 constexpr UINT kRayScale = 4;
+constexpr UINT kRaySourceTexelsPerRayTexel = 2;
 constexpr float kMinViewportDepthExtent = 0.01f;
 constexpr float kDeepestWorldDepthInFullRangeViewport = 0.9999995f;
 constexpr float kWorldDepthMargin = 2.0e-6f;
@@ -941,7 +942,8 @@ bool Renderer::EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT r
     ok = ok && CreateTarget(dev, lowW, lowH, fogFormat, &m_history[0]) &&
          CreateTarget(dev, lowW, lowH, fogFormat, &m_history[1]) &&
          CreateTarget(dev, lowW, lowH, D3DFMT_A8R8G8B8, &m_historyDepth) &&
-         CreateTarget(dev, rayW, rayH, D3DFMT_A8R8G8B8, &m_raySource) &&
+         CreateTarget(dev, rayW * kRaySourceTexelsPerRayTexel, rayH * kRaySourceTexelsPerRayTexel, D3DFMT_A8R8G8B8,
+                      &m_raySource) &&
          CreateTarget(dev, rayW, rayH, rayFormat, &m_rays[0]) &&
          CreateTarget(dev, rayW, rayH, rayFormat, &m_rays[1]);
     if (!ok)
@@ -962,9 +964,10 @@ bool Renderer::EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT r
     m_lowH = lowH;
     m_rayW = rayW;
     m_rayH = rayH;
-    VF_LOG_INFO("targets: fog %ux%u (%s), depth history rgba8, rays %ux%u (%s)", lowW, lowH,
+    VF_LOG_INFO("targets: fog %ux%u (%s), depth history rgba8, rays %ux%u (%s) from a %ux%u scene copy", lowW, lowH,
                 fogFormat == D3DFMT_A16B16G16R16F ? "fp16" : "rgba8", rayW, rayH,
-                rayFormat == D3DFMT_A16B16G16R16F ? "fp16" : "rgba8");
+                rayFormat == D3DFMT_A16B16G16R16F ? "fp16" : "rgba8", rayW * kRaySourceTexelsPerRayTexel,
+                rayH * kRaySourceTexelsPerRayTexel);
     return true;
 }
 

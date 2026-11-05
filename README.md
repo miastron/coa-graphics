@@ -314,7 +314,17 @@ the target) instead of a second resolve of the target; the frame is bit-identica
 under DXVK at 4x). It measured no change at 4x and 8x at 1080p under DXVK (within the 5-10% run to run); the most it can
 save is the difference between a multisampled and a single-sampled copy, 0.1-0.15 ms at 8x by `--scene copy-cost`.
 
-**God ray blur and banding.** The rays are the bright sky around the sun, masked at a quarter of the viewport, then
+**God ray mask.** The rays are the bright sky around the sun, masked at a quarter of the viewport. A mask texel covers
+4x4 pixels, and one depth tap with one colour from a 4:1 copy let a thin branch switch the texel on and off as it slid
+across, so the rays trembled while the camera turned. The mask now averages 16 depth taps per texel (the sky share of
+its footprint) and reads four texels of a scene copy at half the viewport, each through the brightness threshold and
+weighted by the sky share of its own four taps; the harness checks that a one-pixel occluder moving across the
+footprint keeps the mask at three quarters, that one beside the footprint leaves it open, and that the four copy
+texels are thresholded separately. The copy has four times the pixels (half the viewport's width and height instead of a
+quarter) and the mask pass takes 16 depth reads instead of one; neither was timed here. Upstream's change (LuxVelum
+`51a748b`); seen in the harness only.
+
+**God ray blur and banding.** The rays are then
 blurred toward the sun in two passes of eight taps: the first steps 0.075 of the way to the sun per tap, the second an
 eighth of that. The two passes only form one smooth falloff if the second decays by `0.9^(1/8)` per tap, so that the
 product of the weights is `0.9^(distance / 0.075)`; with `0.9` per tap in both, the weight rose by 88% at every eighth

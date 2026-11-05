@@ -7,6 +7,12 @@ namespace temporal_quality
 {
 constexpr UINT kSize = 4;
 constexpr UINT kRayDepthSize = 32;
+constexpr UINT kRaySourceSize = 2 * kSize;
+constexpr UINT kRaySourceFootprint[] = {2, 3};
+constexpr float kRayMaskThreshold = 0.4f;
+constexpr float kRayThresholdRampSlope = 4.0f;
+constexpr UINT kRayFootprintColumns[] = {7, 8, 9, 10};
+constexpr UINT kRayFootprintRows[] = {10, 11, 12, 13};
 constexpr float kFogDistance = 100.0f;
 constexpr float kCurrentFog = 0.2f;
 constexpr float kHistoryFog = 0.8f;
@@ -53,6 +59,7 @@ struct Fixture
     IDirect3DTexture9* inputs[4] = {};
     IDirect3DTexture9* output = nullptr;
     IDirect3DTexture9* rayDepth = nullptr;
+    IDirect3DTexture9* raySource = nullptr;
     IDirect3DSurface9* target = nullptr;
     IDirect3DSurface9* readback = nullptr;
     IDirect3DVertexShader9* vs = nullptr;
@@ -75,7 +82,8 @@ struct Fixture
             state->Apply();
         dev->SetStreamSource(0, savedStream, savedOffset, savedStride);
         IUnknown* resources[] = {state, savedTarget, savedDepth, savedStream, inputs[0], inputs[1], inputs[2],
-                                 inputs[3], output, rayDepth, target, readback, vs, ps, depthPs, rayPs, declaration};
+                                 inputs[3], output, rayDepth, raySource, target, readback, vs, ps, depthPs, rayPs,
+                                 declaration};
         for (IUnknown* resource : resources)
             if (resource)
                 resource->Release();
@@ -104,6 +112,8 @@ struct Fixture
             FAILED(dev->CreatePixelShader(reinterpret_cast<const DWORD*>(g_ps_ray_mask), &rayPs)) ||
             FAILED(dev->CreateTexture(kRayDepthSize, kRayDepthSize, 1, 0, D3DFMT_A8R8G8B8,
                                       D3DPOOL_MANAGED, &rayDepth, nullptr)) ||
+            FAILED(dev->CreateTexture(kRaySourceSize, kRaySourceSize, 1, 0, D3DFMT_A8R8G8B8,
+                                      D3DPOOL_MANAGED, &raySource, nullptr)) ||
             FAILED(dev->CreateVertexDeclaration(elements, &declaration)))
             return false;
         return true;
@@ -211,30 +221,37 @@ struct Fixture
         return SUCCEEDED(readback->UnlockRect());
     }
 
-    float DrawRayMask(bool skyAtSample)
+    static bool FillGrid(IDirect3DTexture9* texture, UINT gridSize, const std::function<float(UINT, UINT)>& greyAt)
     {
-        if (Draw(false) < 0.0f || !Fill(inputs[1], Grey(1.0f)))
-            return -1.0f;
         D3DLOCKED_RECT locked = {};
-        if (FAILED(rayDepth->LockRect(0, &locked, nullptr, 0)))
-            return -1.0f;
-        for (UINT y = 0; y < kRayDepthSize; ++y)
+        if (FAILED(texture->LockRect(0, &locked, nullptr, 0)))
+            return false;
+        for (UINT y = 0; y < gridSize; ++y)
         {
             auto* row = reinterpret_cast<DWORD*>(static_cast<BYTE*>(locked.pBits) + y * locked.Pitch);
-            for (UINT x = 0; x < kRayDepthSize; ++x)
-                row[x] = Grey((y == 12) == skyAtSample ? 1.0f : 0.5f);
+            for (UINT x = 0; x < gridSize; ++x)
+                row[x] = Grey(greyAt(x, y));
         }
-        if (FAILED(rayDepth->UnlockRect(0)))
+        return SUCCEEDED(texture->UnlockRect(0));
+    }
+
+    float DrawRayMask(const std::function<bool(UINT, UINT)>& skyAt,
+                      const std::function<float(UINT, UINT)>& sceneAt = [](UINT, UINT) { return 1.0f; },
+                      float threshold = 0.0f)
+    {
+        if (Draw(false) < 0.0f ||
+            !FillGrid(rayDepth, kRayDepthSize, [&](UINT x, UINT y) { return skyAt(x, y) ? 1.0f : 0.5f; }) ||
+            !FillGrid(raySource, kRaySourceSize, sceneAt))
             return -1.0f;
         const float viewport[4] = {3, 5, 17, 19};
         const float pixelGrid[4] = {1, 0, 1.0f / kRayDepthSize, 1.0f / kRayDepthSize};
-        const float mask[2][4] = {{0, 0, 1, 0}, {17.0f / kSize, 0, 1.0f / kSize, 1.0f / kSize}};
+        const float mask[2][4] = {{0, 0, 1, 0}, {17.0f / kSize, threshold, 1.0f / kSize, 1.0f / kSize}};
         dev->SetPixelShader(rayPs);
         dev->SetPixelShaderConstantF(0, viewport, 1);
         dev->SetPixelShaderConstantF(1, pixelGrid, 1);
         dev->SetPixelShaderConstantF(9, &mask[0][0], 2);
         dev->SetTexture(0, rayDepth);
-        dev->SetTexture(1, inputs[1]);
+        dev->SetTexture(1, raySource);
         return DrawConfigured();
     }
 };
@@ -545,8 +562,30 @@ void CheckTemporalQuality(IDirect3DDevice9* dev)
     Check(CapturesDepth(fixture, 5000.0f, Grey(1.0f), 255),
           "depth history distinguishes clear sky from distant terrain");
     fixture.Reset();
-    Check(NearTemporal(fixture.DrawRayMask(true), 1.0f),
-          "god-ray mask samples sky at the matching odd subviewport position");
-    Check(NearTemporal(fixture.DrawRayMask(false), 0.0f),
-          "god-ray mask rejects geometry at the matching odd subviewport position");
+    Check(NearTemporal(fixture.DrawRayMask([](UINT, UINT y) { return y == kRayFootprintRows[2]; }), 0.25f) &&
+              NearTemporal(fixture.DrawRayMask([](UINT, UINT y) { return y != kRayFootprintRows[2]; }), 0.75f),
+          "god-ray mask takes the sky share of its texel's footprint at the matching odd subviewport position");
+    bool steady = true;
+    for (UINT column : kRayFootprintColumns)
+        steady = NearTemporal(fixture.DrawRayMask([column](UINT x, UINT) { return x != column; }), 0.75f) && steady;
+    const bool besideOpen =
+        NearTemporal(fixture.DrawRayMask([](UINT x, UINT) { return x != kRayFootprintColumns[0] - 1; }), 1.0f) &&
+        NearTemporal(fixture.DrawRayMask([](UINT x, UINT) { return x != kRayFootprintColumns[3] + 1; }), 1.0f);
+    Check(steady && besideOpen,
+          "a one-pixel occluder moving across a god-ray texel's footprint keeps its mask steady, and one beside the "
+          "footprint leaves it open");
+    const auto footprintScene = [](UINT x, UINT y) {
+        if (x == kRaySourceFootprint[0] && y == kRaySourceFootprint[0])
+            return 1.0f;
+        if (x == kRaySourceFootprint[1] && y == kRaySourceFootprint[0])
+            return 0.5f;
+        const bool inFootprint = (x == kRaySourceFootprint[0] || x == kRaySourceFootprint[1]) &&
+                                 (y == kRaySourceFootprint[0] || y == kRaySourceFootprint[1]);
+        return inFootprint ? 0.0f : 1.0f;
+    };
+    const float thresholdShare = (0.5f - kRayMaskThreshold) * kRayThresholdRampSlope;
+    Check(NearTemporal(fixture.DrawRayMask([](UINT, UINT) { return true; }, footprintScene, kRayMaskThreshold),
+                       (1.0f + 0.5f * thresholdShare) / 4.0f),
+          "god-ray mask averages the four half-resolution scene texels under its texel, each through the brightness "
+          "threshold, and none beside them");
 }
