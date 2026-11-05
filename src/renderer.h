@@ -182,6 +182,7 @@ private:
     float m_drawnGlowCompensation = 0.0f;
     IDirect3DPixelShader9* m_rayMask = nullptr;
     IDirect3DPixelShader9* m_rayBlur = nullptr;
+    IDirect3DPixelShader9* m_rayShafts = nullptr;
     IDirect3DPixelShader9* m_rayComposite = nullptr;
     IDirect3DPixelShader9* m_surfaceLights = nullptr;
     IDirect3DPixelShader9* m_probe = nullptr;

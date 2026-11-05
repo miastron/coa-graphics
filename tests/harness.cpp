@@ -2729,6 +2729,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "god_ray_blur_checks.h"
 #include "temporal_quality_checks.h"
 #include "runtime_quality_checks.h"
+#include "god_ray_shaft_checks.h"
 #include "lighting_history_checks.h"
 #include "runtime_cost_checks.h"
 #include "resource_retry_checks.h"
@@ -3219,6 +3220,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(CheckTemporalFallbackNoise(h.dev));
     RUN_GROUP(CheckLightDisappearanceHistory(h));
     RUN_GROUP(CheckSunOcclusion(h));
+    RUN_GROUP(god_ray_shafts::CheckGodRaysAddOnlyShafts(h, outDir));
     RUN_GROUP(classic_phase::CheckSunsetHaloKeepsItsHue(h, FullPath(iniPath)));
     RUN_GROUP(water_fft_checks::CheckWaterFft(h.dev));
     RUN_GROUP(water_mask_packing_checks::CheckWaveFoamMaskPacking(h.dev));

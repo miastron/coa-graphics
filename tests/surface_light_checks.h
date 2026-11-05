@@ -254,6 +254,7 @@ void CheckGodRaysTakeTheirSceneFromTheCompositeCopy(Harness& h)
     constexpr float kRays = 1.5f;
     const LitFrame noRays = RenderLit(h, scene, saved, 0.0f, false);
     RenderLit(h, scene, saved, 0.0f, false, 0, 0, 1.0f, kRays);
+    RenderLit(h, scene, saved, 0.0f, false, 0, 0, 1.0f, kRays);
     const LitFrame fromCopy = RenderLit(h, scene, saved, 0.0f, false, 0, 0, 1.0f, kRays);
     vf_test_take_god_rays_from_target(1);
     const LitFrame fromTarget = RenderLit(h, scene, saved, 0.0f, false, 0, 0, 1.0f, kRays);

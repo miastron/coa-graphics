@@ -305,7 +305,8 @@ bool DrawLight(Config& c)
                       "Use the client's shadow maps when available, so casters outside the view block the light too; "
                       "needs Light shafts and the client's shadows");
     changed |= Slider(c, &Config::godRays, "God rays", "%.2f",
-                      "Radial rays from the bright sky around the sun, 0 = off");
+                      "Shafts of light through gaps in trees and other things in front of the sun, 0 = off. An open "
+                      "sky gets none; the glow around the sun is Sun scatter's");
     changed |= Toggle("Glow compensation", c.glowCompensation,
                       "Pre-compensate the fog for the client's full-screen glow, which otherwise bleaches bright fog "
                       "around the sun to white. The fog itself only with linear light, while it blends over a copy "

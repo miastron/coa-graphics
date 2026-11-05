@@ -55,7 +55,7 @@ constexpr int kWarmUpFrames = 2;
 constexpr int kMaxEarlyDifference = 1;
 constexpr int kMaxMultisampledEarlyDifference = 2;
 constexpr float kRaySunRegion = 60.0f;
-constexpr float kMinRayGain = 0.01f;
+constexpr int kMinShaftLevels = 8;
 constexpr int kMaxRayDarkening = 1;
 constexpr int kMaxLateRayDifference = 2;
 constexpr int kLoggedFailingFrames = 4;
@@ -1032,34 +1032,56 @@ void CheckTransparentsFoggedAtOwnDepth(Harness& h)
           "behind it");
 }
 
+struct ScreenPoint
+{
+    float x = 0;
+    float y = 0;
+};
+
+ScreenPoint SunOnScreen(const View& v)
+{
+    float sunDir[3];
+    TransformDirection(v.in.toLight, v.view, sunDir);
+    return {v.world.X + (sunDir[0] / sunDir[2] * v.proj[0] * 0.5f + 0.5f) * v.world.Width,
+            v.world.Y + (0.5f - sunDir[1] / sunDir[2] * v.proj[5] * 0.5f) * v.world.Height};
+}
+
+void DrawTrunksBeforeTheSun(Harness& h)
+{
+    const View v;
+    god_ray_shafts::DrawTrunks(h, SunOnScreen(v).x, static_cast<float>(v.world.Y + v.world.Height),
+                               v.RawDepthAt(god_ray_shafts::kTrunkDistance));
+}
+
 void CheckGodRaysAfterTheWorld(Harness& h)
 {
     const View v;
     FrameOptions options;
     options.captureAfterLiquid = true;
+    options.drawOverBackdrop = &DrawTrunksBeforeTheSun;
     Config cfg = HookConfig(true);
     cfg.godRays = kRaysOn;
     const HookedFrame rays = RenderSettledHookedFrame(h, v, cfg, options);
-    float sunDir[3];
-    TransformDirection(v.in.toLight, v.view, sunDir);
-    const float sunX = v.world.X + (sunDir[0] / sunDir[2] * v.proj[0] * 0.5f + 0.5f) * v.world.Width;
-    const float sunY = v.world.Y + (0.5f - sunDir[1] / sunDir[2] * v.proj[5] * 0.5f) * v.world.Height;
-    const UINT x0 = static_cast<UINT>(std::fmax(sunX - kRaySunRegion, 0.0f));
-    const UINT y0 = static_cast<UINT>(std::fmax(sunY - kRaySunRegion, 0.0f));
-    const UINT x1 = static_cast<UINT>(std::fmin(sunX + kRaySunRegion, static_cast<float>(v.world.Width)));
-    const UINT y1 = static_cast<UINT>(std::fmin(sunY + kRaySunRegion, static_cast<float>(v.world.Height)));
+    const ScreenPoint sun = SunOnScreen(v);
+    const UINT x0 = static_cast<UINT>(std::fmax(sun.x - kRaySunRegion, 0.0f));
+    const UINT y0 = static_cast<UINT>(std::fmax(sun.y - kRaySunRegion, 0.0f));
+    const UINT x1 = static_cast<UINT>(std::fmin(sun.x + kRaySunRegion, static_cast<float>(v.world.Width)));
+    const UINT y1 = static_cast<UINT>(std::fmin(sun.y + kRaySunRegion, static_cast<float>(v.world.Height)));
+    const D3DVIEWPORT9 sunRegion = {x0, y0, x1 - x0, y1 - y0, 0.0f, 1.0f};
     const double gain = MeanLumaChange(rays.afterLiquid, rays.image, x0, y0, x1, y1);
+    const int brightest = LargestDifference(rays.afterLiquid, rays.image, sunRegion);
     const int darkening = LargestDarkening(rays.afterLiquid, rays.image, v.world);
     Config wholeFrameCfg = HookConfig(false);
     wholeFrameCfg.godRays = kRaysOn;
     const HookedFrame wholeFrameRays = RenderSettledHookedFrame(h, v, wholeFrameCfg, options);
     const int wholeFrameDifference = LargestDifference(rays.image, wholeFrameRays.image, v.world);
-    std::printf("     god rays after the early composite: mean luma change %.4f around the sun (%.0f, %.0f), largest "
-                "darkening %d/255, largest difference from the single composite's god rays %d/255\n",
-                gain, sunX, sunY, darkening, wholeFrameDifference);
-    Check(gain > kMinRayGain && darkening <= kMaxRayDarkening,
-          "with TransparentFog=1 the god rays are added over the finished world at the end of the world render and "
-          "darken nothing");
+    std::printf("     god rays between trunks after the early composite: mean luma change %.4f around the sun (%.0f, "
+                "%.0f), brightest shaft +%d/255, largest darkening %d/255, largest difference from the single "
+                "composite's god rays %d/255\n",
+                gain, sun.x, sun.y, brightest, darkening, wholeFrameDifference);
+    Check(brightest >= kMinShaftLevels && darkening <= kMaxRayDarkening,
+          "with TransparentFog=1 the god rays between trunks in front of the sun are added over the finished world at "
+          "the end of the world render and darken nothing");
     Check(wholeFrameDifference <= kMaxLateRayDifference,
           "the god rays drawn after the early composite come from the scene before the fog, as the single "
           "composite's do, and match them");
@@ -1094,6 +1116,7 @@ void CheckFailedRaySourceCopyDrawsNoRays(Harness& h)
     const View v;
     FrameOptions options;
     options.captureAfterLiquid = true;
+    options.drawOverBackdrop = &DrawTrunksBeforeTheSun;
     Config wholeFrame = HookConfig(false);
     wholeFrame.godRays = kRaysOn;
     Config early = HookConfig(true);

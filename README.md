@@ -96,7 +96,8 @@ after it say how each works and what is checked.
 - **Density variation**: a two-octave noise field anchored in world space modulates the scene layers around their
   authored mean and drifts along world +X. Distance fog stays smooth so it cannot uncover the far clip. This is an
   artistic control, not a reconstruction of Classic's authored noise; layers with authored noise use that instead.
-- **God rays** (optional): a radial blur of the bright sky around the sun.
+- **God rays** (optional): shafts of light through gaps in trees and other occluders in front of the sun, from a radial
+  blur of the bright sky; an open sky gets none.
 - **Modern water** on lakes, rivers, the sea and indoor pools: waves from a GPU FFT (fast Fourier transform) using
   Forever's wave tiles, refraction, depth absorption and in-scattering, foam on crests, along shores and in shallows,
   small waves washing in and out at the waterline, a sun or moon glint, and reflections of the scene with the sky as a
@@ -327,6 +328,20 @@ footprint keeps the mask at three quarters, that one beside the footprint leaves
 texels are thresholded separately. The copy has four times the pixels (half the viewport's width and height instead of a
 quarter) and the mask pass takes 16 depth reads instead of one; neither was timed here. Upstream's change (LuxVelum
 `51a748b`); seen in the harness only.
+
+**God-ray shafts.** A tester found that the God rays slider brightened the whole sky around the sun like Sun scatter
+(upstream, 2026-10-27): the radial blur of an open sky is a round glow, and the rays only showed as the edges of the
+occluders cut into it. A third pass after the blur now keeps only the shafts. For each ray texel it reads the blurred
+rays along an arc around the sun, twelve taps 2.5 degrees apart on each side, takes the dimmest tap on each side and
+adds what the texel holds above the brighter of the two. A glow that is the same all around the sun, and the one-sided
+edge of a horizon or a mountain, add nothing; a gap between trunks or leaves, with shadow on both sides, adds its
+shaft. So God rays never darken and leave the sun's glow to Sun scatter and the client; within 30 degrees of a gap that
+spans the whole arc, next to the sun, they add nothing either. The pass reads 25 bilinear taps at a sixteenth of the
+screen's pixels and writes into the blur's first target, which both composites read. The harness renders the sun over
+an open sky, behind thirteen trunks and behind a canopy of leaves at God rays 0, 1 and 4 and saves the images
+(`god-rays-*.png`): at 4 the open sky changed by 40.5/255 on average before (up to 91/255) and by 0.00/255 (up to
+1/255) now, the shafts between the trunks reach 0.36 in luma, and nothing darkens (DXVK on the Radeon 780M). Upstream's
+change (LuxVelum `8550566`); seen in the harness only.
 
 **God ray blur and banding.** The rays are then
 blurred toward the sun in two passes of eight taps: the first steps 0.075 of the way to the sun per tap, the second an
@@ -1868,7 +1883,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `InteriorFarFog` | 1.0 | Native distance-fog density kept indoors (0..1); lower values clear dungeon haze |
 | `LightShafts` | 1 | Terrain, buildings and trees block the sun or moon light in the fog |
 | `WorldShadows` | 1 | Use the client's world shadow maps when available (needs `LightShafts`) |
-| `GodRays` | 0 | Radial sky rays; 0 = off |
+| `GodRays` | 0 | Shafts of light through gaps in front of the sun; 0 = off |
 | `GlowCompensation` | 1 | Pre-compensate for the client's glow: the fog with `ColorSpace=1`, else only the god rays |
 | `ForeverGlow` | 0 | 1 gives the client's glow Forever's per-light amount where Classic lights cover the camera |
 | `ColorGrading` | 0 | Strength 0..1 of Forever's per-light colour curve over the 3D view; 0 = off |
