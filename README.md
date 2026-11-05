@@ -347,8 +347,12 @@ end of the liquid pass instead, before the see-through models on the camera's si
 a linear fog with exponent 1. That is a least-squares line in planar view depth (the depth the client's M2 shaders fog by),
 fitted through the volumetric transmittance along 15 rays within 100 yd. The fitted in-scatter, point lights included, is the
 colour where the batch uses its lighting colour. Additive, modulate and modulate-2x batches keep black, white and grey. God
-rays are added at the end of the world render. Under water, with `StockFog=0`, a debug view or the sun marker, or when the
-early composite cannot run, the fog is drawn after the world.
+rays are added at the end of the world render. Batches the client draws unfogged (a material with the unfogged flag, a
+lighting without fog), among them lamp glows, wisps and other glowing effects, take the same line with the colour of
+their blend mode (blend modes 0 to 6, the client's fog table; a batch of any other mode stays unfogged): drawn after the
+composite they had no fog at all and shone through any fog at any distance, where the fog drawn after the world dims
+them by the fog behind them. Under water, with `StockFog=0`, a debug view or the sun marker, or when the early composite
+cannot run, the fog is drawn after the world.
 
 **Water.** The client draws every water and ocean surface, and nothing else, inside one call of its liquid renderer. Before
 that call the DLL copies the scene colour and its linear depth, clears the stencil, and turns on stencil writes of 0 and
@@ -564,7 +568,10 @@ The water is tuned by eye against this mapping, not matched to Forever captures.
   before the world text unless it already composited this frame), installed after the
   fog hooks whatever `TransparentFog` says, and neither when a byte run checked under M2 batch fog, M2 fog setter or
   Native glare differs. The M2 thunk forwards to the client while nothing is armed. Otherwise it hands the cdecl argument
-  block to the DLL (`pushad; lea eax, [esp+0x24]`). An exception in it turns transparent fog off.
+  block to the DLL (`pushad; lea eax, [esp+0x24]`). An exception in it turns transparent fog off. The unfogged batch's
+  fog upload call (`0x81FD29`) is retargeted after them, on its own: when a byte run checked under M2 unfogged batch
+  differs it stays unpatched and unfogged effects stay unfogged. Its thunk hands the batch (`esi`) and the upload's
+  argument to the DLL, which calls the setter with the fitted line and turns the upload's 0 into 1.
 - **Water hooks.** Installed after the fog hooks and independently of them: the water pass call (`0x790AA2`) and the
   `Render` slots of the two water material vtables (`0xA5954C`, `0xA59580`, read-only data patched under
   `VirtualProtect`). The call site, both slots and the layout bytes the classification reads are checked first. On any
@@ -1277,6 +1284,18 @@ Engine notes behind the code:
   lighting `[esi+0x70]`), the colour's address (`lea ecx, [ebp−4]`), the end (`+0xAC`) and the start (`+0xA8`),
   calls the setter at `0x81FD15` (`E8 F6 34 05 00` → `0x873210`), then `0x873390(1)`, and pops the arguments
   (`0x81FD1A 6A 01 E8 6F 36 05 00 83 C4 14`).
+- M2 unfogged batch. The batch is `esi` throughout `0x81FB10` (`0x81FB18 8B F1`; wowdecomp `CM2SceneRender::SetupLighting`);
+  seven calls reach it. It reads the material (`0x81FB58 8B 8E 98 00 00 00`), takes mode 0 when its flags have bit 2
+  (`0x81FB61 F6 01 02`) or the lighting's fog scale is not above 0, and otherwise the table entry of the blend mode at
+  material `+2` (`0x81FB77 0F B7 49 02`). Mode 0 jumps (`0x81FB86 3B C3 89 86 80 00 00 00 0F 84 92 01 00 00`) to
+  `0x81FD26 53 DD D8 E8 62 36 05 00 83 C4 04`, the upload `0x873390(0)` (`CShaderEffect::SetFogEnabled`) with `ebx` = 0,
+  and `0x81FD2E 83 C4 04` pops its argument.
+  The upload (`55 8B EC 83 EC 10 83 7D 08 00 74 5D`) with 1 sets vertex c30 from the setter's stored constants at
+  `0xD43068` (`0x8733C6 68 68 30 D4 00 6A 1E 6A 00 FF D2`, written at `0x87327F A3 68 30 D4 00`); with 0 it sets c30 = (0,
+  1, 1, 0), fog 1 at every depth. The fog table `0xA45390` has no entry for blend mode 7 (the eighth dword is 0), so the
+  DLL gives the unfogged batch a colour only for modes 0 to 6 (lighting, lighting, lighting, black, black, white, grey).
+  Bytes read from the 12340 image (timestamp `0x4C2452FE`); the setter is called only from `0x7A84BA`, `0x7A9B35` and
+  `0x81FD15`, as LuxVelum's reading of the same image reports, which was not repeated here.
 - M2 fog setter. `0x873210` (`55 8B EC 83 EC 14 83 3D 20 30 D4 00 00`) writes the colour's bytes +2, +1 and +0 over
   255 (`0x873225 8B 75 14 0F B6 46 02`, `0x873242 0F B6 4E 01`, `0x873254 0F B6 16`) to pixel c2 and builds vertex
   `c30 = (−1/(end − start), end/(end − start), exponent, 0)` from the start and end (`0x873263 D9 45 0C D9 45 08 D8

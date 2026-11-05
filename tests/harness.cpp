@@ -129,6 +129,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_hook_liquid_end();
 extern "C" __declspec(dllimport) void __cdecl vf_test_hook_world_done();
 extern "C" __declspec(dllimport) void __cdecl vf_test_hook_m2_batch_fog(M2BatchFogArgs*);
 extern "C" __declspec(dllimport) const void* __cdecl vf_test_m2_batch_fog_thunk(uintptr_t);
+extern "C" __declspec(dllimport) const void* __cdecl vf_test_m2_unfogged_batch_thunk(uintptr_t);
 extern "C" __declspec(dllimport) const void* __cdecl vf_test_glare_pass_thunk(uintptr_t);
 extern "C" __declspec(dllimport) const void* __cdecl vf_test_world_text_draw_thunk(uintptr_t);
 extern "C" __declspec(dllimport) void __cdecl vf_test_log_transparent_fog_stats();

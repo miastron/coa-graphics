@@ -34,6 +34,7 @@ constexpr uint32_t kFogColourAlphaMask = 0xFF000000u;
 constexpr uint32_t kAdditiveFogColour = 0x00000000u;
 constexpr uint32_t kModulateFogColour = 0x00FFFFFFu;
 constexpr uint32_t kModulate2xFogColour = 0x00808080u;
+constexpr uint16_t kM2FogTableBlendModes = 7;
 
 struct StockFogFitLight
 {
@@ -46,3 +47,4 @@ struct StockFogFitLight
 StockFogFit FitStockFog(const FogParams& fog, const FrameInputs& in, const StockFogFitLight& light);
 bool UsesLightingFogColour(uint32_t colour);
 void ApplyStockFogFit(const StockFogFit& fit, M2BatchFogArgs& args);
+bool UnfoggedBatchFogColour(uint16_t blendMode, uint32_t& colour);

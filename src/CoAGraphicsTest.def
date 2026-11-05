@@ -62,6 +62,7 @@ EXPORTS
     vf_test_hook_world_done
     vf_test_hook_m2_batch_fog
     vf_test_m2_batch_fog_thunk
+    vf_test_m2_unfogged_batch_thunk
     vf_test_glare_pass_thunk
     vf_test_world_text_draw_thunk
     vf_test_log_transparent_fog_stats

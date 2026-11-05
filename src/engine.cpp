@@ -208,6 +208,24 @@ const CodeBytes kTransparentFogClientLayout[] = {
     {"glare pass return", 0x007F08B5, 1, {0xC3}},
 };
 
+const CodeBytes kUnfoggedM2BatchLayout[] = {
+    {"M2 batch object in esi", 0x0081FB18, 2, {0x8B, 0xF1}},
+    {"M2 batch material read", 0x0081FB58, 6, {0x8B, 0x8E, 0x98, 0x00, 0x00, 0x00}},
+    {"M2 unfogged material flag test", 0x0081FB61, 3, {0xF6, 0x01, 0x02}},
+    {"M2 material blend mode read", 0x0081FB77, 4, {0x0F, 0xB7, 0x49, 0x02}},
+    {"M2 fog mode store and unfogged branch", 0x0081FB86, 14,
+     {0x3B, 0xC3, 0x89, 0x86, 0x80, 0x00, 0x00, 0x00, 0x0F, 0x84, 0x92, 0x01, 0x00, 0x00}},
+    {"M2 unfogged fog upload argument", 0x0081FD26, 3, {0x53, 0xDD, 0xD8}},
+    {"M2 unfogged fog upload argument pop", 0x0081FD2E, 3, {0x83, 0xC4, 0x04}},
+    {"fog upload prologue", 0x00873390, 12, {0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x10, 0x83, 0x7D, 0x08, 0x00, 0x74, 0x5D}},
+    {"fog upload of the stored fog", 0x008733C6, 11,
+     {0x68, 0x68, 0x30, 0xD4, 0x00, 0x6A, 0x1E, 0x6A, 0x00, 0xFF, 0xD2}},
+    {"stored fog write of the setter", 0x0087327F, 5, {0xA3, 0x68, 0x30, 0xD4, 0x00}},
+};
+
+constexpr uintptr_t kM2BatchMaterial = 0x98;
+constexpr uintptr_t kM2MaterialBlendMode = 0x2;
+
 constexpr size_t kGlarePassEntrySize = 7;
 constexpr unsigned char kGlarePassEntry[kGlarePassEntrySize] = {0x83, 0x3D, 0xCC, 0x8C, 0xD3, 0x00, 0x00};
 constexpr unsigned char kJumpRel32Opcode = 0xE9;
@@ -1025,6 +1043,29 @@ bool WaterClientLayoutMatches()
 bool TransparentFogClientLayoutMatches()
 {
     return AllCodeBytesMatch(kTransparentFogClientLayout, "transparent fog hooks");
+}
+
+bool UnfoggedM2BatchLayoutMatches()
+{
+    return AllCodeBytesMatch(kUnfoggedM2BatchLayout, "unfogged M2 batch hook");
+}
+
+bool ReadM2BatchBlendMode(const void* batch, uint16_t& blendMode)
+{
+    if (!batch)
+        return false;
+    __try
+    {
+        const uintptr_t material = Read<uintptr_t>(reinterpret_cast<uintptr_t>(batch) + kM2BatchMaterial);
+        if (!material)
+            return false;
+        blendMode = Read<uint16_t>(material + kM2MaterialBlendMode);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
 }
 
 void DescribeGlarePassEntry(char* text, size_t size)

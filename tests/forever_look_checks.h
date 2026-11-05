@@ -408,7 +408,7 @@ void CheckGuardsCompareOnlyUnpatchedBytes()
     const uintptr_t callSites[] = {engine::kWorldRenderSite,    engine::kOpaqueM2PassSite,  engine::kLiquidSurfaceSite,
                                    engine::kWorldTextDrawSite,  engine::kScreenEffectsSite, engine::kWaterPassSite,
                                    engine::kFarClipCVarSetSite, engine::kFarClipMapLoadSite, engine::kM2BatchFogSite,
-                                   engine::kGlarePassSite};
+                                   engine::kGlarePassSite,      engine::kM2UnfoggedBatchSite};
     const uintptr_t pointerSlots[] = {engine::kGetProcAddressSlot, engine::kWaterMaterialRenderSlot,
                                       engine::kWaterNoSpecMaterialRenderSlot};
     std::vector<PatchedRange> patched;

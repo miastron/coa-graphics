@@ -40,6 +40,7 @@
 namespace
 {
 using GetProcAddressFn = FARPROC(WINAPI*)(HMODULE, LPCSTR);
+using M2FogSetterFn = void(__cdecl*)(float start, float end, float exponent, const uint32_t* colour);
 using WaterMaterialRenderFn = void(__thiscall*)(void* material, void* environment, void* geometry, void* aux,
                                                 const float* cameraPosition, const float* world, const float* bounds,
                                                 void* liquidSettings);
@@ -139,6 +140,7 @@ unsigned g_grassCopiedChunksLogged = 0;
 int g_spellLightsObserved = 0;
 
 uintptr_t g_m2BatchFogTarget = engine::kM2BatchFogTarget;
+uintptr_t g_m2FogUploadTarget = engine::kM2FogUploadTarget;
 uintptr_t g_glarePassTarget = engine::kGlarePassTarget;
 uintptr_t g_worldTextDrawTarget = engine::kWorldTextDrawTarget;
 int g_m2BatchFogObserved = 0;
@@ -180,6 +182,8 @@ struct TransparentFogStats
     unsigned glareDrawnEarly;
     unsigned glareCallsPassed;
     unsigned glareCallsSkipped;
+    unsigned unfoggedBatches;
+    unsigned unfoggedBatchesFogged;
 };
 
 TransparentFogStats g_transparentFogStats = {};
@@ -629,12 +633,12 @@ void LogTransparentFogStats(const TransparentFogStats& s)
     const unsigned batches = s.batchesBeforeLiquid + s.batchesAfterLiquid + s.batchesOutsideWorld;
     VF_LOG_DEBUG("transparent fog: %u frames, %u early composites; M2 batch fog %u before the liquid end, %u after, "
                  "%u outside the world render, %u rewritten; colours lighting %.1f%%, black %.1f%%, white %.1f%%, "
-                 "grey %.1f%%, other %.1f%%",
+                 "grey %.1f%%, other %.1f%%; %u unfogged M2 batches, %u fogged by the fit",
                  s.frames, s.earlyComposites, s.batchesBeforeLiquid, s.batchesAfterLiquid, s.batchesOutsideWorld,
                  s.batchesRewritten,
                  Share(s.lightingColours, batches), Share(s.additiveColours, batches),
                  Share(s.modulateColours, batches), Share(s.modulate2xColours, batches),
-                 Share(s.otherColours, batches));
+                 Share(s.otherColours, batches), s.unfoggedBatches, s.unfoggedBatchesFogged);
     VF_LOG_DEBUG("  fog exponent 1: %.1f%%, below 1: %.1f%%, above 1: %.1f%% (lowest %.3f, highest %.3f); glare pass "
                  "%u drawn before the fog, %u at its own call, %u own calls skipped; 0x%08X holds %s",
                  Share(s.linearExponents, batches), Share(s.lowerExponents, batches),
@@ -1010,6 +1014,23 @@ void OnM2BatchFog(M2BatchFogArgs& args)
         return;
     ApplyStockFogFit(g_transparentFog.fit, args);
     ++g_transparentFogStats.batchesRewritten;
+}
+
+void OnM2UnfoggedBatch(const void* batch, int& fogOn)
+{
+    if (TransparentFogStatsCounted())
+        ++g_transparentFogStats.unfoggedBatches;
+    if (!g_transparentFog.armed || !g_transparentFog.fit.fogs)
+        return;
+    uint16_t blendMode = 0;
+    uint32_t colour = 0;
+    if (!engine::ReadM2BatchBlendMode(batch, blendMode) || !UnfoggedBatchFogColour(blendMode, colour))
+        return;
+    M2BatchFogArgs args = {0.0f, 0.0f, kLinearStockFogExponent, &colour};
+    ApplyStockFogFit(g_transparentFog.fit, args);
+    reinterpret_cast<M2FogSetterFn>(g_m2BatchFogTarget)(args.start, args.end, args.exponent, args.colour);
+    fogOn = 1;
+    ++g_transparentFogStats.unfoggedBatchesFogged;
 }
 
 int TransparentFogGuardFilter(unsigned code, const char* where)
@@ -1843,6 +1864,18 @@ extern "C" void __cdecl vf_on_m2_batch_fog(M2BatchFogArgs* args)
     }
 }
 
+extern "C" void __cdecl vf_on_m2_unfogged_batch(const void* batch, int* fogOn)
+{
+    __try
+    {
+        OnM2UnfoggedBatch(batch, *fogOn);
+    }
+    __except (TransparentFogGuardFilter(GetExceptionCode(), "unfogged M2 batch hook"))
+    {
+        FailTransparentFog();
+    }
+}
+
 extern "C" void __cdecl vf_on_opaque_done()
 {
     __try
@@ -1926,6 +1959,23 @@ __declspec(naked) static void M2BatchFogThunk()
     }
 }
 
+__declspec(naked) static void M2UnfoggedBatchThunk()
+{
+    __asm {
+        cmp dword ptr [g_m2BatchFogObserved], 0
+        je forward
+        pushad
+        lea eax, [esp + 0x24]
+        push eax
+        push dword ptr [esp + 0x8]
+        call vf_on_m2_unfogged_batch
+        add esp, 8
+        popad
+    forward:
+        jmp dword ptr [g_m2FogUploadTarget]
+    }
+}
+
 void CallGlarePassUnlessDrawn()
 {
     if (g_transparentFog.glareDrawn)
@@ -1954,6 +2004,12 @@ const void* RetargetM2BatchFogThunk(uintptr_t target)
 {
     g_m2BatchFogTarget = target;
     return reinterpret_cast<const void*>(&M2BatchFogThunk);
+}
+
+const void* RetargetM2UnfoggedBatchThunk(uintptr_t target)
+{
+    g_m2FogUploadTarget = target;
+    return reinterpret_cast<const void*>(&M2UnfoggedBatchThunk);
 }
 
 const void* RetargetGlarePassThunk(uintptr_t target)
@@ -2601,6 +2657,21 @@ void EnableForeverLookOnHookedClient()
     EnableForeverLook(&GameFogDevice, glow, grading);
 }
 
+void InstallUnfoggedM2BatchHook()
+{
+    if (!engine::UnfoggedM2BatchLayoutMatches() ||
+        !SiteMatches(engine::kM2UnfoggedBatchSite, engine::kM2FogUploadTarget) ||
+        !PatchCallSite(engine::kM2UnfoggedBatchSite, engine::kM2FogUploadTarget,
+                       reinterpret_cast<const void*>(&M2UnfoggedBatchThunk)))
+    {
+        VF_LOG_ERROR("unfogged M2 batch hook not installed: the client's call at 0x%08X differs from the 12340 "
+                     "client; effects the client draws unfogged stay unfogged after the early fog",
+                     static_cast<unsigned>(engine::kM2UnfoggedBatchSite));
+        return;
+    }
+    VF_LOG_INFO("unfogged M2 batch hook installed at 0x%08X", static_cast<unsigned>(engine::kM2UnfoggedBatchSite));
+}
+
 bool InstallTransparentFogHooks()
 {
     const CallSite sites[] = {
@@ -2619,6 +2690,7 @@ bool InstallTransparentFogHooks()
     VF_LOG_INFO("transparent fog hooks installed: M2 batch fog 0x%08X, glare pass 0x%08X (TransparentFog=%d)",
                 static_cast<unsigned>(engine::kM2BatchFogSite), static_cast<unsigned>(engine::kGlarePassSite),
                 GlobalConfig().Get().transparentFog ? 1 : 0);
+    InstallUnfoggedM2BatchHook();
     return true;
 }
 

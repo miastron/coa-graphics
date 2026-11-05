@@ -1389,6 +1389,149 @@ void CheckThunksAndGlarePass(Harness& h)
           "again in the next frame");
 }
 
+int g_uploadedFogOn = -1;
+
+void __cdecl RecordFogUpload(int fogOn)
+{
+    g_uploadedFogOn = fogOn;
+}
+
+struct FakeM2Material
+{
+    uint8_t flags;
+    uint8_t unused;
+    uint16_t blendMode;
+};
+
+constexpr uint8_t kUnfoggedMaterialFlag = 0x2;
+constexpr uint16_t kAlphaBlendMode = 2;
+constexpr uint16_t kAddBlendMode = 4;
+constexpr uint16_t kBlendModeBeyondTheFogTable = 7;
+constexpr uint16_t kUnknownBlendMode = 9;
+constexpr size_t kM2BatchMaterialOffset = 0x98;
+
+struct FakeM2Batch
+{
+    unsigned char fields[kM2BatchMaterialOffset] = {};
+    const FakeM2Material* material = nullptr;
+};
+
+struct UnfoggedBatchCall
+{
+    ThunkCall registers;
+    RecordedFog fog;
+    int uploadedFogOn;
+};
+
+UnfoggedBatchCall CallThroughUnfoggedBatchThunk(const void* thunk, const FakeM2Batch& batch)
+{
+    g_recordedFog = {};
+    g_uploadedFogOn = -1;
+    const FakeM2Batch* batchAddress = &batch;
+    uint32_t esiAfter = 0;
+    uint32_t ediAfter = 0;
+    uint32_t ebxAfter = 0;
+    uint32_t stackBefore = 0;
+    uint32_t stackAfter = 0;
+    __asm {
+        push esi
+        push edi
+        push ebx
+        mov esi, batchAddress
+        mov edi, kSentinelEdi
+        xor ebx, ebx
+        mov stackBefore, esp
+        push ebx
+        call thunk
+        add esp, 4
+        mov stackAfter, esp
+        mov esiAfter, esi
+        mov ediAfter, edi
+        mov ebxAfter, ebx
+        pop ebx
+        pop edi
+        pop esi
+    }
+    return {{esiAfter, ediAfter, ebxAfter, stackBefore, stackAfter}, g_recordedFog, g_uploadedFogOn};
+}
+
+bool UnfoggedCallerKept(const UnfoggedBatchCall& call, const FakeM2Batch& batch)
+{
+    return call.registers.esi == static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&batch)) &&
+           call.registers.edi == kSentinelEdi && call.registers.ebx == 0 &&
+           call.registers.stackBefore == call.registers.stackAfter;
+}
+
+bool LeftUnfogged(const UnfoggedBatchCall& call)
+{
+    return call.uploadedFogOn == 0 && !call.fog.colour;
+}
+
+bool FoggedByTheFit(const UnfoggedBatchCall& call)
+{
+    return call.uploadedFogOn == 1 && call.fog.colour && call.fog.start != call.fog.end &&
+           call.fog.exponent == kLinearStockFogExponent;
+}
+
+void CheckUnfoggedBatchesTakeTheFit(Harness& h)
+{
+    vf_test_m2_batch_fog_thunk(reinterpret_cast<uintptr_t>(&RecordM2BatchFog));
+    const void* thunk = vf_test_m2_unfogged_batch_thunk(reinterpret_cast<uintptr_t>(&RecordFogUpload));
+    const FakeM2Material additive = {kUnfoggedMaterialFlag, 0, kAddBlendMode};
+    const FakeM2Material alpha = {kUnfoggedMaterialFlag, 0, kAlphaBlendMode};
+    const FakeM2Material beyondTable = {kUnfoggedMaterialFlag, 0, kBlendModeBeyondTheFogTable};
+    const FakeM2Material unknown = {kUnfoggedMaterialFlag, 0, kUnknownBlendMode};
+    FakeM2Batch additiveBatch;
+    additiveBatch.material = &additive;
+    FakeM2Batch alphaBatch;
+    alphaBatch.material = &alpha;
+    FakeM2Batch beyondTableBatch;
+    beyondTableBatch.material = &beyondTable;
+    FakeM2Batch unknownBatch;
+    unknownBatch.material = &unknown;
+    const UnfoggedBatchCall unarmed = CallThroughUnfoggedBatchThunk(thunk, additiveBatch);
+
+    const View v;
+    Config cfg = HookConfig(true);
+    vf_test_set_config(&cfg);
+    RenderSettledHookedFrame(h, v, cfg, FrameOptions());
+    vf_test_glare_pass_thunk(reinterpret_cast<uintptr_t>(&RecordGlarePass));
+    vf_test_use_fog_hook_client(&v.in);
+    vf_test_hook_frame_begin();
+    h.BeginFrame();
+    h.DrawScene(v.eye, v.view, v.proj, v.world);
+    const UnfoggedBatchCall beforeLiquidEnd = CallThroughUnfoggedBatchThunk(thunk, additiveBatch);
+    vf_test_hook_liquid_end();
+    const UnfoggedBatchCall additiveArmed = CallThroughUnfoggedBatchThunk(thunk, additiveBatch);
+    const UnfoggedBatchCall alphaArmed = CallThroughUnfoggedBatchThunk(thunk, alphaBatch);
+    const UnfoggedBatchCall beyondTableArmed = CallThroughUnfoggedBatchThunk(thunk, beyondTableBatch);
+    const UnfoggedBatchCall unknownArmed = CallThroughUnfoggedBatchThunk(thunk, unknownBatch);
+    vf_test_hook_world_done();
+    h.dev->EndScene();
+    vf_test_hook_frame_end();
+    h.dev->Present(nullptr, nullptr, nullptr, nullptr);
+    const UnfoggedBatchCall afterFrame = CallThroughUnfoggedBatchThunk(thunk, additiveBatch);
+
+    std::printf("     unfogged M2 batch thunk: armed additive start %.1f end %.1f colour %08X, alpha colour %08X; "
+                "fog uploaded %d unarmed, %d armed\n",
+                additiveArmed.fog.start, additiveArmed.fog.end, additiveArmed.fog.colourValue,
+                alphaArmed.fog.colourValue, unarmed.uploadedFogOn, additiveArmed.uploadedFogOn);
+    Check(LeftUnfogged(unarmed) && LeftUnfogged(beforeLiquidEnd) && LeftUnfogged(afterFrame) &&
+              UnfoggedCallerKept(unarmed, additiveBatch) && UnfoggedCallerKept(afterFrame, additiveBatch),
+          "the unfogged M2 batch thunk passes the client's fog-off upload through while the transparent fog is not "
+          "armed, and keeps esi, edi, ebx and the stack");
+    Check(FoggedByTheFit(additiveArmed) && additiveArmed.fog.colourValue == kAdditiveFogColour &&
+              FoggedByTheFit(alphaArmed) && UsesLightingFogColour(alphaArmed.fog.colourValue) &&
+              alphaArmed.fog.start == additiveArmed.fog.start && alphaArmed.fog.end == additiveArmed.fog.end &&
+              UnfoggedCallerKept(additiveArmed, additiveBatch) && UnfoggedCallerKept(alphaArmed, alphaBatch),
+          "after the early composite a batch the client draws unfogged, such as a lamp glow, takes the fitted fog "
+          "with the colour of its blend mode (black for additive, the fitted colour for alpha) and the fog upload "
+          "turns fog on");
+    Check(LeftUnfogged(beyondTableArmed) && LeftUnfogged(unknownArmed),
+          "an unfogged batch with a blend mode outside the client's fog table, which holds seven modes, stays "
+          "unfogged");
+}
+
 void CallM2BatchFog(uint32_t colour, float exponent)
 {
     M2BatchFogArgs args = {kPushedStockFogStart, kPushedStockFogEnd, exponent, &colour};
@@ -1504,6 +1647,7 @@ void CheckTransparentFog(Harness& h)
     CheckWholeFrameFallbacks(h);
     CheckEarlyCompositeFailureLogged(h);
     CheckThunksAndGlarePass(h);
+    CheckUnfoggedBatchesTakeTheFit(h);
     CheckStageZeroCounts(h);
     CheckM2HookFaultKeepsTheFog(h);
     vf_test_set_config(&saved);

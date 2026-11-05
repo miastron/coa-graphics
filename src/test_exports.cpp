@@ -381,6 +381,11 @@ extern "C" const void* __cdecl vf_test_m2_batch_fog_thunk(uintptr_t target)
     return RetargetM2BatchFogThunk(target);
 }
 
+extern "C" const void* __cdecl vf_test_m2_unfogged_batch_thunk(uintptr_t target)
+{
+    return RetargetM2UnfoggedBatchThunk(target);
+}
+
 extern "C" const void* __cdecl vf_test_glare_pass_thunk(uintptr_t target)
 {
     return RetargetGlarePassThunk(target);

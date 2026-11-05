@@ -69,6 +69,8 @@ constexpr uintptr_t kM2BatchFogSite = 0x0081FD15;
 constexpr uintptr_t kM2BatchFogTarget = 0x00873210;
 constexpr uintptr_t kGlarePassSite = 0x004F9213;
 constexpr uintptr_t kGlarePassTarget = 0x007F0870;
+constexpr uintptr_t kM2UnfoggedBatchSite = 0x0081FD29;
+constexpr uintptr_t kM2FogUploadTarget = 0x00873390;
 
 constexpr uintptr_t kWaterPassSite = 0x00790AA2;
 constexpr uintptr_t kWaterPassTarget = 0x008A2240;
@@ -149,6 +151,8 @@ bool BuildFrameInputs(FrameInputs& out, bool withPointLights, const PointLightUp
 bool BuildWaterInputs(WaterInputs& out);
 bool WaterClientLayoutMatches();
 bool TransparentFogClientLayoutMatches();
+bool UnfoggedM2BatchLayoutMatches();
+bool ReadM2BatchBlendMode(const void* batch, uint16_t& blendMode);
 void DescribeGlarePassEntry(char* text, size_t size);
 bool TransparentLiquidsQueued(const void* liquidRenderer);
 WaterClass ClassifyWaterSettings(const void* liquidSettings);
