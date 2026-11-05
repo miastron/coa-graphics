@@ -4,6 +4,7 @@
 #include "frame_copies.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
+#include "test_seams.h"
 
 #include "ps_grade.h"
 
@@ -57,6 +58,16 @@ const SamplerStateValue kPointSampledClamp[] = {
 
 const D3DFORMAT kCurveFormats[] = {D3DFMT_R32F, D3DFMT_A32B32G32R32F};
 
+int g_failingSceneCopies = 0;
+
+bool TakeInjectedSceneCopyFailure()
+{
+    if (Seam(g_failingSceneCopies, 0) <= 0)
+        return false;
+    --g_failingSceneCopies;
+    return true;
+}
+
 RECT ViewportRect(const D3DVIEWPORT9& vp)
 {
     return {static_cast<LONG>(vp.X), static_cast<LONG>(vp.Y), static_cast<LONG>(vp.X + vp.Width),
@@ -81,6 +92,13 @@ void BindPointSampled(IDirect3DDevice9* dev, DWORD stage, IDirect3DBaseTexture9*
         dev->SetSamplerState(stage, sampler.state, sampler.value);
 }
 }
+
+#ifdef VF_TESTING
+void FailGradingSceneCopies(int count)
+{
+    g_failingSceneCopies = count;
+}
+#endif
 
 GradingRenderer::~GradingRenderer()
 {
@@ -251,7 +269,7 @@ bool GradingRenderer::CopyWorld(IDirect3DDevice9* dev, IDirect3DSurface9* target
         return false;
     const RECT rect = ViewportRect(world);
     IDirect3DSurface9* copy = nullptr;
-    const bool copied = SUCCEEDED(m_sceneCopy->GetSurfaceLevel(0, &copy)) &&
+    const bool copied = !TakeInjectedSceneCopyFailure() && SUCCEEDED(m_sceneCopy->GetSurfaceLevel(0, &copy)) &&
                         SUCCEEDED(dev->StretchRect(target, &rect, copy, nullptr, D3DTEXF_POINT));
     SafeRelease(copy);
     if (copied)

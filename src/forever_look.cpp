@@ -289,12 +289,11 @@ void GradeWorldFrame()
         return;
     }
     FogDevice* device = g_client.device();
+    if (device)
+        g_gradedDevice = device;
     const char* skip = "";
     if (GradeWorld(device, grading.viewport, grading.curve, grading.strength, &skip))
-    {
-        g_gradedDevice = device;
         RecordGrading(GradingState::Ready, "", grading.strength);
-    }
     else
         RecordGrading(GradingState::Skipped, skip && *skip ? skip : "the grading pass could not draw", 0.0f);
 }

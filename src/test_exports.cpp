@@ -6,6 +6,7 @@
 #include "fog_data.h"
 #include "forever_look.h"
 #include "frame_copies.h"
+#include "grading_renderer.h"
 #include "grass_wind.h"
 #include "hooks.h"
 #include "image_quality.h"
@@ -565,6 +566,11 @@ extern "C" void __cdecl vf_test_forever_look_world_done()
 extern "C" int __cdecl vf_test_delivered_glow(float* amount)
 {
     return DeliveredGlowThisFrame(*amount) ? 1 : 0;
+}
+
+extern "C" void __cdecl vf_test_fail_grading_scene_copies(int count)
+{
+    FailGradingSceneCopies(count);
 }
 
 extern "C" void __cdecl vf_test_grading_stats(GradingStats* stats)

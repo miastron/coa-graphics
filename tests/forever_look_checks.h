@@ -803,6 +803,22 @@ void CheckUngradedFrames(Harness& h, const D3DVIEWPORT9& world, const float* shi
           "under full coverage by Classic lights without a grading key the identity curve is not drawn");
 }
 
+void CheckCopyOfAFailedGradeReleasedWhenOff(Harness& h, const D3DVIEWPORT9& world, const float* shipped)
+{
+    const GradedFrame released = RenderGradedFrame(h, Request(world, 0.0f, shipped));
+    vf_test_fail_grading_scene_copies(1);
+    const GradedFrame failed = RenderGradedFrame(h, Request(world, 1.0f, shipped));
+    vf_test_fail_grading_scene_copies(0);
+    const GradedFrame off = RenderGradedFrame(h, Request(world, 0.0f, shipped));
+    std::printf("     a grade whose copy failed: %u draws, state \"%s\", copy held %d, after ColorGrading=0 %d\n",
+                failed.Draws(), failed.status.grading, failed.after.holdsSceneCopy ? 1 : 0,
+                off.after.holdsSceneCopy ? 1 : 0);
+    Check(!released.after.holdsSceneCopy && failed.Draws() == 0 && failed.after.holdsSceneCopy &&
+              !off.after.holdsSceneCopy,
+          "ColorGrading=0 releases the grading copy also when every grade since it was made failed to copy the "
+          "frame");
+}
+
 bool OutsideRect(UINT x, UINT y, const D3DVIEWPORT9& rect)
 {
     return x < rect.X || y < rect.Y || x >= rect.X + rect.Width || y >= rect.Y + rect.Height;
@@ -888,6 +904,7 @@ void CheckColourGrading(Harness& h, const D3DVIEWPORT9& world, const FogData& da
     Check(ResolveShippedCurve(data), "the Stormwind noon grading curve (8286666) resolves for the grading checks");
     CheckIdentityAndShippedCurves(h, world, g_shippedCurve);
     CheckUngradedFrames(h, world, g_shippedCurve);
+    CheckCopyOfAFailedGradeReleasedWhenOff(h, world, g_shippedCurve);
     CheckGradedSubRect(h, world, g_shippedCurve);
     CheckCurveUploadedOnChange(h, world, g_shippedCurve);
     CheckGradingAfterAFogException(h, world);

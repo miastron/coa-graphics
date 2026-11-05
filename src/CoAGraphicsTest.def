@@ -98,6 +98,7 @@ EXPORTS
     vf_test_forever_look_world_done
     vf_test_delivered_glow
     vf_test_grading_stats
+    vf_test_fail_grading_scene_copies
     vf_test_image_stats
     vf_test_image_status
     vf_test_image_world_done

@@ -12,6 +12,10 @@ struct GradingStats
     bool holdsCurve = false;
 };
 
+#ifdef VF_TESTING
+void FailGradingSceneCopies(int count);
+#endif
+
 class GradingRenderer
 {
 public:
