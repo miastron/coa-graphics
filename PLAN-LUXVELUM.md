@@ -1,7 +1,7 @@
 # PLAN-LUXVELUM
 
 Status (2026-11-05): in progress. Group 1 is done except 7337c37, the light stabiliser set is done, and the Outland
-and Northrend batch is done in code with its data waiting on a decision (see Group 2). Update this file after every port.
+and Northrend batch is done, data included (see Group 2). Update this file after every port.
 
 ## Source and rules
 
@@ -83,19 +83,19 @@ panel's slider ranges, `LocalLightUpload` also carries spell lights), so they we
   (spell lights share the bound), region values to 128 in the INI, logarithmic sliders to 96, `LocalLightUpload` takes
   the map. Its map read was not taken (ours is `DayNight::s_mapId`).
 
-Pending the owner's decision, staged and tested on the local branch `luxvelum-fogdata` (commit `4d859e3`, one commit on
-top of main): the data itself. `data/fogdata.bin` cannot be regenerated here: the client's DBFilesClient tables (inside
-the MPQs, no extractor on this machine) and the Forever kit are not available. The branch ships LuxVelum's finished
-file, as `40da028` shipped upstream's previous one. Evidence gathered: our converter is identical to LuxVelum's at its
-branch tip and no later commit changed the file; the 625 Classic lights, 508 Classic params with their keys and layers,
-18 zone lights and the grading curves are identical to ours record by record (only the generated part differs, plus the
-copy light and two zone outlines); the eight data checks (ground fog height, no noise, sunless skies, landmarks,
-sun-keeping copy, Hellfire's clear sky) fail with our current file and pass with theirs; the full DXVK run on the branch
-gives 1644 passes and only the known 4x multisampling failures. To take it: `git merge luxvelum-fogdata`. To drop it:
-`git branch -D luxvelum-fogdata` (the converter and loader changes on main stay inert without the data). The other way is
-to extract Light, LightIntBand, LightFloatBand, LightParams and LightSkybox from the client's MPQs (a small MPQ reader in
-Python would do) and run the converter on them; that gives data for the owner's own client, which may differ from
-upstream's.
+Done (merged into main 2026-11-05 on the owner's decision, merge `b2e5977`, data commit `4d859e3`): the data itself.
+`data/fogdata.bin` is LuxVelum's finished file, taken as built, because it cannot be regenerated here: the client's
+DBFilesClient tables (inside the MPQs, no extractor on this machine) and the Forever kit are not available, and
+`40da028` took upstream's previous file the same way. Evidence at the time: our converter is identical to LuxVelum's at
+its branch tip and no later commit changed the file; the 625 Classic lights, 508 Classic params with their keys and
+layers, 18 zone lights and the grading curves are identical to the previous file record by record (only the generated
+part differs, plus the copy light and two zone outlines); the eight data checks (ground fog height, no noise, sunless
+skies, landmarks, sun-keeping copy, Hellfire's clear sky) failed with the previous file and pass with this one; the
+full DXVK run gives 1644 passes and only the known 4x multisampling failures. The README says the converted counts and
+shares are upstream's and were not re-measured here. To revisit: extract Light, LightIntBand, LightFloatBand,
+LightParams and LightSkybox from the client's MPQs (a small MPQ reader in Python would do) and run
+`tools/convert_client_lights.py` on the shipped file; that gives data for the owner's own client, which may differ
+from upstream's. To undo: revert `b2e5977` (the previous `data/fogdata.bin` is in `ae25b2f`).
 
 Left out of the batch: the dither and halo occlusion parts of 8fa1168 (group 3 and a removed feature), the region lamp
 defaults of 8 and the slider range of 24 (we start at 3; the owner's call), and the Bone Wastes renames in the tests.
