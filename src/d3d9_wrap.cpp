@@ -903,12 +903,11 @@ private:
 
     D3DFORMAT AdapterFormat(UINT adapter, const D3DPRESENT_PARAMETERS& pp)
     {
-        D3DFORMAT adapterFormat = pp.BackBufferFormat;
         D3DDISPLAYMODE mode;
-        if (pp.Windowed || adapterFormat == D3DFMT_UNKNOWN)
-            if (SUCCEEDED(m_real->GetAdapterDisplayMode(adapter, &mode)))
-                adapterFormat = mode.Format;
-        return adapterFormat;
+        if ((pp.Windowed || pp.BackBufferFormat == D3DFMT_UNKNOWN) &&
+            SUCCEEDED(m_real->GetAdapterDisplayMode(adapter, &mode)))
+            return mode.Format;
+        return DisplayFormatFor(pp.BackBufferFormat);
     }
 
     bool SupportsIntz(UINT adapter, D3DDEVTYPE type, const D3DPRESENT_PARAMETERS& pp)
@@ -1360,6 +1359,19 @@ bool FogDevice::EnhanceImage(const D3DVIEWPORT9& world, const ImageSettings& set
     if (skip)
         *skip = drawn ? "" : m_image.LastSkipReason();
     return drawn;
+}
+
+D3DFORMAT DisplayFormatFor(D3DFORMAT backBufferFormat)
+{
+    switch (backBufferFormat)
+    {
+    case D3DFMT_A8R8G8B8:
+        return D3DFMT_X8R8G8B8;
+    case D3DFMT_A1R5G5B5:
+        return D3DFMT_X1R5G5B5;
+    default:
+        return backBufferFormat;
+    }
 }
 
 void SetRealDirect3DCreate9(Direct3DCreate9Fn fn)

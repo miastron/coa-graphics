@@ -148,6 +148,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_multisampling(Multisamplin
 extern "C" __declspec(dllimport) int __cdecl vf_test_refresh_scene_depth();
 extern "C" __declspec(dllimport) void __cdecl vf_test_take_frame_copies(FrameCopyCounts*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_probe_depth_copy(IDirect3D9*, DepthCopyProbe*);
+extern "C" __declspec(dllimport) D3DFORMAT __cdecl vf_test_display_format_for(D3DFORMAT);
 extern "C" __declspec(dllimport) void __cdecl vf_test_water_ripple_stats(WaterRippleStats*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_water_ripple_shading(WaterRippleShading*);
 extern "C" __declspec(dllimport) unsigned __cdecl vf_test_water_contact_reads();
@@ -2276,6 +2277,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "transparent_fog_checks.h"
 #include "early_composite_look_checks.h"
 #include "multisampling_checks.h"
+#include "device_creation_checks.h"
 #include "texture_filtering_checks.h"
 #include "tree_wind_checks.h"
 #include "wind_model_checks.h"
@@ -3016,6 +3018,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     ULONG d3dRefs = h.d3d->Release();
     Check(devRefs == 0 && d3dRefs == 0, "wrapper reference counts reach zero");
     RUN_GROUP(multisampling_checks::CheckMultisampling(realCreate, h.window, outDir, FullPath(iniPath)));
+    RUN_GROUP(device_creation_checks::CheckDeviceCreation(realCreate, h.window));
     vf_test_set_config(&restored);
     DestroyWindow(h.window);
     CoUninitialize();

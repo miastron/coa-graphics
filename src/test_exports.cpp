@@ -473,6 +473,11 @@ extern "C" void __cdecl vf_test_probe_depth_copy(IDirect3D9* d3d, DepthCopyProbe
     *probe = ProbeDepthCopy(d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL);
 }
 
+extern "C" D3DFORMAT __cdecl vf_test_display_format_for(D3DFORMAT backBufferFormat)
+{
+    return DisplayFormatFor(backBufferFormat);
+}
+
 extern "C" void __cdecl vf_test_water_ripple_stats(WaterRippleStats* out)
 {
     ReadWaterRippleStats(LatestFogDevice(), *out);

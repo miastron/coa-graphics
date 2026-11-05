@@ -536,6 +536,14 @@ The water is tuned by eye against this mapping, not matched to Forever captures.
   The shaders read depth through the captured world viewport's range and treat anything deeper as beyond the far clip.
   When the game asks for multisampling and a depth copy passes its self-test (see Antialiasing), the device keeps the
   game's multisampled back buffer and automatic depth (D24S8 for D24X8) instead, and `INTZ` becomes a copy.
+  The `INTZ` and D24S8 support checks pass the desktop's display mode as the adapter format for a windowed device and
+  the back buffer's display format for a fullscreen one: X8R8G8B8 for A8R8G8B8 and X1R5G5B5 for A1R5G5B5, since D3D9
+  displays no alpha and DXVK refuses the others (`IsSupportedAdapterFormat` in DXVK's `d3d9_monitor.cpp` accepts only
+  A2R10G10B10, X8R8G8B8, X1R5G5B5 and R5G6B5, and `IsSupportedBackBufferFormat` pairs a fullscreen A8R8G8B8 back buffer
+  with the X8R8G8B8 adapter format). The client's present-parameter builder takes a windowed back buffer format from the
+  desktop's mode and a fullscreen one from `s_GxFormatToD3dFormat` = {R5G6B5, X8R8G8B8, A8R8G8B8, A2R10G10B10, ...}
+  (`CGxDeviceD3d.cpp:2211`, `:2218`), so a fullscreen A8R8G8B8 back buffer is possible; which colour format the
+  32-bit setting picks is not confirmed.
 - **Hooks.** Five 5-byte call displacements:
   - the world render call (`0x4FB03D`): stock-fog override and restore;
   - after the opaque M2 pass (`0x4F911D`): captures camera inputs;
