@@ -1,7 +1,7 @@
 # PLAN-LUXVELUM
 
-Status (2026-11-05): in progress. Group 1 is done except 7337c37; the light stabiliser set is next. Update this file
-with every port, in the same commit.
+Status (2026-11-05): in progress. Group 1 is done except 7337c37, and the light stabiliser set is done. Next is the
+Outland and Northrend fog data batch. Update this file after every port.
 
 ## Source and rules
 
@@ -53,12 +53,21 @@ from the ports themselves.
   other ideas (`PLAN.md` 3.2), and it changes the look at silhouettes. Do it with a before and after harness image,
   and check that every variant compiles with `fxc` first.
 
-## Next, group 2 (fixes that need an in-game look)
+## Group 2 (fixes that need an in-game look)
 
-- Light stabiliser set, in this order: 34f620e (call off an eviction without a challenger), 7d6b0ba (identity radius
-  grows with the time between captures), fe461d6 (a returning challenger adopts an orphaned eviction), 720f895
-  (identity radius across held captures), dc49536 (a fresh slot survives a missed capture). Our stabiliser is
-  LuxVelum's parent plus our spell-light fade (`FadeSeconds`).
+Done (committed on main 2026-11-05), the light stabiliser set, in LuxVelum's order. Our stabiliser was LuxVelum's
+parent plus our spell-light fade (`FadeSeconds`), so the source and test patches applied as they were; the README text
+was adapted to our bullets. Each check fails on the commit before it. The tests are CPU-only and run natively:
+`vfog_harness --scene cpu --filter local_light_stabiliser`. Still to be seen in game: lamps that flicker in and out of
+the client's table, a fast spell light, a lamp-lit street while turning the camera.
+- `5c0518d` 34f620e: an eviction no challenger waits for any more is called off, so the lamp ramps back up.
+- `203b45d` 7d6b0ba: the identity radius is 2 yd plus 40 yd per second since the last capture, and a late capture
+  continues the nearest entry (the check for it fails if the first entry in range is taken).
+- `10a95b4` fe461d6: a returning challenger adopts an orphaned eviction; calling off needs three captures in a row.
+- `73ad963` 720f895: the radius and the priority smoothing run on the time since the last capture that was not held.
+- `693c58b` dc49536: a slotted light that is not evicted keeps its slot through two missed captures.
+
+Next:
 - Outland and Northrend fog data, one batch, `fogdata.bin` regenerated once at the end: bd506b5 (converted layers
   shifted by light height, no Classic noise on converted lights, lamp scatter gain 1 / region density), 505c4d7
   (sunless-sky flag 0x10 and clear-sky flag 0x20 from LightParams and LightSkybox, own moon scatter, region lamp
