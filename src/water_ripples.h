@@ -12,6 +12,7 @@ constexpr double kWaterRippleStepsPerSecond = 30.0;
 constexpr double kWaterRippleStepSeconds = 1.0 / kWaterRippleStepsPerSecond;
 constexpr int kMaxWaterRippleStepsPerFrame = 4;
 constexpr uint32_t kMaxWaterRippleDisturbances = 48;
+constexpr uint32_t kWaterRippleStepPixelConstants = 1 + 2 * kMaxWaterRippleDisturbances;
 constexpr int kWaterRippleTexelsLow = 256;
 constexpr int kWaterRippleTexels = 512;
 constexpr uint32_t kWaterRippleQuietSteps = 450;

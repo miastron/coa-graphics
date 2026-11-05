@@ -20,6 +20,10 @@ constexpr int kRippleDebugView = 6;
 constexpr size_t kMinRipplePixels = 100;
 constexpr int kOtherMap = 571;
 constexpr double kRippleGap = 1.5;
+constexpr uint64_t kFirstCrowdGuid = 100;
+constexpr uint32_t kCrowdColumns = 8;
+constexpr float kCrowdSpacing = 2.0f;
+constexpr float kCrowdFirstY = -6.0f;
 constexpr int kRippleSummaryFrames = 60;
 constexpr BYTE kFlatRippleGrey = 127;
 constexpr unsigned kRippleMapsHeld = 0x8;
@@ -561,6 +565,44 @@ bool ParseWaterSummary(const std::string& text, float& medianMs, char (&details)
                        &frames, &skipped, details) == 4;
 }
 
+WaterContactFrame CrowdOf(float depth)
+{
+    WaterContactFrame frame;
+    for (uint32_t i = 0; i < kMaxWaterContacts; ++i)
+        frame.contacts[frame.count++] =
+            BasinContact(kFirstCrowdGuid + i, kRippleUnitX + kCrowdSpacing * static_cast<float>(i % kCrowdColumns),
+                         kCrowdFirstY + kCrowdSpacing * static_cast<float>(i / kCrowdColumns), depth);
+    return frame;
+}
+
+void CheckCrowdedRippleStepsKeepTheConstants(BasinClient& client, const Config& base)
+{
+    const WaterView view = client.View();
+    ReleaseRipples(client, base, kRippleStart);
+    const Config on = RippleConfig(base, 1.0f);
+    vf_test_set_config(&on);
+    double seconds = kRippleStart;
+    RenderRippleFrame(client, view, seconds, {});
+    const uint64_t stepsBefore = RippleStats().steps;
+    bool kept = true;
+    bool began = true;
+    for (float depth : {kRippleShoreDepth, kRippleDeepDepth, kRippleWadingDepth})
+    {
+        seconds += kRippleFrame * 2.0;
+        const WaterFrameResult result = RenderRippleFrame(client, view, seconds, CrowdOf(depth));
+        kept = result.stateKept && kept;
+        began = result.began && began;
+    }
+    const WaterRippleStats stats = RippleStats();
+    std::printf("     %u units wading and jumping in at once: %u tracks, %llu steps, state kept %d\n", stats.contacts,
+                stats.tracks, static_cast<unsigned long long>(stats.steps - stepsBefore), kept);
+    Check(began && kept && stats.contacts == kMaxWaterContacts && stats.tracks == kMaxWaterContacts &&
+              stats.steps > stepsBefore && stats.shaded,
+          "32 units wading and jumping into the ripple window at once (up to 48 disturbances a step, constants c1-c96) "
+          "leave every pixel constant of the client as the water pass found it");
+    ReleaseRipples(client, base, seconds + kRippleGap);
+}
+
 void CheckRippleSummaryAndCost(Harness& h, BasinClient& client, const Config& base)
 {
     const WaterView view = client.View();
@@ -610,6 +652,7 @@ void CheckWaterRipplePass(Harness& h, const std::wstring& outDir)
     CheckRippleSlopeFollowsForever(h, client, base);
     CheckRipplesOffRenderAsBefore(client, base);
     CheckRippleResets(h, client, base);
+    CheckCrowdedRippleStepsKeepTheConstants(client, base);
     CheckRippleSummaryAndCost(h, client, base);
     vf_test_set_water_seconds(kRealTime);
     vf_test_set_config(&base);

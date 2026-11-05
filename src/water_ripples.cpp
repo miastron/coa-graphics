@@ -19,6 +19,8 @@ constexpr DWORD kMaxRenderTargets = 4;
 constexpr UINT kStepConstant = 0;
 constexpr UINT kFirstSegmentConstant = 1;
 constexpr UINT kFirstShapeConstant = kFirstSegmentConstant + kMaxWaterRippleDisturbances;
+static_assert(kFirstShapeConstant + kMaxWaterRippleDisturbances == kWaterRippleStepPixelConstants,
+              "the ripple step's segment and shape arrays end at its exported constant span");
 constexpr float kMaxWindowCentreYards = 100000.0f;
 constexpr float kHeldFootprint = 1.0f;
 constexpr float kAddedImpulse = 0.0f;

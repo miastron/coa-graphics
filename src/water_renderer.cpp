@@ -23,7 +23,7 @@
 
 namespace
 {
-constexpr UINT kWaterPixelConstants = 72;
+constexpr UINT kWaterPixelConstants = 100;
 constexpr DWORD kWaterSamplerStages = 16;
 constexpr UINT kCommonConstants = 9;
 constexpr UINT kShadingFirstConstant = 9;
@@ -1170,6 +1170,8 @@ void WaterRenderer::ReleaseRipples()
 
 bool WaterRenderer::SimulateRipples(IDirect3DDevice9* dev, double seconds)
 {
+    static_assert(kWaterRippleStepPixelConstants <= kWaterPixelConstants,
+                  "the water state block restores every constant the ripple step sets");
     if (m_cfg.waterRipples <= 0.0f)
     {
         ReleaseRipples();
