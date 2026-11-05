@@ -195,6 +195,7 @@ constexpr int kReferenceIntegrationSteps = 8192;
 constexpr BYTE kKeyHeld = 0x80;
 constexpr UINT kKeyRepeatCountOne = 1;
 constexpr UINT kKeyReleaseTransition = 0xC0000000u;
+constexpr wchar_t kHotkeyCharacter = L'\x16';
 constexpr int kOverlaySettleFrames = 3;
 constexpr UINT kOverlayProbeLeft = 40;
 constexpr UINT kOverlayProbeTop = 60;
@@ -1864,6 +1865,8 @@ void CheckSettingsSaveKeepsTheIni(const std::wstring& outDir, const std::wstring
 struct ClientInput
 {
     int keyDowns = 0;
+    int keyUps = 0;
+    int characters = 0;
     int mouseDowns = 0;
     int mouseUps = 0;
     int mouseMoves = 0;
@@ -1875,6 +1878,10 @@ LRESULT CALLBACK ClientWindowProc(HWND window, UINT msg, WPARAM wParam, LPARAM l
 {
     if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
         ++g_clientInput.keyDowns;
+    if (msg == WM_KEYUP || msg == WM_SYSKEYUP)
+        ++g_clientInput.keyUps;
+    if (msg == WM_CHAR)
+        ++g_clientInput.characters;
     if (msg == WM_LBUTTONDOWN)
         ++g_clientInput.mouseDowns;
     if (msg == WM_LBUTTONUP)
@@ -1894,11 +1901,32 @@ void HoldModifiers(bool ctrl, bool shift, bool alt)
     SetKeyboardState(keys);
 }
 
+LPARAM KeyPressedParameter(unsigned virtualKey)
+{
+    return static_cast<LPARAM>(kKeyRepeatCountOne | (MapVirtualKeyW(virtualKey, MAPVK_VK_TO_VSC) << 16));
+}
+
+LPARAM KeyReleasedParameter(unsigned virtualKey)
+{
+    return static_cast<LPARAM>(static_cast<UINT>(KeyPressedParameter(virtualKey)) | kKeyReleaseTransition);
+}
+
 void PressKey(HWND window, unsigned virtualKey)
 {
-    const UINT pressed = kKeyRepeatCountOne | (MapVirtualKeyW(virtualKey, MAPVK_VK_TO_VSC) << 16);
-    SendMessageW(window, WM_KEYDOWN, virtualKey, static_cast<LPARAM>(pressed));
-    SendMessageW(window, WM_KEYUP, virtualKey, static_cast<LPARAM>(pressed | kKeyReleaseTransition));
+    SendMessageW(window, WM_KEYDOWN, virtualKey, KeyPressedParameter(virtualKey));
+    SendMessageW(window, WM_KEYUP, virtualKey, KeyReleasedParameter(virtualKey));
+}
+
+void HoldHotkeyDown(HWND window, const Hotkey& key)
+{
+    HoldModifiers(key.ctrl, key.shift, key.alt);
+    SendMessageW(window, WM_KEYDOWN, key.virtualKey, KeyPressedParameter(key.virtualKey));
+    HoldModifiers(false, false, false);
+}
+
+void TypeCharacter(HWND window, unsigned virtualKey, wchar_t character)
+{
+    SendMessageW(window, WM_CHAR, character, KeyPressedParameter(virtualKey));
 }
 
 void PressHotkey(HWND window, const Hotkey& key)
@@ -1943,6 +1971,37 @@ double MeanLumaChange(const Image& a, const Image& b, UINT x0, UINT y0, UINT x1,
 double OverlayProbeChange(const Image& a, const Image& b)
 {
     return MeanLumaChange(a, b, kOverlayProbeLeft, kOverlayProbeTop, kOverlayProbeRight, kOverlayProbeBottom);
+}
+
+void CheckHotkeyCharactersSwallowedOnlyWhileTheHotkeyIsTyped(Harness& h)
+{
+    const Hotkey key = kDefaultOverlayHotkey;
+    g_clientInput = {};
+    HoldHotkeyDown(h.window, key);
+    TypeCharacter(h.window, key.virtualKey, kHotkeyCharacter);
+    const int hotkeyCharacters = g_clientInput.characters;
+    SendMessageW(h.window, WM_KILLFOCUS, 0, 0);
+    TypeCharacter(h.window, 'W', L'w');
+    std::printf("     characters the client saw: %d for the overlay key, %d typed after the focus left with it held\n",
+                hotkeyCharacters, g_clientInput.characters - hotkeyCharacters);
+    Check(vf_test_overlay_visible() == 1 && hotkeyCharacters == 0 && g_clientInput.characters == 1,
+          "the overlay key's own character is swallowed, but once the focus leaves while the key is held, typed "
+          "characters reach the client again");
+    PressHotkey(h.window, key);
+
+    g_clientInput = {};
+    HoldHotkeyDown(h.window, key);
+    SendMessageW(h.window, WM_KEYDOWN, 'W', KeyPressedParameter('W'));
+    TypeCharacter(h.window, 'W', L'w');
+    SendMessageW(h.window, WM_KEYUP, 'W', KeyReleasedParameter('W'));
+    SendMessageW(h.window, WM_KEYUP, key.virtualKey, KeyReleasedParameter(key.virtualKey));
+    const bool openWhileHeld = vf_test_overlay_visible() == 1;
+    const ClientInput whileHeld = g_clientInput;
+    PressHotkey(h.window, key);
+    Check(openWhileHeld && whileHeld.characters == 1 && whileHeld.keyDowns == 1 && whileHeld.keyUps == 1 &&
+              vf_test_overlay_visible() == 0,
+          "a key pressed while the overlay key is held reaches the client with its character, and the overlay "
+          "key's release still does not");
 }
 
 void CheckOverlayInput(Harness& h)
@@ -2938,6 +2997,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     vf_test_set_config(&restored);
 
     RUN_GROUP(CheckOverlayInput(h));
+    RUN_GROUP(CheckHotkeyCharactersSwallowedOnlyWhileTheHotkeyIsTyped(h));
     const size_t logBeforeWidgets = water_settings_checks::DllLogSize();
     RUN_GROUP(CheckOverlayWidgets(h));
     RUN_GROUP(water_settings_checks::CheckSliderDragLoggedOnce(logBeforeWidgets));

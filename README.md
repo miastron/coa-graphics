@@ -1572,8 +1572,11 @@ default, hold Fn (the log names the key that arrived). The window edits every se
   and size for the session.
 
 While the window is open, clicks and the wheel go to it only while the cursor is over it or a drag started on it, and
-keys only while one of its text fields is active (Ctrl+click on a slider). The hotkey never reaches the client. Mouse
-moves and key-ups always do, so no game key sticks. The window is drawn in the wrapper's `Present` with the device state
+keys only while one of its text fields is active (Ctrl+click on a slider). The hotkey never reaches the client, and
+neither does the character it types while it is held. The hotkey's character stops being swallowed once another key goes
+down or the focus leaves (`WM_KILLFOCUS`, `WM_ACTIVATE` and `WM_ACTIVATEAPP` deactivation, also with `Overlay=0`),
+so a hotkey released in another window cannot leave the chat box and edit boxes empty. Mouse moves and key-ups always
+reach the client, so no game key sticks. The window is drawn in the wrapper's `Present` with the device state
 saved and restored, and releases its resources before every `Reset`. An exception in the overlay turns it off for the
 session and is logged. `Overlay=0` leaves the game window untouched from the next start.
 

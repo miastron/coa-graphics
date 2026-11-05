@@ -40,6 +40,7 @@ struct OverlayState
     bool visible = false;
     bool failed = false;
     unsigned swallowedKey = 0;
+    bool swallowsHotkeyCharacters = false;
     UINT backBufferWidth = 0;
     UINT backBufferHeight = 0;
     float scale = 0.0f;
@@ -187,6 +188,12 @@ bool IsCharacterMessage(UINT msg)
     return msg == WM_CHAR || msg == WM_SYSCHAR || msg == WM_DEADCHAR || msg == WM_SYSDEADCHAR;
 }
 
+bool IsFocusLoss(UINT msg, WPARAM wParam)
+{
+    return msg == WM_KILLFOCUS || (msg == WM_ACTIVATEAPP && wParam == FALSE) ||
+           (msg == WM_ACTIVATE && LOWORD(wParam) == WA_INACTIVE);
+}
+
 bool IsMouseClickOrWheelMessage(UINT msg)
 {
     return msg > WM_MOUSEMOVE && msg <= WM_MOUSELAST;
@@ -306,6 +313,12 @@ void LogDrawSkip(DrawSkip reason, const char* what, HRESULT hr)
     VF_LOG_INFO("overlay not drawn: %s (0x%08X)", what, static_cast<unsigned>(hr));
 }
 
+void ForgetSwallowedKey()
+{
+    g_overlay.swallowedKey = 0;
+    g_overlay.swallowsHotkeyCharacters = false;
+}
+
 bool TakesHotkey(const Hotkey& key, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (HotkeyPressed(key, msg, wParam))
@@ -313,16 +326,19 @@ bool TakesHotkey(const Hotkey& key, UINT msg, WPARAM wParam, LPARAM lParam)
         if (!(lParam & kKeyWasDownBit))
             SetVisible(!g_overlay.visible);
         g_overlay.swallowedKey = static_cast<unsigned>(wParam);
+        g_overlay.swallowsHotkeyCharacters = true;
         return true;
     }
     if (!g_overlay.swallowedKey)
         return false;
     if (IsKeyUpMessage(msg) && (wParam == g_overlay.swallowedKey || IsHotkeyKey(key, wParam)))
     {
-        g_overlay.swallowedKey = 0;
+        ForgetSwallowedKey();
         return true;
     }
-    return IsCharacterMessage(msg);
+    if (IsKeyDownMessage(msg) && wParam != g_overlay.swallowedKey && !IsModifierKey(static_cast<unsigned>(wParam)))
+        g_overlay.swallowsHotkeyCharacters = false;
+    return g_overlay.swallowsHotkeyCharacters && IsCharacterMessage(msg);
 }
 
 bool PanelWantsMessage(UINT msg)
@@ -361,6 +377,8 @@ bool OverlayTakesMessage(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (g_overlay.failed || !g_overlay.device)
         return false;
+    if (IsFocusLoss(msg, wParam))
+        ForgetSwallowedKey();
     return KeepsButtonWithItsDown(msg, wParam, PanelTakesMessage(window, msg, wParam, lParam));
 }
 
