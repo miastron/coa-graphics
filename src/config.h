@@ -71,7 +71,7 @@ struct Config
     float noiseAmount = 0.15f;
     float noiseScale = 0.025f;
     float noiseWindSpeed = 0.5f;
-    bool classicNoise = true;
+    bool classicNoise = false;
     float godRays = 0.0f;
     bool lightShafts = true;
     bool worldShadows = true;

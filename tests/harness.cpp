@@ -3055,6 +3055,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(CheckLayerSlidersScaleTheClassicLayers(classic));
     RUN_GROUP(CheckConvertedGroundFogFollowsTheHeightOfItsLight(classic));
     RUN_GROUP(CheckConvertedLightsCarryNoClassicNoise(classic));
+    RUN_GROUP(authored_noise::CheckClassicNoiseOffByDefault(FullPath(iniPath)));
     RUN_GROUP(CheckSunlessSkiesScatterNoSunOrMoon(classic));
     RUN_GROUP(CheckGrizzlyHillsSholazarAndBoreanTundraKeepTheSun(classic));
     RUN_GROUP(CheckHellfireKeepsOnlyAThinGroundFogUnderAClearSky(classic));
