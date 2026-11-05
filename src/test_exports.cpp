@@ -573,6 +573,11 @@ extern "C" void __cdecl vf_test_fail_grading_scene_copies(int count)
     FailGradingSceneCopies(count);
 }
 
+extern "C" void __cdecl vf_test_fail_grading_pass(int fail)
+{
+    InjectGradingFault(fail != 0);
+}
+
 extern "C" void __cdecl vf_test_grading_stats(GradingStats* stats)
 {
     *stats = GradingStatsOf(LatestFogDevice());

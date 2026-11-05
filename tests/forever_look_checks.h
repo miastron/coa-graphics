@@ -54,6 +54,8 @@ constexpr float kHalfStrength = 0.5f;
 constexpr float kSyntheticCurveGamma = 0.8f;
 constexpr D3DVIEWPORT9 kGradedSubRect = {100, 50, 800, 400, 0.0f, 0.94f};
 constexpr const char* kNoGradedLightReason = "no Classic light around the camera carries a grading curve";
+constexpr const char* kGradingFaultLine =
+    "exception 0xE0564647 in colour grading; it is off for this session, the fog continues";
 
 struct FakeGlowPass
 {
@@ -899,6 +901,25 @@ void CheckGradingAfterAFogException(Harness& h, const D3DVIEWPORT9& world)
           "still draws through the world-done and frame-end hooks");
 }
 
+void CheckGradingFaultRestoresTheClient(Harness& h, const D3DVIEWPORT9& world)
+{
+    const size_t start = water_settings_checks::DllLogSize();
+    vf_test_fail_grading_pass(1);
+    const GradedFrame faulted = RenderGradedFrame(h, Request(world, 1.0f, g_shippedCurve));
+    vf_test_fail_grading_pass(0);
+    const size_t faults = water_settings_checks::CountOf(runtime_cost::LogWrittenSince(start), kGradingFaultLine);
+    const HRESULT reset = h.dev->Reset(&h.pp);
+    std::printf("     exception inside the grading pass at the frame-end hook: %zu fault lines, client state %s, "
+                "Reset 0x%08lX\n",
+                faults, faulted.statesKept ? "kept" : "changed", static_cast<unsigned long>(reset));
+    Check(faults == 1 && faulted.statesKept && faulted.Draws() == 0,
+          "an exception inside the colour grading pass, caught by the frame-end hook, still gives the client back "
+          "its depth surface, shaders, declaration, stream 0 and render state");
+    Check(SUCCEEDED(reset),
+          "after an exception inside the colour grading pass the device resets: the grading holds no reference to "
+          "the client's render target, depth surface or stream 0");
+}
+
 void CheckColourGrading(Harness& h, const D3DVIEWPORT9& world, const FogData& data)
 {
     Check(ResolveShippedCurve(data), "the Stormwind noon grading curve (8286666) resolves for the grading checks");
@@ -908,6 +929,7 @@ void CheckColourGrading(Harness& h, const D3DVIEWPORT9& world, const FogData& da
     CheckGradedSubRect(h, world, g_shippedCurve);
     CheckCurveUploadedOnChange(h, world, g_shippedCurve);
     CheckGradingAfterAFogException(h, world);
+    CheckGradingFaultRestoresTheClient(h, world);
     Config defaults = {};
     vf_test_set_config(&defaults);
 }
