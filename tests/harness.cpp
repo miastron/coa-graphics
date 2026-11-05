@@ -1354,6 +1354,71 @@ void CheckLayerSlidersScaleTheClassicLayers(const FogData& data)
           "defaults, which keep the layers as authored");
 }
 
+void CheckMoonScattersAShareOfTheSun(const FogData& data)
+{
+    const Vec3 hellfirePeninsula = {-3005.0f, 4469.0f, -18.0f};
+    const Vec3 toLight = {0.607f, 0.607f, 0.513f};
+    const float evening = 0.7279f;
+    const FrameInputs sunLit = ContinentFrame(kOutland, hellfirePeninsula, evening, toLight, false);
+    const FrameInputs moonLit = ContinentFrame(kOutland, hellfirePeninsula, evening, toLight, true);
+    AuthoredFog fog = {};
+    const bool resolved = data.Resolve(kOutland, sunLit.camPos, evening, kClearWeather, fog);
+    const Config defaults;
+    Config bright = defaults;
+    bright.moonScatter = 1.0f;
+    const FogParams sun = BuildFogParams(sunLit, defaults, &fog);
+    const FogParams moon = BuildFogParams(moonLit, defaults, &fog);
+    const FogParams brightMoon = BuildFogParams(moonLit, bright, &fog);
+    bool share = resolved && sun.authored;
+    bool full = share;
+    int lit = 0;
+    for (int i = 0; i < kFogLayers; ++i)
+        for (int c = 0; c < 3; ++c)
+        {
+            if (sun.layers[i].diffuse[c] <= 0.0f)
+                continue;
+            ++lit;
+            share = share && Near(moon.layers[i].diffuse[c], defaults.moonScatter * sun.layers[i].diffuse[c]);
+            full = full && Near(brightMoon.layers[i].diffuse[c], sun.layers[i].diffuse[c]);
+        }
+    std::printf("     Hellfire Peninsula haze diffuse red: sun %.6f, moon %.6f at MoonScatter %.2f, %.6f at 1\n",
+                sun.layers[0].diffuse[0], moon.layers[0].diffuse[0], defaults.moonScatter,
+                brightMoon.layers[0].diffuse[0]);
+    Check(defaults.moonScatter == 0.2f && lit > 0 && share && full,
+          "the moon scatters MoonScatter (0.2 by default) of the sun's light in the Classic and distance layers, so "
+          "its halo no longer looks like the sun's; MoonScatter 1 scatters it like the sun");
+}
+
+void CheckLocalLightsKeepTheirGlowAtEveryRegionDensity()
+{
+    const Vec3 eye = {-3005.0f, 4469.0f, -18.0f};
+    const Vec3 toLight = {0.607f, 0.607f, 0.513f};
+    const float evening = 0.7279f;
+    bool kept = true;
+    for (float density : {0.15f, 0.5f, 1.0f, 2.0f})
+    {
+        Config cfg;
+        cfg.outlandDensity = density;
+        cfg.azerothDensity = density;
+        for (int map : {kOutland, kEasternKingdoms})
+        {
+            const FrameInputs frame = ContinentFrame(map, eye, evening, toLight, false);
+            const FogParams fog = BuildFogParams(frame, ConfigForMap(cfg, map), nullptr);
+            kept = kept && Near(fog.localLightDensityGain * density, 1.0f);
+        }
+    }
+    const Config defaults;
+    const FogParams outland = BuildFogParams(ContinentFrame(kOutland, eye, evening, toLight, false),
+                                             ConfigForMap(defaults, kOutland), nullptr);
+    const FogParams azeroth = BuildFogParams(ContinentFrame(kEasternKingdoms, eye, evening, toLight, false),
+                                             ConfigForMap(defaults, kEasternKingdoms), nullptr);
+    std::printf("     local light density gain by default: Outland %.3f, Azeroth %.3f\n",
+                outland.localLightDensityGain, azeroth.localLightDensityGain);
+    Check(kept && Near(azeroth.localLightDensityGain, 1.0f),
+          "the local lights scatter with a gain of one over the region's density, so they glow at Outland's and "
+          "Northrend's density 0.15 as at density 1, and as before in Azeroth by default");
+}
+
 void CheckOutlandSkyColourTintsTheConvertedFog(const FogData& data)
 {
     const Vec3 hellfirePeninsula = {-3005.0f, 4469.0f, -18.0f};
@@ -2614,6 +2679,8 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(CheckOutlandDensityThinsTheConvertedFog(classic));
     RUN_GROUP(CheckOutlandSkyColourTintsTheConvertedFog(classic));
     RUN_GROUP(CheckLayerSlidersScaleTheClassicLayers(classic));
+    RUN_GROUP(CheckMoonScattersAShareOfTheSun(classic));
+    RUN_GROUP(CheckLocalLightsKeepTheirGlowAtEveryRegionDensity());
     RUN_GROUP(CheckNegligibleLightsLeaveTheLightLogAlone());
     RUN_GROUP(CheckStormBlendsLayersByClassicIndex(classic));
     RUN_GROUP(CheckScreenEffectLightSlot(classic));

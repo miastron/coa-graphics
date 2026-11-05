@@ -225,21 +225,21 @@ bool DrawRegions(Config& c)
     const Section section("Regions", ImGuiTreeNodeFlags_DefaultOpen);
     if (!section)
         return false;
-    bool changed = Multiplier("Azeroth density", c.azerothDensity,
-                              "Fog thickness on the old continents, in their dungeons and on every other map, on top "
-                              "of Density");
-    changed |= SkyColour("Azeroth sky colour", c.azerothSkyColor, "Azeroth and on every other map");
-    changed |= Multiplier("Outland density", c.outlandDensity, "Fog thickness in Outland, on top of Density");
-    changed |= Toggle("Outland fog data", c.outlandClassicFog,
-                      "On: Outland's fog layers come from its own client lights, converted into fogdata.bin with the "
-                      "layers of the most alike Classic light. Off: derived layers, with the client's glow and no "
-                      "colour grading");
-    changed |= SkyColour("Outland sky colour", c.outlandSkyColor, "Outland");
-    changed |= Multiplier("Northrend density", c.northrendDensity, "Fog thickness in Northrend, on top of Density");
+    bool changed = Toggle("Outland fog data", c.outlandClassicFog,
+                          "On: Outland's fog layers come from its own client lights, converted into fogdata.bin with "
+                          "the layers of the most alike Classic light. Off: derived layers, with the client's glow and "
+                          "no colour grading");
     changed |= Toggle("Northrend fog data", c.northrendClassicFog,
                       "On: Northrend's fog layers come from its own client lights, converted into fogdata.bin with "
                       "the layers of the most alike Classic light. Off: derived layers, with the client's glow and no "
                       "colour grading");
+    changed |= Multiplier("Azeroth density", c.azerothDensity,
+                          "Fog thickness on the old continents, in their dungeons and on every other map, on top "
+                          "of Density");
+    changed |= SkyColour("Azeroth sky colour", c.azerothSkyColor, "Azeroth and on every other map");
+    changed |= Multiplier("Outland density", c.outlandDensity, "Fog thickness in Outland, on top of Density");
+    changed |= SkyColour("Outland sky colour", c.outlandSkyColor, "Outland");
+    changed |= Multiplier("Northrend density", c.northrendDensity, "Fog thickness in Northrend, on top of Density");
     changed |= SkyColour("Northrend sky colour", c.northrendSkyColor, "Northrend");
     return changed;
 }
@@ -250,6 +250,8 @@ bool DrawLight(Config& c)
     if (!section)
         return false;
     bool changed = Multiplier("Sun scatter", c.sunScatter, "In-scattered sun or moon light: the halo around it");
+    changed |= Slider(c, &Config::moonScatter, "Moon scatter", "%.2f",
+                      "Share of Sun scatter the moon scatters at night, 1 = as bright as the sun");
     changed |= Multiplier("Ambient", c.ambient, "Ambient fog brightness");
     changed |= Multiplier("Exposure", c.exposure, "Brightness of the layers used where no Classic data exists");
     changed |= Multiplier("Classic exposure", c.classicExposure, "Brightness of the Classic layers, 1 = default");

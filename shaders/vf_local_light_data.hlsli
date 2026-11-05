@@ -16,6 +16,11 @@ float LocalLightPhaseG()
     return cLocalLightControl.z;
 }
 
+float LocalLightDensityGain()
+{
+    return cLocalLightControl.w;
+}
+
 float4 LocalLightParameter(int index)
 {
     float texel = (index + 0.5) / 32.0;

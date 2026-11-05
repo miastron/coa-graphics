@@ -145,6 +145,7 @@ Result Draw(IDirect3DDevice9* device, const FogIntegrationResources& resources, 
     constants[53][0] = static_cast<float>(count);
     constants[53][1] = marchLightLimit;
     constants[53][2] = scattering.localLightPhase;
+    constants[53][3] = 1;
     if (FAILED(device->SetPixelShaderConstantF(0, &constants[0][0], 99)))
         return result;
     const float quad[4][4] = {{-0.5f, -0.5f, 0, 1}, {7.5f, -0.5f, 0, 1},

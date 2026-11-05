@@ -52,6 +52,7 @@ constexpr float kReferenceFarTarget = 200.0f;
 constexpr float kMinFogHueLuminance = 1.0e-4f;
 constexpr float kDirectLightTintShare = 0.25f;
 constexpr float kNoLimit = 1.0e9f;
+constexpr float kMinRegionDensityForLocalLights = 0.05f;
 constexpr int kOutlandMap = 530;
 constexpr int kNorthrendMap = 571;
 
@@ -459,17 +460,20 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
     p.horizonStart = in.farClip * 0.85f;
     p.referenceZ = ReferenceZ(in);
     p.farLimit = std::clamp(in.fogEnd, 100.0f, in.farClip);
+    p.localLightDensityGain =
+        1.0f / std::max(RegionDensity(cfg, RegionOfMap(in.mapId)), kMinRegionDensityForLocalLights);
 
     float fogDistance = in.zoneFogDistance > 50.0f && in.zoneFogDistance < 20000.0f ? in.zoneFogDistance : in.fogEnd;
     fogDistance = std::clamp(fogDistance, 50.0f, 5000.0f);
-    float elevationFadedScatter = p.lightVisibility * cfg.sunScatter;
+    const float scatter = cfg.sunScatter * (in.lightIsMoon ? cfg.moonScatter : 1.0f);
+    float elevationFadedScatter = elevation * scatter;
 
     FogLayer& distanceFog = p.layers[kDistanceFogLayer];
     p.directLightMatch = 1.0f;
     if (p.authored)
     {
         p.directLightMatch = ClientToClassicDirectLight(*authored, p.lightColor, p.linear);
-        AuthoredLayers(*authored, cfg, p, cfg.sunScatter * p.directLightMatch, p.layers, p.noise);
+        AuthoredLayers(*authored, cfg, p, scatter * p.directLightMatch, p.layers, p.noise);
         const float skyShare = std::clamp(RegionSkyColorShare(cfg, RegionOfMap(in.mapId)), 0.0f, 1.0f);
         if (skyShare > 0.0f)
             TakeClientFogHue(fogColor, skyShare, p.layers);

@@ -54,7 +54,13 @@ DENSITY_RATIO_RANGE = (0.5, 2.0)
 RGB_MASK = 0xFFFFFF
 
 LAYER_DIFFUSE, LAYER_EMISSIVE, LAYER_SHADOW_EMISSIVE = 0, 1, 2
+LAYER_FLAGS = 3
 LAYER_DENSITY = 5
+LAYER_UPPER_HEIGHT = 8
+LAYER_LOWER_HEIGHT = 10
+RELATIVE_HEIGHTS_FLAG = 0x2
+NOISE_FLAG = 0x4
+HEIGHT_SHIFT_STEP = 25.0
 LAYER_NOISE_FADE = 15
 KEY_DIRECT = 3
 
@@ -193,6 +199,22 @@ def world_position(light):
             y / CLIENT_UNITS_PER_YARD)
 
 
+def is_map_wide_classic(classic):
+    return classic[2:4] == (0.0, 0.0) and classic[6] <= 0.0
+
+
+def placed_in_height(z):
+    return z != 0.0
+
+
+def height_shift_between(classic, light, z):
+    if is_map_wide(light) or is_map_wide_classic(classic):
+        return 0.0
+    if not placed_in_height(z) or not placed_in_height(classic[4]):
+        return 0.0
+    return float(round((z - classic[4]) / HEIGHT_SHIFT_STEP) * HEIGHT_SHIFT_STEP)
+
+
 def recoloured(packed, template_client, target_client):
     authored = linear(rgb_bytes(packed))
     authored_luminance = luminance(authored)
@@ -285,6 +307,8 @@ class Builder:
     def add_light(self, light, template):
         classic, twin = template[:2]
         light_id = GENERATED_ID_BASE + light[0]
+        x, y, z = world_position(light)
+        height_shift = height_shift_between(classic, light, z)
         slots = []
         for slot in range(LIGHT_PARAMS_SLOTS):
             target_params = light[7 + slot]
@@ -294,16 +318,15 @@ class Builder:
             classic_params = classic[7 + slot] if self.fog.has_fog(classic[7 + slot]) else classic[7 + CLEAR_SLOT]
             glow_params = classic[7 + slot] if classic[7 + slot] in self.fog.params else classic[7 + CLEAR_SLOT]
             twin_params = twin[7 + slot] or twin[7 + CLEAR_SLOT]
-            recipe = (classic_params, twin_params, target_params, glow_params)
+            recipe = (classic_params, twin_params, target_params, glow_params, height_shift)
             if recipe not in self.generated:
                 self.generated[recipe] = GENERATED_ID_BASE + len(self.generated)
                 self.add_params(self.generated[recipe], *recipe)
             slots.append(self.generated[recipe])
-        x, y, z = world_position(light)
         start, end = light[5] / CLIENT_UNITS_PER_YARD, light[6] / CLIENT_UNITS_PER_YARD
         self.lights.append((light_id, light[1], x, y, z, start, end, *slots))
 
-    def add_params(self, params_id, classic_params, twin_params, target_params, glow_params):
+    def add_params(self, params_id, classic_params, twin_params, target_params, glow_params, height_shift):
         first = len(self.keys)
         for key, layers in self.fog.keys_of(classic_params):
             half_minute = key[0]
@@ -319,6 +342,10 @@ class Builder:
                     layer[field] = recoloured(layer[field], twin_fog, target_fog) & RGB_MASK
                 layer[LAYER_DIFFUSE] = recoloured(layer[LAYER_DIFFUSE], twin_direct, target_direct) & RGB_MASK
                 layer[LAYER_DENSITY] *= density
+                layer[LAYER_FLAGS] &= ~NOISE_FLAG
+                if not layer[LAYER_FLAGS] & RELATIVE_HEIGHTS_FLAG:
+                    layer[LAYER_UPPER_HEIGHT] += height_shift
+                    layer[LAYER_LOWER_HEIGHT] += height_shift
                 self.layers.append(tuple(layer))
         self.params[params_id] = (params_id, first, len(self.keys) - first, self.fog.params[glow_params][3])
 

@@ -149,6 +149,7 @@ struct FitPointLights
     const LocalPointLight* lights = nullptr;
     uint32_t count = 0;
     float phase = 0.0f;
+    float densityGain = 1.0f;
     float relative[kMaxLocalPointLights][3] = {};
 };
 
@@ -212,12 +213,13 @@ float StepOpacity(float opticalDepth)
                : 1.0f - std::exp(-opticalDepth);
 }
 
-FitPointLights UploadedPointLights(const FrameInputs& in, const StockFogFitLight& light)
+FitPointLights UploadedPointLights(const FogParams& fog, const FrameInputs& in, const StockFogFitLight& light)
 {
     FitPointLights points;
     points.lights = in.localLights.pointLights;
     points.count = std::min({light.uploadedPointLights, in.localLights.pointLightCount, kMaxLocalPointLights});
     points.phase = light.pointLightPhase;
+    points.densityGain = fog.localLightDensityGain;
     for (uint32_t i = 0; i < points.count; ++i)
         for (int axis = 0; axis < 3; ++axis)
             points.relative[i][axis] = points.lights[i].position[axis] - in.camPos[axis];
@@ -314,7 +316,8 @@ void AccumulatePointLightPiece(const StepLayers& stepLayers, const RayPointLight
 {
     const float length = to - from;
     const float middle = from + 0.5f * length;
-    const float weightedDensity = kQuadratureWeight * length * PortionDensity(stepLayers, middle);
+    const float weightedDensity =
+        kQuadratureWeight * length * PortionDensity(stepLayers, middle) * lit.points->densityGain;
     if (weightedDensity <= 0.0f)
         return;
     for (int i = 0; i < lit.chordCount; ++i)
@@ -540,7 +543,7 @@ StockFogFit FitStockFog(const FogParams& drawn, const FrameInputs& in, const Sto
     const int rayCount = BuildFitRays(in, rays);
     if (rayCount == 0)
         return {};
-    const FitPointLights points = UploadedPointLights(in, light);
+    const FitPointLights points = UploadedPointLights(fog, in, light);
     RaySamples samples[kFitRays];
     float stepDepth = kStockFogFitDepth / kFitDepthSteps;
     IntegrateRays(fog, points, rays, rayCount, in, stepDepth, samples);
