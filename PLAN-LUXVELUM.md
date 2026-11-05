@@ -1,7 +1,9 @@
 # PLAN-LUXVELUM
 
-Status (2026-11-05): in progress. Group 1 is done except 7337c37, the light stabiliser set is done, the Outland
-and Northrend batch is done, data included, and so is the god-ray mask (see Group 2). Update this file after every port.
+Status (2026-11-05): everything the owner approved is done and committed on main, group 1 to 3, the small items and
+7337c37 included ("Do it all", after the stabiliser, fog data and mask ports). Nothing here has been seen in game, and
+the full DXVK run gives 1667 passes and only the known 4x multisampling failures (and the intermittent 4x silhouette
+check, which also fails on commits before these). The table of what was ported follows; the open items are at the end.
 
 ## Source and rules
 
@@ -44,14 +46,16 @@ from the ports themselves.
 - `cfa860f` 8eabc17 and 4c91000: the log is opened denying other writers; a second client takes
   `CoAGraphics-2.log` to `-8.log`.
 
-## Held back, revisit when wanted
+## Held back, done later
 
-- 7337c37, noisy march for silhouettes in the lit composite. Our composite still marches silhouettes with the noise
-  mean (`vf_composite.hlsli` around line 204, `WithMeanNoise` at `renderer.cpp` around line 1849), which shows as
-  specks under noise and lamps. The fix adds noisy-march variants of the lit composite. Risks: our extra shadowed
-  (`tracesSunShadows`) families multiply the shader permutations, the ps_3_0 limit of 32 temporaries is what stopped
-  other ideas (`PLAN.md` 3.2), and it changes the look at silhouettes. Do it with a before and after harness image,
-  and check that every variant compiles with `fxc` first.
+Done (committed on main 2026-11-05, `fef93f9`), 7337c37, the noisy march for silhouettes in the lit composites. The
+lit noisy composite and its split twin are LuxVelum's (SAMPLES_AUTHORED_NOISE=1, VARIES_DENSITY=0 to fit the 32
+temporaries). LightShafts is on by default here, so the lit composite a storm draws is usually the shadowed one: it got
+a shadowed noisy variant and split twin of its own (shadow trace at every step, no stop past the layers, as the
+shadowed lit noisy march does; the quiet variants' stride overflows the temporaries). The composite constants now carry
+the real noise for every lit family (`WithMeanNoise` there is gone). Evidence: thin silhouettes with a noise of 0.40
+miss the noisy fog by 188/255 without the noise and by 0.53/255 with it; the shadowed noisy composite is checked only
+as the shader the renderer draws.
 
 ## Group 2 (fixes that need an in-game look)
 
@@ -97,8 +101,8 @@ LightParams and LightSkybox from the client's MPQs (a small MPQ reader in Python
 `tools/convert_client_lights.py` on the shipped file; that gives data for the owner's own client, which may differ
 from upstream's. To undo: revert `b2e5977` (the previous `data/fogdata.bin` is in `ae25b2f`).
 
-Left out of the batch: the dither and halo occlusion parts of 8fa1168 (group 3 and a removed feature), the region lamp
-defaults of 8 and the slider range of 24 (we start at 3; the owner's call), and the Bone Wastes renames in the tests.
+Left out of the batch: the halo occlusion part of 8fa1168 (removed upstream in 51a748b) and the Bone Wastes renames
+in the tests; the dither and the region lamp defaults came later (see Group 3).
 
 Done (committed on main 2026-11-05), the mask half of 51a748b: the god-ray mask averages 16 depth taps per texel and
 reads four texels of a ray source copied at twice the ray size, each through the brightness threshold and weighted by
@@ -106,25 +110,42 @@ its own sky share. Shader and test patches applied as they were; `m_raySource` b
 in `tests/temporal_quality_checks.h` fail with the old shader. Not timed (four times the copy pixels, 16 depth reads);
 still to be seen in game: rays steady while the camera turns past branches. It is also what 4358ace needs.
 
-Next: group 3 and the small items below, all the owner's call, or 7337c37.
+## Group 3, done on the owner's "do it all"
 
-## Group 3, the owner's call because the look or a default changes
+Each is a look or default change taken from upstream's testers; none was played here.
+- `0fc3d0b` 8550566, `5f00160` 4358ace, `84801fb` e7bda6b: God rays keep only the shafts. A pass after the blur reads
+  the sky share (kept in the mask's alpha and carried by the blur) along an arc around the sun and keeps what the
+  texel's share holds above the arc's larger minimum, so an open sky, a dusk sky and a horizon edge add nothing. The
+  own character is excluded: the mask writes a second share with an upright cylinder around the camera's focus counted
+  as open, and both composites draw no rays on its pixels. The focus is `0xCD7778`, `World::s_currentWorldPos`, the
+  position the world update gets (the followed unit's, else the camera's); bytes and callers checked in the 12340
+  image and wowdecomp and recorded in `README.md`. It differs from `DNInfo.m_playerPos` (our `ReadActivePlayerPosition`)
+  on a vehicle. Evidence: the open sky changed by 40.5/255 without the shaft pass and by 0/255 with it, the character
+  by up to 114/255 without the exclusion and by 0/255 with it. The sun's projection moved into `light_on_screen` with
+  its check. A second ray target needs two render targets; without them the character casts shafts and the log says so.
+- `40491b6` 5201796 `ClassicNoise=0`; `82bbbf5` 65005ee `TransparentFog=1` (upstream's tester played Duskwood,
+  Darkshore and Orgrimmar; the hooks were already installed whatever the setting); `14e54d8` 8fa1168 Outland and
+  Northrend lamps at 8 (3 before), keeping our range to 128 and sliders to 96.
+- `ad755ef` 8fa1168, the dither part: the fixed-function blend and the grade add a static noise of half a code
+  (`vf_pixel_noise.hlsli`); our scene-copy composites keep their rounding of the added difference, which leaves
+  untouched pixels exact. The display dither checks are upstream's, the grading checks compare stripe means (0.58 codes
+  off without the dither, 0.13 with it) and allow 0.05 codes for the curve texture's filtering.
 
-- 8550566, 4358ace, e7bda6b: god rays reduced to the shafts (arc-minimum pass, sky share in alpha, the own character
-  kept out). Changes what the God rays slider shows. e7bda6b reads camera focus `0xCD7778`; ours could use
-  `ReadActivePlayerPosition`, which differs on vehicles.
-- Defaults: 65005ee `TransparentFog=1` (only after 59b506f, now in), 5201796 `ClassicNoise=0`, region lamp default 8
-  (8fa1168) and slider ranges.
-- Dither for the fixed-function blend and the grade pass (8fa1168); ours dithers the scene-copy composite and the
-  ray composite only.
+## Small and optional, done
 
-## Small and optional
+- `36f22eb` af774f3 (the unused `LightStayOutcomeName`).
+- `43a6639` 089cfc7 (GlowCompensation compensates the fog only with `ColorSpace=1`; our shader and `m_drawnGlowCompensation`
+  confirm it), 1ac0630 (water hooks only after the engine hooks), bc33d06 (the fit's range beyond 100 yd, constants
+  checked), 5bab1b1 (names drawn in the world are graded, bloomed and antialiased; our evidence already had 0x4F9218 and
+  0x4FB042, and a stand-in world name pins it), bbddbc7 (loader slot, `0x2` flag, Extensions.dll note, the INI's
+  TransparentFog text, which also gained the lamp-glow sentence of 59b506f).
 
-af774f3 (remove the unused `LightStayOutcomeName`), 089cfc7 (GlowCompensation wording, but check first that our gamma
-over a scene copy really compensates), and the documentation fixes 1ac0630 (water hooks install after the fog hooks),
-bc33d06 (transparent fog fit range beyond 100 yd), 5bab1b1 (world names are colour-graded; the same "before names"
-wording for SMAA and bloom in `CoAGraphics.ini`, the settings panel and README needs the same fix), and the INI wording
-of bbddbc7 (`TransparentFog`).
+## Open
+
+Nothing from the approved list. To look at in game: rays steady while turning past branches (51a748b), the shafts and the
+own character (8550566 to e7bda6b, also on a mount or vehicle), the three new defaults, storms with lamps and noise, and
+the lamp-lit streets and spell lights of the stabiliser set. Not timed: the mask's 16 depth taps, the shaft pass, the second
+ray targets, the larger composites (about 1400 to 1700 slots).
 
 ## Not taken, with the reason
 
