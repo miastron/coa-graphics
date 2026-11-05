@@ -7,6 +7,8 @@
 #include "ps_noisy_march_low.h"
 #include "ps_noisy_march_mid.h"
 #include "ps_shadowed_composite_mid.h"
+#include "ps_shadowed_lit_noisy_march_mid.h"
+#include "ps_shadowed_noisy_composite_mid.h"
 #include "ps_shadowed_noisy_march_mid.h"
 
 namespace authored_noise
@@ -824,6 +826,26 @@ void CheckNoisyCompositeThinsSilhouettes(IDirect3DDevice9* device)
           "every noisy composite marches thin silhouettes at full resolution through the authored noise");
 }
 
+void CheckLitNoisyCompositeThinsSilhouettes(IDirect3DDevice9* device)
+{
+    const BYTE* const* composites[2] = {silhouette_quality::kLitNoisyComposites, silhouette_quality::kLitComposites};
+    bool drawn[2] = {};
+    float worst[2] = {};
+    for (int family = 0; family < 2; ++family)
+    {
+        silhouette_quality::Fixture fixture(device);
+        drawn[family] = PrepareThinningFixture(device, fixture, composites[family]) &&
+                        silhouette_quality::WorstStripError(fixture, worst[family]);
+    }
+    std::printf("     lit composite at thin silhouettes with noise %.2f: the lit noisy composite's largest "
+                "transmittance error %.2f/255; the lit composite that marches without the noise misses by %.2f/255\n",
+                kThinningNoise / 255.0f, worst[0] * 255.0f, worst[1] * 255.0f);
+    Check(drawn[1] && worst[1] > kMinNoiseFreeSideMiss,
+          "a lit composite that marches thin silhouettes without the authored noise misses the noisy fog around them");
+    Check(drawn[0] && worst[0] <= kMarchTolerance,
+          "every lit noisy composite marches thin silhouettes at full resolution through the authored noise");
+}
+
 struct SplitSideErrors
 {
     bool drawn = false;
@@ -875,6 +897,18 @@ void CheckNoisySplitCompositeMarchesSides(IDirect3DDevice9* device)
           "marched at full resolution, not taken from the low-resolution fog");
     Check(noisy.drawn && noisy.worst <= kMarchTolerance,
           "every noisy split composite marches a sample side at that side's depth through the authored noise "
+          "where no low-resolution tap matches it");
+}
+
+void CheckLitNoisySplitCompositeMarchesSides(IDirect3DDevice9* device)
+{
+    const SplitSideErrors litNoisy =
+        MeasureSplitSidesBesideStrips(device, silhouette_quality::kLitNoisySplitComposites);
+    std::printf("     lit noisy split composite side beside thin silhouettes, noise %.2f: largest transmittance error "
+                "%.2f/255\n",
+                kThinningNoise / 255.0f, litNoisy.worst * 255.0f);
+    Check(litNoisy.drawn && litNoisy.worst <= kMarchTolerance,
+          "every lit noisy split composite marches a sample side at that side's depth through the authored noise "
           "where no low-resolution tap matches it");
 }
 
@@ -967,9 +1001,66 @@ void CheckRendererDrawsStormNoise(Harness& harness)
     harness.dev->EndScene();
     harness.dev->Present(nullptr, nullptr, nullptr, nullptr);
     Check(shadowedRendered && ShaderRuns(shadowed.march, g_ps_shadowed_noisy_march_mid) &&
-              ShaderRuns(shadowed.composite, g_ps_shadowed_composite_mid),
+              ShaderRuns(shadowed.composite, g_ps_shadowed_noisy_composite_mid),
           "with LightShafts=1 the storm marches the noise with the shadowed noisy march and composites with the "
-          "shadowed composite");
+          "shadowed noisy composite");
+    vf_test_set_config(&saved);
+}
+
+void CheckRendererDrawsLitStormNoise(Harness& harness)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Config config = saved;
+    config.quality = 2;
+    config.noiseAmount = 0.0f;
+    config.temporal = 0.0f;
+    config.godRays = 0.0f;
+    config.dataMode = 1;
+    config.localLights = true;
+    config.classicNoise = true;
+    const D3DVIEWPORT9 world = {0, 0, 128, 96, 0, 1};
+    const Vec3 at = Add(kHarbourEye, {100, 100, -5});
+    float view[16];
+    float projection[16];
+    CameraRelativeLookAt(kHarbourEye, at, view);
+    EngineProjection(128.0f / 96.0f, projection);
+    FrameInputs input = MakeInputs(view, projection, kHarbourEye, at, world);
+    input.mapId = kEasternKingdoms;
+    input.dayFraction = kNoon;
+    input.lightParams = Storm(kFullStorm);
+    LocalPointLight light;
+    light.position[0] = kHarbourEye.x + 20;
+    light.position[1] = kHarbourEye.y + 20;
+    light.position[2] = kHarbourEye.z;
+    light.color[0] = 0.2f;
+    light.color[1] = 0.1f;
+    light.color[2] = 0.05f;
+    light.attenuation[0] = 1;
+    light.attenuation[2] = 0.005f;
+    engine::SelectLocalPointLight(input.localLights, light, input.camPos, LocalLightUpload(config, input.mapId));
+    DrawnShaders drawn[2];
+    bool rendered = true;
+    for (int shafts = 0; shafts < 2; ++shafts)
+    {
+        config.lightShafts = shafts != 0;
+        vf_test_set_config(&config);
+        harness.BeginFrame();
+        harness.DrawScene(kHarbourEye, view, projection, world);
+        const char* skip = "";
+        rendered = vf_test_render(&input, &skip) != 0 && rendered;
+        vf_test_drawn_fog_shaders(&drawn[shafts].march, &drawn[shafts].composite, &drawn[shafts].splitComposite);
+        harness.dev->EndScene();
+        harness.dev->Present(nullptr, nullptr, nullptr, nullptr);
+    }
+    Check(rendered && input.localLights.pointLightCount == 1 && ShaderRuns(drawn[0].march, g_ps_lit_noisy_march_mid) &&
+              ShaderRuns(drawn[0].composite, g_ps_lit_noisy_composite_mid),
+          "a storm with authored noise and a point light draws the lit noisy march and the lit noisy composite, "
+          "whose silhouettes sample the noise like the march around them");
+    Check(rendered && ShaderRuns(drawn[1].march, g_ps_shadowed_lit_noisy_march_mid) &&
+              ShaderRuns(drawn[1].composite, g_ps_shadowed_noisy_composite_mid),
+          "with LightShafts=1 the same storm draws the shadowed lit noisy march and the shadowed noisy composite, "
+          "whose silhouettes sample the noise too");
     vf_test_set_config(&saved);
 }
 
@@ -1010,6 +1101,8 @@ void CheckAuthoredNoiseOnTheGpu(IDirect3DDevice9* device)
     CheckMarchAppliesNoise(device);
     CheckMarchSamplesNoiseAlongTheWorldRay(device);
     CheckNoisyCompositeThinsSilhouettes(device);
+    CheckLitNoisyCompositeThinsSilhouettes(device);
     CheckNoisySplitCompositeMarchesSides(device);
+    CheckLitNoisySplitCompositeMarchesSides(device);
 }
 }

@@ -204,14 +204,14 @@ bool TapsReproduceMarch(BilinearTaps taps, float viewZ)
     return MarchLinearBetweenTaps(taps);
 }
 
-bool FullResolutionMarchTakesNoiseAtItsMean()
+bool LitCompositeUnderNoise()
 {
-    return kMarchesLocalLights && !kSamplesAuthoredNoise && AnyLayerNoise();
+    return kMarchesLocalLights && AnyLayerNoise();
 }
 
 bool LightOnRayNeedsFullResolution(float2 pixel, float viewZ)
 {
-    [branch] if (!kMarchesLocalLights || FullResolutionMarchTakesNoiseAtItsMean())
+    [branch] if (!kMarchesLocalLights || LitCompositeUnderNoise())
         return false;
     return RayMeetsLocalLight(pixel, viewZ);
 }
@@ -234,7 +234,7 @@ float4 FogWithoutMatchingTap(float2 pixel, float depth, float viewZ)
     [branch] if (!LightOnRayNeedsFullResolution(pixel, viewZ))
     {
         BilinearTaps taps = GatherBilinearTaps(pixel, depth, viewZ);
-        [branch] if (FullResolutionMarchTakesNoiseAtItsMean())
+        [branch] if (LitCompositeUnderNoise())
         {
             [branch] if (PixelOnTapPlane(taps, viewZ))
                 return FilteredFogBetweenTaps(taps);

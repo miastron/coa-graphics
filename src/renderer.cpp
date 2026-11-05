@@ -20,6 +20,12 @@
 #include "ps_lit_composite_low.h"
 #include "ps_lit_composite_mid.h"
 #include "ps_lit_composite_high.h"
+#include "ps_lit_noisy_composite_high.h"
+#include "ps_lit_noisy_composite_low.h"
+#include "ps_lit_noisy_composite_mid.h"
+#include "ps_lit_noisy_split_composite_high.h"
+#include "ps_lit_noisy_split_composite_low.h"
+#include "ps_lit_noisy_split_composite_mid.h"
 #include "ps_lit_split_composite_high.h"
 #include "ps_lit_split_composite_low.h"
 #include "ps_lit_split_composite_mid.h"
@@ -57,6 +63,12 @@
 #include "ps_shadowed_noisy_march_high.h"
 #include "ps_shadowed_noisy_march_low.h"
 #include "ps_shadowed_noisy_march_mid.h"
+#include "ps_shadowed_noisy_composite_high.h"
+#include "ps_shadowed_noisy_composite_low.h"
+#include "ps_shadowed_noisy_composite_mid.h"
+#include "ps_shadowed_noisy_split_composite_high.h"
+#include "ps_shadowed_noisy_split_composite_low.h"
+#include "ps_shadowed_noisy_split_composite_mid.h"
 #include "ps_shadowed_split_composite_high.h"
 #include "ps_shadowed_split_composite_low.h"
 #include "ps_shadowed_split_composite_mid.h"
@@ -96,6 +108,8 @@ constexpr int kCompositePlain = 0;
 constexpr int kCompositeNoisy = 1;
 constexpr int kCompositeLit = 2;
 constexpr int kCompositeShadowed = 3;
+constexpr int kCompositeLitNoisy = 4;
+constexpr int kCompositeShadowedNoisy = 5;
 
 template <size_t Families>
 void ReleaseShaderFamilies(IDirect3DPixelShader9* (&shaders)[Families][kQualityLevels])
@@ -734,6 +748,12 @@ bool Renderer::EnsureShaders(IDirect3DDevice9* dev)
         {"ps_shadowed_composite_low", g_ps_shadowed_composite_low, &m_compositeShaders[3][0]},
         {"ps_shadowed_composite_mid", g_ps_shadowed_composite_mid, &m_compositeShaders[3][1]},
         {"ps_shadowed_composite_high", g_ps_shadowed_composite_high, &m_compositeShaders[3][2]},
+        {"ps_lit_noisy_composite_low", g_ps_lit_noisy_composite_low, &m_compositeShaders[4][0]},
+        {"ps_lit_noisy_composite_mid", g_ps_lit_noisy_composite_mid, &m_compositeShaders[4][1]},
+        {"ps_lit_noisy_composite_high", g_ps_lit_noisy_composite_high, &m_compositeShaders[4][2]},
+        {"ps_shadowed_noisy_composite_low", g_ps_shadowed_noisy_composite_low, &m_compositeShaders[5][0]},
+        {"ps_shadowed_noisy_composite_mid", g_ps_shadowed_noisy_composite_mid, &m_compositeShaders[5][1]},
+        {"ps_shadowed_noisy_composite_high", g_ps_shadowed_noisy_composite_high, &m_compositeShaders[5][2]},
         {"ps_ray_mask", g_ps_ray_mask, &m_rayMask},
         {"ps_ray_blur", g_ps_ray_blur, &m_rayBlur},
         {"ps_ray_shafts", g_ps_ray_shafts, &m_rayShafts},
@@ -801,6 +821,9 @@ bool Renderer::EnsureSplitComposites(IDirect3DDevice9* dev)
         {g_ps_noisy_split_composite_low, g_ps_noisy_split_composite_mid, g_ps_noisy_split_composite_high},
         {g_ps_lit_split_composite_low, g_ps_lit_split_composite_mid, g_ps_lit_split_composite_high},
         {g_ps_shadowed_split_composite_low, g_ps_shadowed_split_composite_mid, g_ps_shadowed_split_composite_high},
+        {g_ps_lit_noisy_split_composite_low, g_ps_lit_noisy_split_composite_mid, g_ps_lit_noisy_split_composite_high},
+        {g_ps_shadowed_noisy_split_composite_low, g_ps_shadowed_noisy_split_composite_mid,
+         g_ps_shadowed_noisy_split_composite_high},
     };
     static_assert(std::size(code) == kCompositeFamilies, "one split composite array per shader family");
     HRESULT result = D3D_OK;
@@ -831,8 +854,8 @@ IDirect3DPixelShader9* const* Renderer::MarchShaders(bool shadowed, bool lit, bo
 IDirect3DPixelShader9* Renderer::CompositeShader(const CompositeChoice& choice, bool splitSamples) const
 {
     const int index = std::clamp(choice.quality, 1, kQualityLevels) - 1;
-    const int family = choice.shadowed ? kCompositeShadowed
-                       : choice.lit    ? kCompositeLit
+    const int family = choice.shadowed ? (choice.noisy ? kCompositeShadowedNoisy : kCompositeShadowed)
+                       : choice.lit    ? (choice.noisy ? kCompositeLitNoisy : kCompositeLit)
                        : choice.noisy  ? kCompositeNoisy
                                        : kCompositePlain;
     return (splitSamples ? m_splitCompositeShaders : m_compositeShaders)[family][index];
@@ -1868,7 +1891,6 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
                                  fog.localLightGain};
     const bool marchesLocalLights = pointLightCount > 0;
     const bool tracesSunShadows = cfg.lightShafts;
-    const bool marchesLitLayers = marchesLocalLights || tracesSunShadows;
     m_drawnMarch = MarchShaders(tracesSunShadows, marchesLocalLights, samplesNoise)[std::clamp(cfg.quality, 1, 3) - 1];
     dev->SetPixelShader(m_drawnMarch);
     dev->SetPixelShaderConstantF(53, &localControl.x, 1);
@@ -1941,9 +1963,8 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     dev->SetPixelShaderConstantF(9, &celestialLight.x, 1);
     dev->SetPixelShaderConstantF(kSunShadowRegister, &sunShadow.x, 1);
     dev->SetPixelShaderConstantF(11, &march.x, 1);
-    const FogParams compositeMarchFog = marchesLitLayers ? WithMeanNoise(fog) : fog;
     FogLayer compositeLayers[kFogLayers];
-    PackMarchLayers(compositeMarchFog, compositeLayers);
+    PackMarchLayers(fog, compositeLayers);
     dev->SetPixelShaderConstantF(12, &compositeLayers[0].start, 6 * kFogLayers);
     m_drawnGlowCompensation = cfg.glowCompensation && sceneBlend ? in.clientGlowAmount : 0.0f;
     const Float4 composite[3] = {

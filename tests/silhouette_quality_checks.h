@@ -3,6 +3,13 @@
 #include "ps_composite_low.h"
 #include "ps_composite_mid.h"
 #include "ps_composite_high.h"
+#include "lit_composite_shaders.h"
+#include "ps_lit_noisy_composite_low.h"
+#include "ps_lit_noisy_composite_mid.h"
+#include "ps_lit_noisy_composite_high.h"
+#include "ps_lit_noisy_split_composite_low.h"
+#include "ps_lit_noisy_split_composite_mid.h"
+#include "ps_lit_noisy_split_composite_high.h"
 #include "ps_noisy_composite_low.h"
 #include "ps_noisy_composite_mid.h"
 #include "ps_noisy_composite_high.h"
@@ -29,6 +36,12 @@ const BYTE* const kSplitComposites[3] = {g_ps_split_composite_low, g_ps_split_co
                                          g_ps_split_composite_high};
 const BYTE* const kNoisySplitComposites[3] = {g_ps_noisy_split_composite_low, g_ps_noisy_split_composite_mid,
                                               g_ps_noisy_split_composite_high};
+const BYTE* const kLitComposites[3] = {g_ps_lit_composite_low, g_ps_lit_composite_mid, g_ps_lit_composite_high};
+const BYTE* const kLitNoisyComposites[3] = {g_ps_lit_noisy_composite_low, g_ps_lit_noisy_composite_mid,
+                                            g_ps_lit_noisy_composite_high};
+const BYTE* const kLitNoisySplitComposites[3] = {g_ps_lit_noisy_split_composite_low,
+                                                 g_ps_lit_noisy_split_composite_mid,
+                                                 g_ps_lit_noisy_split_composite_high};
 
 struct Fixture
 {

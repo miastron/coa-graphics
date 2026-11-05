@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ps_lit_split_composite_mid.h"
+#include "silhouette_quality_checks.h"
 
 namespace multisampling_checks
 {
@@ -1235,10 +1235,10 @@ void CheckStormSilhouetteBlendsByCoverage(Harness& m, const std::wstring& outDir
     Check(BlendsByCoverage(noisyBlend) && noisyBlend.largestResolvedError <= kMaxResolvedLevelError,
           "at a 4x silhouette in a noisy Classic storm the pixel blends the near and the far fog by sample coverage");
     Check(lit.rendered && lit.statesKept && authored_noise::ShaderRuns(lit.drawn.march, g_ps_lit_noisy_march_mid) &&
-              authored_noise::ShaderRuns(lit.drawn.splitComposite, g_ps_lit_split_composite_mid) &&
+              authored_noise::ShaderRuns(lit.drawn.splitComposite, g_ps_lit_noisy_split_composite_mid) &&
               BlendsByCoverage(litBlend) && litBlend.largestResolvedError <= kMaxResolvedLevelError,
           "with a point light the 4x storm marches through the noise with the lit noisy march, its silhouette takes "
-          "the lit split composite, the noise at its mean, and still blends by sample coverage");
+          "the lit noisy split composite, whose sides march through the noise, and still blends by sample coverage");
 }
 
 int LargestDifferenceAwayFromSilhouette(const Image& multisampled, const Image& single)

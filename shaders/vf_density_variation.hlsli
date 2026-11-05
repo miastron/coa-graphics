@@ -1,9 +1,15 @@
+#ifndef VARIES_DENSITY
+#define VARIES_DENSITY 1
+#endif
+
+static const bool kVariesDensity = VARIES_DENSITY;
+
 float4 cDensityVariation : register(c78);
 sampler3D sDensityNoise : register(s9);
 
 float DensityVariation(float3 worldPosition)
 {
-    [branch] if (cDensityVariation.x <= 0)
+    [branch] if (!kVariesDensity || cDensityVariation.x <= 0)
         return 1;
     float3 uv = (worldPosition - float3(cDensityVariation.zw, 0)) * (cDensityVariation.y / 32) + 0.5 / 32;
     float noise = tex3Dlod(sDensityNoise, float4(uv, 0)).r * (4.0 / 3.0);

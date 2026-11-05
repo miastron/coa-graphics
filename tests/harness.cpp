@@ -3669,6 +3669,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(surface_light_checks::CheckSurfaceLightsFadeOutInDaylight(h));
     RUN_GROUP(surface_light_checks::CheckGodRaysTakeTheirSceneFromTheCompositeCopy(h));
     RUN_GROUP(authored_noise::CheckRendererDrawsStormNoise(h));
+    RUN_GROUP(authored_noise::CheckRendererDrawsLitStormNoise(h));
     RUN_GROUP(runtime_cost::CheckFrameSummaryLogsClassicExtras(h));
     RUN_GROUP(runtime_cost::CheckLocalLightLogLines(h));
     RUN_GROUP(runtime_cost::CheckDepthProbeAndGpuTimeLog(h, eye, at));

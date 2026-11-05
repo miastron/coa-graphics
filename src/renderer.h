@@ -37,7 +37,7 @@ uint32_t LoggedLightsSignature(const AuthoredFog& fog);
 
 constexpr int kFogQualityLevels = 3;
 constexpr int kMarchFamilies = 8;
-constexpr int kCompositeFamilies = 4;
+constexpr int kCompositeFamilies = 6;
 
 class Renderer
 {
