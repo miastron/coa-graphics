@@ -3,6 +3,7 @@
 #include "log.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -117,6 +118,11 @@ bool AllFinite(const WaterFftTile& t)
 {
     return IsFinite(t.size) && IsFinite(t.amplitude) && IsFinite(t.windMultiplier) && IsFinite(t.windAlignment) &&
            AllFinite(t.foam) && AllFinite(t.oxygen);
+}
+
+bool WholeYards(float size)
+{
+    return size >= 1.0f && std::floor(size) == size;
 }
 
 bool AllFinite(const WaterMask& m)
@@ -346,7 +352,7 @@ bool WaterData::Validate() const
         }
     }
     for (const WaterFftTile& tile : m_tiles)
-        if (!AllFinite(tile) || !(tile.size > 0.0f))
+        if (!AllFinite(tile) || !WholeYards(tile.size))
             return false;
     return true;
 }

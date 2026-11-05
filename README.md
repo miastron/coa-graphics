@@ -527,7 +527,9 @@ ranges and shader use:
 - depth, shore and wave foam `Float[7..19]`;
 - sun and reflection roughness `Float[27]`/`Float[29]`, and reflection strength `Float[30]`;
 - tile size, amplitude, wind alignment and multiplier from `FFTTile` fields 0–3, and the foam and oxygen rates from fields
-  4–9.
+  4–9. The loader rejects a tile whose size is not a whole number of yards of at least 1, because the spectrum, the
+  loop clock and the slope stencil simulate a tile over floor(size) yards while the shading maps world yards onto it
+  with 1/size, so a tile of 37.5 yd would be simulated over 37 and sampled over 37.5, stretching its slopes and foam.
 
 The water is tuned by eye against this mapping, not matched to Forever captures.
 

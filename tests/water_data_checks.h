@@ -421,6 +421,8 @@ void CheckMalformedFiles(const std::vector<uint8_t>& original)
     CheckRejectedEdit(file, [](WaterFile& f) { f.masks[2].info.tintHigh[1] = std::numeric_limits<float>::quiet_NaN(); },
                       "water data rejects a NaN mask tint");
     CheckRejectedEdit(file, [](WaterFile& f) { f.tiles[2].size = 0.0f; }, "water data rejects a zero-sized FFT tile");
+    CheckRejectedEdit(file, [](WaterFile& f) { f.tiles[2].size = 37.5f; },
+                      "water data rejects an FFT tile size that is not a whole number of yards");
 
     CheckRejectedHeader(original, [](FileHeader& h) { h.tileOffset = h.presetOffset; },
                         "water data rejects overlapping sections");
@@ -484,6 +486,9 @@ void CheckAssignRejectsInconsistentData()
     badTile = tile;
     badTile.size = 0.0f;
     Check(!data.Assign(&preset, 1, &badTile, 1, &mask, 1), "Assign rejects a zero-sized tile");
+    badTile.size = 0.5f;
+    Check(!data.Assign(&preset, 1, &badTile, 1, &mask, 1),
+          "Assign rejects an FFT tile size that is not a whole number of yards (0.5)");
 }
 
 void CheckDllRejectsNonFiniteFile(const std::wstring& outDir, const std::vector<uint8_t>& original,
