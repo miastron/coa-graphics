@@ -1,7 +1,7 @@
 # PLAN-LUXVELUM
 
-Status (2026-11-05): in progress. Group 1 is done except 7337c37, the light stabiliser set is done, and the Outland
-and Northrend batch is done, data included (see Group 2). Update this file after every port.
+Status (2026-11-05): in progress. Group 1 is done except 7337c37, the light stabiliser set is done, the Outland
+and Northrend batch is done, data included, and so is the god-ray mask (see Group 2). Update this file after every port.
 
 ## Source and rules
 
@@ -100,9 +100,13 @@ from upstream's. To undo: revert `b2e5977` (the previous `data/fogdata.bin` is i
 Left out of the batch: the dither and halo occlusion parts of 8fa1168 (group 3 and a removed feature), the region lamp
 defaults of 8 and the slider range of 24 (we start at 3; the owner's call), and the Bone Wastes renames in the tests.
 
-Next:
-- 51a748b mask half: the god-ray mask takes 16 depth taps from a ray source copied at twice the ray size (ours is the
-  one-tap mask and `m_raySource` is ray-sized). It is also what 4358ace needs.
+Done (committed on main 2026-11-05), the mask half of 51a748b: the god-ray mask averages 16 depth taps per texel and
+reads four texels of a ray source copied at twice the ray size, each through the brightness threshold and weighted by
+its own sky share. Shader and test patches applied as they were; `m_raySource` became twice the ray size. Three checks
+in `tests/temporal_quality_checks.h` fail with the old shader. Not timed (four times the copy pixels, 16 depth reads);
+still to be seen in game: rays steady while the camera turns past branches. It is also what 4358ace needs.
+
+Next: group 3 and the small items below, all the owner's call, or 7337c37.
 
 ## Group 3, the owner's call because the look or a default changes
 
