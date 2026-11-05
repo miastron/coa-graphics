@@ -523,27 +523,29 @@ void CheckTransparentFogSetting(const std::wstring& outDir, const std::wstring& 
     shipped.Load(NarrowPath(shippedIni));
     const std::string text = ReadText(shippedIni);
     const std::vector<std::string> lines = water_settings_checks::IniLines(text);
-    Check(!shipped.Get().transparentFog && !Config().transparentFog &&
-              std::count(lines.begin(), lines.end(), std::string("TransparentFog=0")) == 1 &&
+    Check(shipped.Get().transparentFog && Config().transparentFog &&
+              std::count(lines.begin(), lines.end(), std::string("TransparentFog=1")) == 1 &&
+              std::count(lines.begin(), lines.end(), std::string("TransparentFog=0")) == 0 &&
               text.find("; 1 = fog particles, spell effects and other see-through models by their own distance") !=
-                  std::string::npos,
-          "the shipped INI and the built-in default keep TransparentFog=0 until an owner test, and the INI documents "
-          "the key");
+                  std::string::npos &&
+              text.find("; 0 = the fallback if distant effects look wrongly fogged") != std::string::npos,
+          "the shipped INI and the built-in default turn TransparentFog on after a tester's game test, and the INI "
+          "documents the key with 0 as the fallback");
 
     const std::wstring savedIni = FullPath(outDir + L"\\transparent-fog.ini");
     CopyFileW(shippedIni.c_str(), savedIni.c_str(), FALSE);
     ConfigStore store;
     store.Load(NarrowPath(savedIni));
     Config edited = store.Get();
-    edited.transparentFog = true;
+    edited.transparentFog = false;
     const std::string changes = SettingChanges(store.Get(), edited);
     store.Apply(edited);
     const bool saved = store.Save();
     ConfigStore reloaded;
     reloaded.Load(NarrowPath(savedIni));
     std::printf("     the settings window's TransparentFog change logs \"%s\"\n", changes.c_str());
-    Check(saved && reloaded.Get().transparentFog && changes == "TransparentFog 0 -> 1" &&
-              ReadText(savedIni).find("\nTransparentFog=1") != std::string::npos &&
+    Check(saved && !reloaded.Get().transparentFog && changes == "TransparentFog 1 -> 0" &&
+              ReadText(savedIni).find("\nTransparentFog=0") != std::string::npos &&
               !SameFogSettings(reloaded.Get(), shipped.Get()),
           "a TransparentFog change is logged, saved to the INI, read back and counts as a fog setting change");
 }

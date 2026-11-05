@@ -376,12 +376,14 @@ bool DrawWorld(Config& c)
     bool changed = DrawAnisotropicFiltering(c);
     changed |= Toggle("Fog under water", c.underwater, "Keep the effect while the camera is under water");
     changed |= Toggle("Fog effects at their own distance", c.transparentFog,
-                      "Particles, spell effects and other see-through models are fogged by their own distance, as "
-                      "the stock client does, with a linear fog fitted to the volumetric fog within 100 yd; the fog "
-                      "is drawn before them, after the water. Beyond 100 yd the line is extended, so distant effects "
-                      "and fading models can be fogged more or less than the scene around them, and past its end "
-                      "distant glows vanish. Off: the fog is drawn once after the world, before the names, and they "
-                      "take the fog of the scene behind them");
+                      "On by default. Particles, spell effects and other see-through models are fogged by their own "
+                      "distance, as the stock client does, with a linear fog fitted to the volumetric fog within "
+                      "100 yd, or in thin fog over a longer range up to where the fog halves the light, never past "
+                      "the far clip; the fog is drawn before them, after the water. Beyond the fitted range the line "
+                      "is extended, so distant effects and fading models can be fogged more or less than the scene "
+                      "around them, and past its end distant glows vanish. Off, the fallback if distant effects look "
+                      "wrongly fogged: the fog is drawn once after the world, before the names, and they take the "
+                      "fog of the scene behind them");
     changed |= Toggle("Water writes depth", c.liquidDepth,
                       "Let water surfaces write depth so water is fogged by its own distance; always on while Modern "
                       "water is drawn");

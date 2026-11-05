@@ -116,9 +116,12 @@ after it say how each works and what is checked.
 - **SMAA antialiasing** (`Antialiasing`), **sharpening** (`Sharpening`) and **bloom** (`Bloom`), all off by default, applied
   to the world viewport after colour grading, so names drawn in the world are included, and before the later name and
   icon pass and the interface.
+- **See-through effects in the fog** (`TransparentFog=1`, on by default): the fog is drawn before particles, spell effects
+  and other see-through models, which take a linear fog fitted to it by their own distance, as in the stock client,
+  instead of the fog of the scene behind them; lamp glows fade with distance (see Transparent fog).
 - **Opt-in** (all off by default): Forever's per-light glow amount (`ForeverGlow`) and colour curve (`ColorGrading`) where
-  Classic lights cover the camera; see-through effects fogged at their own distance (`TransparentFog`); and an
-  energy-normalised phase for the Classic layers' sun and moon scattering (`ClassicPhase`).
+  Classic lights cover the camera, and an energy-normalised phase for the Classic layers' sun and moon scattering
+  (`ClassicPhase`).
 
 ## How it renders
 
@@ -268,9 +271,11 @@ The eight uploaded lights are chosen by a stabiliser rather than re-ranked from 
   where the ray crosses its sphere. `LightStay` keeps the client from disabling a light whose model is not drawn (see World
   lights). Otherwise that would also end its fog glow the moment the source leaves the frame.
 
-Fog renders once after the world, including its late geometry and the native sun/moon glare, and before screen effects and
-the UI. While it draws, the stock fog is pushed out of range for the world render and restored afterwards. Frames without
-volumetric fog keep the stock fog. An unexpected draw failure restores it on the next frame. The client's glow
+Fog renders once per frame, before screen effects and the UI: after the world, including its late geometry and the native
+sun/moon glare, or, with `TransparentFog=1` (the default) above water, at the end of the liquid pass, after the glare and
+before the see-through models (see Transparent fog). While it draws, the stock fog is pushed out of range for the world
+render and restored afterwards. Frames without volumetric fog keep the stock fog. An unexpected draw failure restores it
+on the next frame. The client's glow
 (`screen + g·blur²`, with `g` from the day/night light) runs afterwards and would bleach bright fog to white, so fogged
 pixels are pre-compensated with the live glow amount while the fog blends in linear light over a scene copy
 (`ColorSpace=1`, the log line `fog blend: linear over a scene copy`). The gamma blends (`ColorSpace=0`) and the
@@ -435,8 +440,12 @@ keeps 99.5%, no line is fitted and the effects stay unfogged. God rays are added
 lighting without fog), among them lamp glows, wisps and other glowing effects, take the same line with the colour of
 their blend mode (blend modes 0 to 6, the client's fog table; a batch of any other mode stays unfogged): drawn after the
 composite they had no fog at all and shone through any fog at any distance, where the fog drawn after the world dims
-them by the fog behind them. Under water, with `StockFog=0`, a debug view or the sun marker, or when the early composite
-cannot run, the fog is drawn after the world.
+them by the fog behind them (a tester's screenshots of lamps in Duskwood in rain and a lantern in fog, upstream,
+2026-10-25). It is on by default (`TransparentFog=1`) since a tester played upstream's TEST Build-2-2 with it in
+Duskwood, Darkshore and Orgrimmar (2026-10-27) and reported only improvements: rain, the Darkshore wisps and the
+Orgrimmar fire pits stayed visible in the fog, and lamp glows faded with distance; it has not been played in game
+here. `TransparentFog=0` remains the fallback if distant effects look wrongly fogged. Under water, with `StockFog=0`, a
+debug view or the sun marker, or when the early composite cannot run, the fog is drawn after the world.
 
 **Water.** The client draws every water and ocean surface, and nothing else, inside one call of its liquid renderer. Before
 that call the DLL copies the scene colour and its linear depth, clears the stencil, and turns on stencil writes of 0 and
@@ -1909,7 +1918,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `NoiseWindSpeed` | 0.5 | Drift of the variation along world +X, in yd/s |
 | `ClassicNoise` | 0 | The modern client's authored noise on the Classic layers that carry it (mostly storms); 0 = off |
 | `StockFog` | 1 | 1 replaces the stock fog with the distance fog; 0 keeps it |
-| `TransparentFog` | 0 | 1 fogs see-through effects at their own distance; 0 at the scene behind them (see Transparent fog) |
+| `TransparentFog` | 1 | 1 fogs see-through effects at their own distance; 0 at the scene behind them (see Transparent fog) |
 | `DataMode` | 1 | 1 Classic layers where available; 0 derived layers everywhere |
 | `AzerothDensity`, `OutlandDensity`, `NorthrendDensity` | 1, 0.15, 0.15 | Density per region, on top of `Density` |
 | `OutlandClassicFog`, `NorthrendClassicFog` | 1, 1 | 1 the converted client lights there, 0 derived layers |
@@ -2015,10 +2024,11 @@ game, so by default colours still differ from Classic.
   fog where geometry hidden behind them would let light through.
 - Interior treatment follows the camera's transition weight, not rooms or portals along each ray, so views through
   doorways may differ.
-- Transparent materials without depth writes are fogged at the depth behind them. With `TransparentFog=1` (checked by the
-  harness only), M2 effects take one line fitted to the fog of the first 100 yd, or of a longer range where the fog in those is thin
-  (see Transparent fog). That line cannot follow height fog and
-  fully fogs effects past its end (500–900 yd in tests), so far glows vanish.
+- Transparent materials without depth writes, such as windows, are fogged at the depth behind them, and so are
+  see-through effects with `TransparentFog=0`. With `TransparentFog=1`, the default since one tester's game test of
+  upstream's build (see Transparent fog), M2 effects above water, those the client draws unfogged included, take one
+  line fitted to the fog of the first 100 yd, or of a longer range where the fog in those is thin. That line cannot
+  follow height fog and fully fogs effects past its end (500–900 yd in tests), so far glows vanish.
 - The `gxApi d3d9ex` path is not wrapped, so fog and the settings window stay off there. The settings window also needs a
   fog device, so it is missing when INTZ depth is unsupported.
 

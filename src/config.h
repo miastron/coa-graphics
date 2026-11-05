@@ -37,7 +37,7 @@ struct Config
     float groundFog = 0.6f;
     float farFog = 1.0f;
     int stockFog = 1;
-    bool transparentFog = false;
+    bool transparentFog = true;
     int dataMode = 1;
     float azerothDensity = 1.0f;
     float outlandDensity = 0.15f;
