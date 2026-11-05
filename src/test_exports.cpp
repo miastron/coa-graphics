@@ -583,6 +583,11 @@ extern "C" void __cdecl vf_test_grading_stats(GradingStats* stats)
     *stats = GradingStatsOf(LatestFogDevice());
 }
 
+extern "C" void __cdecl vf_test_fail_image_pass(int fail)
+{
+    InjectImageFault(fail != 0);
+}
+
 extern "C" void __cdecl vf_test_image_stats(ImageStats* stats)
 {
     *stats = ImageStatsOf(LatestFogDevice());

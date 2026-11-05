@@ -168,6 +168,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_grading_stats(GradingStats
 extern "C" __declspec(dllimport) void __cdecl vf_test_fail_grading_scene_copies(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_fail_grading_pass(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_stats(ImageStats*);
+extern "C" __declspec(dllimport) void __cdecl vf_test_fail_image_pass(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_status(ImageQualityStatus*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_world_done();
 extern "C" __declspec(dllimport) unsigned __cdecl vf_test_surface_light_draws();
@@ -2755,6 +2756,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(image_quality_checks::CheckSharpening(h, world));
     RUN_GROUP(image_quality_checks::CheckAntialiasing(h, world));
     RUN_GROUP(image_quality_checks::CheckBloom(h, world));
+    RUN_GROUP(image_quality_checks::CheckImageFaultRestoresTheClient(h, world));
     RUN_GROUP(forever_look_checks::CheckFogCompensatesTheDeliveredGlow(h, cfg, world));
     vf_test_set_config(&cfg);
 

@@ -23,6 +23,10 @@ struct ImageStats
     bool linearBlend = false;
 };
 
+#ifdef VF_TESTING
+void InjectImageFault(bool injected);
+#endif
+
 class ImageRenderer
 {
 public:
@@ -44,6 +48,10 @@ private:
     {
         IDirect3DSurface9* colour[kRenderTargets] = {};
         IDirect3DSurface9* depth = nullptr;
+        IDirect3DVertexBuffer9* stream = nullptr;
+        UINT streamOffset = 0;
+        UINT streamStride = 0;
+        bool captured = false;
     };
 
     struct ViewTexture
@@ -63,9 +71,11 @@ private:
     bool EnsureTargets(IDirect3DDevice9* dev, D3DFORMAT format, const D3DVIEWPORT9& world,
                        const ImageSettings& settings);
     bool CopyWorld(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& world);
-    bool DrawTarget(IDirect3DDevice9* dev, const BoundTargets& bound, const D3DVIEWPORT9& world,
+    bool DrawTarget(IDirect3DDevice9* dev, BoundTargets& bound, const D3DVIEWPORT9& world,
                     const ImageSettings& settings);
-    void DrawPasses(IDirect3DDevice9* dev, const BoundTargets& bound, const D3DVIEWPORT9& world,
+    void CaptureBoundState(IDirect3DDevice9* dev, BoundTargets& bound);
+    void RestoreBoundTargets(IDirect3DDevice9* dev, BoundTargets& bound);
+    void DrawPasses(IDirect3DDevice9* dev, BoundTargets& bound, const D3DVIEWPORT9& world,
                     const ImageSettings& settings);
     void SetSharedState(IDirect3DDevice9* dev, const D3DVIEWPORT9& world);
     void Target(IDirect3DDevice9* dev, IDirect3DSurface9* surface, const D3DVIEWPORT9& viewport);

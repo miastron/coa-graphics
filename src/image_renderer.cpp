@@ -4,6 +4,7 @@
 #include "frame_copies.h"
 #include "fullscreen_triangle.h"
 #include "log.h"
+#include "test_seams.h"
 
 #include "AreaTex.h"
 #include "SearchTex.h"
@@ -165,7 +166,25 @@ bool Upload(IDirect3DTexture9* texture, const unsigned char (&bytes)[Size], UINT
     texture->UnlockRect(0);
     return true;
 }
+
+constexpr DWORD kInjectedImageFault = 0xE0564648;
+bool g_imageFaultInjected = false;
+
+void RaiseInjectedImageFault()
+{
+    if (!Seam(g_imageFaultInjected, false))
+        return;
+    g_imageFaultInjected = false;
+    RaiseException(kInjectedImageFault, 0, 0, nullptr);
 }
+}
+
+#ifdef VF_TESTING
+void InjectImageFault(bool injected)
+{
+    g_imageFaultInjected = injected;
+}
+#endif
 
 ImageRenderer::~ImageRenderer()
 {
@@ -541,19 +560,41 @@ void ImageRenderer::CompositeBloom(IDirect3DDevice9* dev, const BoundTargets& bo
     ++m_bloomedCount;
 }
 
-void ImageRenderer::DrawPasses(IDirect3DDevice9* dev, const BoundTargets& bound, const D3DVIEWPORT9& world,
+void ImageRenderer::CaptureBoundState(IDirect3DDevice9* dev, BoundTargets& bound)
+{
+    dev->GetStreamSource(0, &bound.stream, &bound.streamOffset, &bound.streamStride);
+    m_state->Capture();
+    bound.captured = true;
+}
+
+void ImageRenderer::RestoreBoundTargets(IDirect3DDevice9* dev, BoundTargets& bound)
+{
+    if (bound.captured)
+    {
+        dev->SetRenderTarget(0, bound.colour[0]);
+        for (DWORD i = 1; i < kRenderTargets; ++i)
+            if (bound.colour[i])
+                dev->SetRenderTarget(i, bound.colour[i]);
+        m_state->Apply();
+        dev->SetDepthStencilSurface(bound.depth);
+        dev->SetStreamSource(0, bound.stream, bound.streamOffset, bound.streamStride);
+    }
+    for (IDirect3DSurface9*& colour : bound.colour)
+        SafeRelease(colour);
+    SafeRelease(bound.depth);
+    SafeRelease(bound.stream);
+}
+
+void ImageRenderer::DrawPasses(IDirect3DDevice9* dev, BoundTargets& bound, const D3DVIEWPORT9& world,
                                const ImageSettings& settings)
 {
-    IDirect3DVertexBuffer9* stream = nullptr;
-    UINT streamOffset = 0;
-    UINT streamStride = 0;
-    dev->GetStreamSource(0, &stream, &streamOffset, &streamStride);
-    m_state->Capture();
+    CaptureBoundState(dev, bound);
     for (DWORD i = 1; i < kRenderTargets; ++i)
         if (bound.colour[i])
             dev->SetRenderTarget(i, nullptr);
     dev->SetDepthStencilSurface(nullptr);
     SetSharedState(dev, world);
+    RaiseInjectedImageFault();
     const bool sharpen = settings.sharpening > 0.0f;
     const bool bloom = settings.bloom > 0.0f;
     if (bloom)
@@ -565,17 +606,9 @@ void ImageRenderer::DrawPasses(IDirect3DDevice9* dev, const BoundTargets& bound,
         Sharpen(dev, bound, world, sharpenSource, settings.sharpening);
     if (bloom)
         CompositeBloom(dev, bound, world, settings.bloom);
-    dev->SetRenderTarget(0, bound.colour[0]);
-    for (DWORD i = 1; i < kRenderTargets; ++i)
-        if (bound.colour[i])
-            dev->SetRenderTarget(i, bound.colour[i]);
-    m_state->Apply();
-    dev->SetDepthStencilSurface(bound.depth);
-    dev->SetStreamSource(0, stream, streamOffset, streamStride);
-    SafeRelease(stream);
 }
 
-bool ImageRenderer::DrawTarget(IDirect3DDevice9* dev, const BoundTargets& bound, const D3DVIEWPORT9& world,
+bool ImageRenderer::DrawTarget(IDirect3DDevice9* dev, BoundTargets& bound, const D3DVIEWPORT9& world,
                                const ImageSettings& settings)
 {
     D3DSURFACE_DESC desc = {};
@@ -606,9 +639,14 @@ bool ImageRenderer::Draw(IDirect3DDevice9* dev, const D3DVIEWPORT9& world, const
     for (DWORD i = 0; i < kRenderTargets; ++i)
         dev->GetRenderTarget(i, &bound.colour[i]);
     dev->GetDepthStencilSurface(&bound.depth);
-    const bool drawn = DrawTarget(dev, bound, world, settings);
-    for (IDirect3DSurface9*& colour : bound.colour)
-        SafeRelease(colour);
-    SafeRelease(bound.depth);
+    bool drawn = false;
+    __try
+    {
+        drawn = DrawTarget(dev, bound, world, settings);
+    }
+    __finally
+    {
+        RestoreBoundTargets(dev, bound);
+    }
     return drawn;
 }

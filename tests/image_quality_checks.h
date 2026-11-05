@@ -30,6 +30,9 @@ constexpr LONG kWideHalo = 48;
 constexpr int kNearHaloAtLeast = 4;
 constexpr float kHalfBloom = 0.5f;
 constexpr float kFullBloom = 1.0f;
+constexpr const char* kImageFaultLine =
+    "exception 0xE0564648 in the image pass; antialiasing, sharpening and bloom are off for this session, the fog "
+    "continues";
 
 using FillWorld = void (*)(IDirect3DDevice9*, const D3DVIEWPORT9&);
 
@@ -340,6 +343,29 @@ void CheckBloom(Harness& h, const D3DVIEWPORT9& world)
     Check(offAgain.Blooms() == 0 && !offAgain.after.holdsBloomTargets && !offAgain.after.holdsSceneCopy &&
               SameImage(off.image, offAgain.image),
           "Bloom=0 draws nothing, leaves the frame as it was and releases the bloom levels");
+    Config defaults = {};
+    vf_test_set_config(&defaults);
+}
+
+void CheckImageFaultRestoresTheClient(Harness& h, const D3DVIEWPORT9& world)
+{
+    Config cfg = {};
+    cfg.sharpening = kFullSharpening;
+    const size_t start = water_settings_checks::DllLogSize();
+    vf_test_fail_image_pass(1);
+    const SharpenedFrame faulted = RenderImageFrame(h, world, cfg, &FillSoftEdge, true);
+    vf_test_fail_image_pass(0);
+    const size_t faults = water_settings_checks::CountOf(runtime_cost::LogWrittenSince(start), kImageFaultLine);
+    const HRESULT reset = h.dev->Reset(&h.pp);
+    std::printf("     exception inside the image pass at the frame-end hook: %zu fault lines, client state %s, Reset "
+                "0x%08lX\n",
+                faults, faulted.statesKept ? "kept" : "changed", static_cast<unsigned long>(reset));
+    Check(faults == 1 && faulted.statesKept && faulted.Draws() == 0,
+          "an exception inside the image pass, caught by the frame-end hook, still gives the client back its depth "
+          "surface, shaders, declaration, stream 0 and render state");
+    Check(SUCCEEDED(reset),
+          "after an exception inside the image pass the device resets: the pass holds no reference to the client's "
+          "render target, depth surface or stream 0");
     Config defaults = {};
     vf_test_set_config(&defaults);
 }

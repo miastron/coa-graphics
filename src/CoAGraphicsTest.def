@@ -101,6 +101,7 @@ EXPORTS
     vf_test_fail_grading_scene_copies
     vf_test_fail_grading_pass
     vf_test_image_stats
+    vf_test_fail_image_pass
     vf_test_image_status
     vf_test_image_world_done
     vf_test_surface_light_draws
