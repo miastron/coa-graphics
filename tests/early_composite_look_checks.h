@@ -215,7 +215,7 @@ void CheckGradingSeesTheFoggedFrame(Harness& h)
         tookTheirPaths = tookTheirPaths && TookItsPath(path.fogged, transparentFog) &&
                          TookItsPath(path.graded, transparentFog);
         graded = graded && path.fogChange >= kMinFogChange && path.ungradedDraws == 0 && path.gradedDraws == 1 &&
-                 path.match.WithinConversion();
+                 path.match.WithinDitheredConversion();
     }
     forever_look_checks::UseNoForeverLook();
     Check(tookTheirPaths,

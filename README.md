@@ -392,7 +392,15 @@ copy they start from stays 8 bit), so faint streaks no longer step in 1/255 leve
 composite that blends over a scene copy (and the late god ray composite) rounds only the difference it adds to the scene
 (the fog and the rays) to whole display levels with a per-pixel noise (`InterleavedGradientNoise`, fixed in time), so
 smooth fog gradients do not contour in the 8-bit target; pixels the fog does not touch keep the scene's own value exactly.
-The fixed-function blend path (no scene copy) is not dithered.
+The fixed-function blend path (no scene copy) and the colour grading pass add a static noise of half a code either
+way to what they write instead (`DitheredForDisplay` in `vf_pixel_noise.hlsli`, the same noise): the 8-bit codes then
+average to the continuous value over a gradient, and a pixel the fog or the grade does not change keeps its exact code,
+since the noise stays below half a code. The grading rereads the 8-bit frame through a curve that steepens by up to 1.22
+codes per code, which would round the dithered fog into steps again. In the harness, a fog ramp from code 30 to 38
+through the fixed-function blend is off by up to 0.52 codes per column without the dither and 0.06 with it, and the
+Stormwind noon curve over code stripes by up to 0.58 codes per stripe without it and 0.13 with it (DXVK on the Radeon
+780M); the curve texture's filtering adds up to 0.05 codes to the largest single-pixel error. Upstream's change
+(LuxVelum `8fa1168`, the dither part; its scene-copy composites keep the rounding described above).
 
 **Glow and colour grading.** With `ForeverGlow=1`, the DLL rewrites the glow byte the client hands the glow composite (see
 Glow feed) once per frame, before the fog composite, to `lerp(client byte/255, Forever glow, t)`, where

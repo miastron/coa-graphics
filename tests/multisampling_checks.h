@@ -1266,7 +1266,7 @@ void CheckGradingMatchesSingleSampled(const Image& multisampled, const Image& si
 {
     const forever_look_checks::CurveMatch match = forever_look_checks::CompareSyntheticStripes(multisampled, world);
     forever_look_checks::PrintCurveMatch("colour grading on the 4x back buffer", match);
-    Check(match.WithinConversion() && single.w && multisampled.bgra == single.bgra,
+    Check(match.WithinDitheredConversion() && single.w && multisampled.bgra == single.bgra,
           "colour grading resolves a 4x back buffer, grades it like the curve and matches the single-sampled frame");
 }
 

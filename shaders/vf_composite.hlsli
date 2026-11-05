@@ -326,13 +326,13 @@ float4 BlendOverSceneCopy(float2 pixel, float2 viewportUv, float4 fog, float3 go
     return float4(DitheredOverScene(scene, BlendGodRays(FogSceneColour(scene, fog), godRays), pixel), 1);
 }
 
-float4 PremultipliedForFixedFunctionBlend(float4 fog, float3 godRays, bool linearLight)
+float4 PremultipliedForFixedFunctionBlend(float2 pixel, float4 fog, float3 godRays, bool linearLight)
 {
     float opacity = max(fog.a, 1e-4);
     float3 unpremultiplied = RollOffHighlights(fog.rgb / opacity, kHighlightKnee);
     if (linearLight)
         unpremultiplied = LinearToGamma(unpremultiplied);
-    return float4(unpremultiplied * fog.a + godRays, fog.a);
+    return float4(DitheredForDisplay(unpremultiplied * fog.a + godRays, pixel), fog.a);
 }
 
 float4 CompositeAtDepth(float2 pixel, float depth)
@@ -359,5 +359,5 @@ float4 CompositeAtDepth(float2 pixel, float depth)
 
     [branch] if (BlendsOverSceneCopy())
         return BlendOverSceneCopy(pixel, viewportUv, fog, godRays);
-    return PremultipliedForFixedFunctionBlend(fog, godRays, linearLight);
+    return PremultipliedForFixedFunctionBlend(pixel, fog, godRays, linearLight);
 }

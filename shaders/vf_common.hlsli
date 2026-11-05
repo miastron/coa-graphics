@@ -1,3 +1,5 @@
+#include "vf_pixel_noise.hlsli"
+
 float4 cWorldViewportPx : register(c0);
 float4 cPixelGrid : register(c1);
 float4 cViewToNdc : register(c2);
@@ -157,11 +159,6 @@ float2 ViewToPixel(float3 viewPosition)
     float2 ndc = float2(viewPosition.x / viewPosition.z * ViewToNdcScale().x + ViewToNdcOffset().x,
                         viewPosition.y / viewPosition.z * ViewToNdcScale().y + ViewToNdcOffset().y);
     return NdcToPixel(ndc);
-}
-
-float InterleavedGradientNoise(float2 pixel)
-{
-    return frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))));
 }
 
 bool OnTheOwnCharacter(float2 pixel, float depth, float4 characterBox, float4 characterFocus,

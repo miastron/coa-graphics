@@ -1,3 +1,5 @@
+#include "vf_pixel_noise.hlsli"
+
 float4 cGradedViewport : register(c0);
 float4 cGrading : register(c1);
 
@@ -41,7 +43,8 @@ float3 Graded(float3 colour)
 
 float4 main(float2 pixelIndex : VPOS) : COLOR0
 {
-    float2 viewportUv = (pixelIndex + 0.5 - ViewportOrigin()) * InverseViewportSize();
+    float2 pixel = pixelIndex + 0.5;
+    float2 viewportUv = (pixel - ViewportOrigin()) * InverseViewportSize();
     float3 scene = tex2Dlod(sSceneBeforeGrading, float4(viewportUv, 0, 0)).rgb;
-    return float4(lerp(scene, Graded(scene), GradingStrength()), 1);
+    return float4(DitheredForDisplay(lerp(scene, Graded(scene), GradingStrength()), pixel), 1);
 }

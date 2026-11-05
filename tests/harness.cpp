@@ -2780,6 +2780,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "water_wake_checks.h"
 #include "ripple_scene.h"
 #include "client_sprite_checks.h"
+#include "display_dither_checks.h"
 #include "forever_look_checks.h"
 #include "transparent_fog_checks.h"
 #include "early_composite_look_checks.h"
@@ -3262,6 +3263,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(god_ray_shafts::CheckGodRaysAddOnlyShafts(h, outDir));
     RUN_GROUP(god_ray_shafts::CheckTheOwnCharacterCastsNoShafts(h, outDir));
     RUN_GROUP(god_ray_shafts::CheckTrunksBesideTheOwnCharacterKeepTheirShafts(h, outDir));
+    RUN_GROUP(display_dither::CheckDisplayDither(h.dev));
     RUN_GROUP(classic_phase::CheckSunsetHaloKeepsItsHue(h, FullPath(iniPath)));
     RUN_GROUP(water_fft_checks::CheckWaterFft(h.dev));
     RUN_GROUP(water_mask_packing_checks::CheckWaveFoamMaskPacking(h.dev));
