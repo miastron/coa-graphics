@@ -1,7 +1,7 @@
 # PLAN-LUXVELUM
 
-Status (2026-11-05): in progress. Group 1 is done except 7337c37, and the light stabiliser set is done. Next is the
-Outland and Northrend fog data batch. Update this file after every port.
+Status (2026-11-05): in progress. Group 1 is done except 7337c37, the light stabiliser set is done, and the Outland
+and Northrend batch is done in code with its data waiting on a decision (see Group 2). Update this file after every port.
 
 ## Source and rules
 
@@ -67,13 +67,40 @@ the client's table, a fast spell light, a lamp-lit street while turning the came
 - `73ad963` 720f895: the radius and the priority smoothing run on the time since the last capture that was not held.
 - `693c58b` dc49536: a slotted light that is not evicted keeps its slot through two missed captures.
 
+Done (committed on main 2026-11-05), the Outland and Northrend fog batch, code and converter. The source patches did
+not apply as they were here (our shader constants live in `vf_local_light_data.hlsli`, the settings table feeds the
+panel's slider ranges, `LocalLightUpload` also carries spell lights), so they were ported by hand, patch by patch.
+- `1cb03c8` bd506b5: lamps scatter with a gain of one over the region's density (march and fitted stock fog), and
+  MoonScatter as a share of SunScatter (replaced by the next commit). Converter: heights shifted by the light's height
+  above its template in 25 yd steps, no Classic noise on converted lights.
+- `a20113d` 505c4d7: the loader reads layer flags 0x10 (sky without sun and moon: no sun or moon scatter, no god rays)
+  and 0x20 (clear sky: no distance fog, scene layers fall off on sky pixels); MoonScatter is the moon's own scatter;
+  AzerothLocalLights, OutlandLocalLights, NorthrendLocalLights (1, 3, 3). The harness checks cover the moon and the
+  lamp gain by region.
+- `071c630` 8fa1168, converter only: a sun-keeping copy of Northrend's background light inside generated zone
+  outlines of Borean Tundra with Sholazar Basin and of Grizzly Hills.
+- `ae25b2f` 0615f93, the lamp half: a lamp's cutoff radius follows its colour times the region's lamp intensity
+  (spell lights share the bound), region values to 128 in the INI, logarithmic sliders to 96, `LocalLightUpload` takes
+  the map. Its map read was not taken (ours is `DayNight::s_mapId`).
+
+Pending the owner's decision, staged and tested on the local branch `luxvelum-fogdata` (commit `4d859e3`, one commit on
+top of main): the data itself. `data/fogdata.bin` cannot be regenerated here: the client's DBFilesClient tables (inside
+the MPQs, no extractor on this machine) and the Forever kit are not available. The branch ships LuxVelum's finished
+file, as `40da028` shipped upstream's previous one. Evidence gathered: our converter is identical to LuxVelum's at its
+branch tip and no later commit changed the file; the 625 Classic lights, 508 Classic params with their keys and layers,
+18 zone lights and the grading curves are identical to ours record by record (only the generated part differs, plus the
+copy light and two zone outlines); the eight data checks (ground fog height, no noise, sunless skies, landmarks,
+sun-keeping copy, Hellfire's clear sky) fail with our current file and pass with theirs; the full DXVK run on the branch
+gives 1644 passes and only the known 4x multisampling failures. To take it: `git merge luxvelum-fogdata`. To drop it:
+`git branch -D luxvelum-fogdata` (the converter and loader changes on main stay inert without the data). The other way is
+to extract Light, LightIntBand, LightFloatBand, LightParams and LightSkybox from the client's MPQs (a small MPQ reader in
+Python would do) and run the converter on them; that gives data for the owner's own client, which may differ from
+upstream's.
+
+Left out of the batch: the dither and halo occlusion parts of 8fa1168 (group 3 and a removed feature), the region lamp
+defaults of 8 and the slider range of 24 (we start at 3; the owner's call), and the Bone Wastes renames in the tests.
+
 Next:
-- Outland and Northrend fog data, one batch, `fogdata.bin` regenerated once at the end: bd506b5 (converted layers
-  shifted by light height, no Classic noise on converted lights, lamp scatter gain 1 / region density), 505c4d7
-  (sunless-sky flag 0x10 and clear-sky flag 0x20 from LightParams and LightSkybox, own moon scatter, region lamp
-  settings), the converter part of 8fa1168 (Grizzly, Sholazar and Borean keep the sun), 0615f93 (lamp reach times the
-  region lamp setting, log-scale sliders). 505c4d7's sunless flag also zeroes `lightVisibility`; check how that meets
-  `d7bb50f` (shafts along a low sun).
 - 51a748b mask half: the god-ray mask takes 16 depth taps from a ray source copied at twice the ray size (ours is the
   one-tap mask and `m_raySource` is ray-sized). It is also what 4358ace needs.
 
