@@ -1731,11 +1731,11 @@ void CheckLocalLightsGlowByRegion()
                                              ConfigForMap(defaults, kEasternKingdoms), nullptr);
     std::printf("     local light gain by default: Outland %.3f, Azeroth %.3f\n", outland.localLightGain,
                 azeroth.localLightGain);
-    Check(followsRegion && Near(azeroth.localLightGain, 1.0f) && defaults.outlandLocalLights == 3.0f &&
-              defaults.northrendLocalLights == 3.0f && Near(outland.localLightGain, 3.0f / 0.15f),
+    Check(followsRegion && Near(azeroth.localLightGain, 1.0f) && defaults.outlandLocalLights == 8.0f &&
+              defaults.northrendLocalLights == 8.0f && Near(outland.localLightGain, 8.0f / 0.15f),
           "the local lights scatter with their region's intensity over the region's density, so the density "
-          "sliders leave the lamps' glow alone; Outland and Northrend start at 3, as testers needed about three "
-          "times the old world's intensity there, and Azeroth stays as before by default");
+          "sliders leave the lamps' glow alone; Outland and Northrend start at 8, as upstream's testers needed about "
+          "eight times the old world's intensity there, and Azeroth stays as before by default");
 }
 
 void CheckOutlandSkyColourTintsTheConvertedFog(const FogData& data)
@@ -2157,11 +2157,11 @@ void CheckRegionLocalLightsSetting(const std::wstring& outDir, const std::wstrin
     const Config& s = shipped.Get();
     std::printf("     shipped region local lights: Azeroth %.2f, Outland %.2f, Northrend %.2f\n", s.azerothLocalLights,
                 s.outlandLocalLights, s.northrendLocalLights);
-    Check(s.azerothLocalLights == 1.0f && s.outlandLocalLights == 3.0f && s.northrendLocalLights == 3.0f &&
+    Check(s.azerothLocalLights == 1.0f && s.outlandLocalLights == 8.0f && s.northrendLocalLights == 8.0f &&
               ReadText(shippedIni).find("; Local light intensity per region, 0..128 (the settings window's sliders "
                                         "reach 96),") != std::string::npos &&
               kRegionLocalLightsSliderMax == 96.0f && kRegionLocalLightsMax == 128.0f,
-          "the shipped INI starts Outland's and Northrend's local lights at 3 and Azeroth's at 1, and documents "
+          "the shipped INI starts Outland's and Northrend's local lights at 8 and Azeroth's at 1, and documents "
           "their range 0..128 and the sliders' 96");
 
     const std::wstring savedIni = FullPath(outDir + L"\\region-local-lights.ini");

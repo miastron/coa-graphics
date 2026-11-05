@@ -221,9 +221,10 @@ is what an authored (1, 0.55, 0.20) becomes under it. Every point light scatters
 g = `LocalLightPhase`. The modern fog-light kernel 6227851 reads one g for all local lights. The lights scatter with a
 gain of the region's intensity (`AzerothLocalLights`, `OutlandLocalLights`, `NorthrendLocalLights`) over its density
 (`AzerothDensity`, `OutlandDensity`, `NorthrendDensity`, at least 0.05), here and in the fitted stock fog of see-through
-models, so a region thinned to 0.15 keeps the glow of its lamps. Outland and Northrend start at 3: their converted
+models, so a region thinned to 0.15 keeps the glow of its lamps. Outland and Northrend start at 8: their converted
 layers are far thinner than the old world's (Borean Tundra at night 0.00013/yd of ground fog against Tirisfal's 0.0045
-in a tester's log), and the tester needed three to four times the intensity there. The region's intensity also scales
+in a tester's log), and upstream's testers settled on eight times the old world's intensity there (3 before; not seen
+in game here). The region's intensity also scales
 each lamp's cutoff radius, as for a lamp that much brighter, so the glow reaches further with the slider (a tester found
 Outland's lamps at 24 barely stronger than at 8 before); Azeroth at 1 keeps its radius. The region values range to 128 in
 the INI, and the settings window's sliders are logarithmic up to 96.
@@ -1934,7 +1935,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `ColorSpace` | 1 | 1 scatters and blends in linear light with a highlight roll-off; 0 uses gamma |
 | `SunScatter`, `Ambient`, `Exposure` | 1, 1, 1 | Light in the fog |
 | `MoonScatter` | 0.2 | Moon light in the fog at night, on its own (`SunScatter` is the sun's), Classic and derived |
-| `AzerothLocalLights`, `OutlandLocalLights`, `NorthrendLocalLights` | 1, 3, 3 | Local light intensity per region, 0..128; it also lengthens each lamp's reach |
+| `AzerothLocalLights`, `OutlandLocalLights`, `NorthrendLocalLights` | 1, 8, 8 | Local light intensity per region, 0..128; it also lengthens each lamp's reach |
 | `ClassicExposure` | 1 | Brightness of the Classic layers (1 = as authored) |
 | `ClassicPhase` | 0 | Classic sun and moon scattering: 0 peaks at 1 toward the light; 1 is energy-normalised |
 | `LocalLights`, `LocalLightIntensity` | 1, 1 | Scatter up to eight world point lights in view; intensity 0..8 |
