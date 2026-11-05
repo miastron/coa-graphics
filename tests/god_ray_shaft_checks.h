@@ -13,6 +13,10 @@ constexpr float kCanopyAbove = 230.0f;
 constexpr float kCanopyBelow = 120.0f;
 constexpr float kLeafCell = 18.0f;
 constexpr DWORD kLeafColour = 0xFF2E4A26;
+constexpr float kSkyRawDepth = 1.0f;
+constexpr float kSkyBandHeight = 4.0f;
+constexpr DWORD kDuskZenith = 0xFF405A80;
+constexpr DWORD kDuskHorizon = 0xFFF0C090;
 constexpr float kArcRadius = 140.0f;
 constexpr int kArcSamples = 181;
 constexpr float kOpenSkyMeanLimit = 0.5f / 255.0f;
@@ -57,9 +61,15 @@ enum class Occluders
     Canopy,
 };
 
+enum class Sky
+{
+    Clear,
+    BrighterTowardTheHorizon,
+};
+
 bool LeafAt(int column, int row)
 {
-    uint32_t hash = static_cast<uint32_t>(column * 73856093) ^ static_cast<uint32_t>(row * 19349663);
+    uint32_t hash = static_cast<uint32_t>(column) * 73856093u ^ static_cast<uint32_t>(row) * 19349663u;
     hash ^= hash >> 13;
     hash *= 0x5bd1e995u;
     hash ^= hash >> 15;
@@ -88,7 +98,32 @@ void DrawOccluders(Harness& h, const SunView& v, Occluders occluders, float rawD
                 }
 }
 
-Image Render(Harness& h, const SunView& v, float godRays, Occluders occluders)
+DWORD DuskSkyAt(float towardTheHorizon)
+{
+    DWORD colour = 0xFF000000;
+    for (int shift = 0; shift < 24; shift += 8)
+    {
+        const float zenith = static_cast<float>((kDuskZenith >> shift) & 0xFF);
+        const float horizon = static_cast<float>((kDuskHorizon >> shift) & 0xFF);
+        colour |= static_cast<DWORD>(std::lround(zenith + (horizon - zenith) * towardTheHorizon)) << shift;
+    }
+    return colour;
+}
+
+void DrawSky(Harness& h, const SunView& v, Sky sky)
+{
+    if (sky == Sky::Clear)
+        return;
+    DWORD depthTest = 0;
+    h.dev->GetRenderState(D3DRS_ZFUNC, &depthTest);
+    h.dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+    for (float y = 0; y < v.horizonY; y += kSkyBandHeight)
+        h.DrawPretransformedQuadAtRawDepth(0.0f, y, static_cast<float>(kWorld.Width), y + kSkyBandHeight,
+                                           kSkyRawDepth, DuskSkyAt((y + 0.5f * kSkyBandHeight) / v.horizonY));
+    h.dev->SetRenderState(D3DRS_ZFUNC, depthTest);
+}
+
+Image Render(Harness& h, const SunView& v, float godRays, Occluders occluders, Sky sky = Sky::Clear)
 {
     Config cfg;
     cfg.temporal = 0.0f;
@@ -101,6 +136,7 @@ Image Render(Harness& h, const SunView& v, float godRays, Occluders occluders)
     {
         h.BeginFrame();
         h.DrawScene(v.eye, v.view, v.proj, kWorld);
+        DrawSky(h, v, sky);
         DrawOccluders(h, v, occluders, trunkDepth);
         const char* skip = "";
         vf_test_render(&v.in, &skip);
@@ -165,15 +201,17 @@ void CheckGodRaysAddOnlyShafts(Harness& h, const std::wstring& outDir)
     vf_test_get_config(&saved);
     const SunView v;
     Image open[3];
+    Image dusk[3];
     Image trunks[3];
     Image canopy[3];
     for (int i = 0; i < 3; ++i)
     {
         open[i] = Render(h, v, kStrengths[i], Occluders::None);
+        dusk[i] = Render(h, v, kStrengths[i], Occluders::None, Sky::BrighterTowardTheHorizon);
         trunks[i] = Render(h, v, kStrengths[i], Occluders::Trunks);
         canopy[i] = Render(h, v, kStrengths[i], Occluders::Canopy);
         const std::pair<const wchar_t*, const Image*> named[] = {
-            {L"open-sky", &open[i]}, {L"trunks", &trunks[i]}, {L"canopy", &canopy[i]}};
+            {L"open-sky", &open[i]}, {L"dusk-sky", &dusk[i]}, {L"trunks", &trunks[i]}, {L"canopy", &canopy[i]}};
         for (const auto& [scene, image] : named)
         {
             wchar_t name[64];
@@ -183,22 +221,25 @@ void CheckGodRaysAddOnlyShafts(Harness& h, const std::wstring& outDir)
     }
     vf_test_set_config(&saved);
     const Change openSky = Compare(open[0], open[2]);
+    const Change duskSky = Compare(dusk[0], dusk[2]);
     const Change behindTrunks = Compare(trunks[0], trunks[2]);
     const Change throughLeavesFaint = Compare(canopy[0], canopy[1]);
     const Change throughLeaves = Compare(canopy[0], canopy[2]);
     const ArcContrast faint = AlongTheArc(v, trunks[0], trunks[1]);
     const ArcContrast strong = AlongTheArc(v, trunks[0], trunks[2]);
     std::printf("     god rays 4 with the sun at (%.0f, %.0f) above the horizon row %.0f: open sky changes by %.2f/255 "
-                "on average, at most %d/255; behind trunks %.2f/255 on average, darkest %d/255; across the shafts "
-                "%.3f to %.3f at GodRays 1, %.3f to %.3f at 4; through leaves %.2f/255 at 1, %.2f/255 at 4, darkest "
-                "%d/255\n",
-                v.sunX, v.sunY, v.horizonY, openSky.mean * 255.0, openSky.largest, behindTrunks.mean * 255.0,
+                "on average, at most %d/255; a dusk sky brightening toward the horizon %.2f/255, at most %d/255; "
+                "behind trunks %.2f/255 on average, darkest %d/255; across the shafts %.3f to %.3f at GodRays 1, "
+                "%.3f to %.3f at 4; through leaves %.2f/255 at 1, %.2f/255 at 4, darkest %d/255\n",
+                v.sunX, v.sunY, v.horizonY, openSky.mean * 255.0, openSky.largest, duskSky.mean * 255.0,
+                duskSky.largest, behindTrunks.mean * 255.0,
                 behindTrunks.darkest, faint.dimmest, faint.brightest, strong.dimmest, strong.brightest,
                 throughLeavesFaint.mean * 255.0, throughLeaves.mean * 255.0, throughLeaves.darkest);
     Check(v.sunY > 0 && v.sunY < v.horizonY && openSky.mean <= kOpenSkyMeanLimit &&
-              openSky.largest <= kOpenSkyLargestLimit,
-          "god rays add nothing to an open sky with nothing in front of the sun, so they do not brighten the sun's "
-          "glow like Sun scatter");
+              openSky.largest <= kOpenSkyLargestLimit && duskSky.mean <= kOpenSkyMeanLimit &&
+              duskSky.largest <= kOpenSkyLargestLimit,
+          "god rays add nothing to an open sky with nothing in front of the sun, a clear one or a dusk sky "
+          "brightening toward the skyline below a low sun, so they do not brighten the sun's glow like Sun scatter");
     Check(strong.brightest - strong.dimmest >= kMinShaftContrast &&
               strong.brightest - strong.dimmest > faint.brightest - faint.dimmest &&
               strong.dimmest >= -kMaxShaftDarkening && behindTrunks.darkest >= -1 &&

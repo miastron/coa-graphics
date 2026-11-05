@@ -61,6 +61,7 @@ float4 main(float2 rayTexel : VPOS) : COLOR0
     float3 viewDirection = normalize(ViewRayAtUnitDepth(centre));
     float sunFalloff = pow(saturate(dot(viewDirection, DirectionToSunView())), AngularFalloffExponent());
     float3 brightSky = 0;
+    float openSky = 0;
     [unroll] for (int y = 0; y < kSourceTexelsPerRayTexel; y++)
     {
         [unroll] for (int x = 0; x < kSourceTexelsPerRayTexel; x++)
@@ -69,8 +70,11 @@ float4 main(float2 rayTexel : VPOS) : COLOR0
             float2 sourceUv = (rayTexel + (sourceTexel + 0.5) / kSourceTexelsPerRayTexel) * RayTexelSize();
             float3 scene = tex2Dlod(sRaySource, float4(sourceUv, 0, 0)).rgb;
             float2 firstPixel = footprintOrigin + (sourceTexel * kDepthTapsPerSourceTexel + 0.5) * pixelsPerDepthTap;
-            brightSky += BrightSky(scene, SkyShare(firstPixel, pixelsPerDepthTap));
+            float skyShare = SkyShare(firstPixel, pixelsPerDepthTap);
+            brightSky += BrightSky(scene, skyShare);
+            openSky += skyShare;
         }
     }
-    return float4(brightSky * sunFalloff / (kSourceTexelsPerRayTexel * kSourceTexelsPerRayTexel), 1);
+    float sourceTexels = kSourceTexelsPerRayTexel * kSourceTexelsPerRayTexel;
+    return float4(brightSky * sunFalloff / sourceTexels, openSky / sourceTexels);
 }

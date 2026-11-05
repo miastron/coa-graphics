@@ -35,12 +35,12 @@ float4 main(float2 texel : VPOS) : COLOR0
 {
     float2 uv = (texel + 0.5) * TargetTexelSize();
     float2 tapStep = (SunUv() - uv) * StepFractionTowardSun();
-    float3 sum = 0;
+    float4 sum = 0;
     float tapWeight = 1;
     [unroll] for (int k = 0; k < kTaps; k++)
     {
-        sum += tex2Dlod(sSource, float4(uv + tapStep * k, 0, 0)).rgb * tapWeight;
+        sum += tex2Dlod(sSource, float4(uv + tapStep * k, 0, 0)) * tapWeight;
         tapWeight *= DecayPerTap();
     }
-    return float4(sum * TapWeightNormalisation(), 1);
+    return sum * TapWeightNormalisation();
 }
