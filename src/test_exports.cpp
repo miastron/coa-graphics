@@ -61,6 +61,16 @@ extern "C" int __cdecl vf_test_adaptive_lighting_history()
     return AdaptiveLightingHistory(LatestFogDevice()) ? 1 : 0;
 }
 
+extern "C" int __cdecl vf_test_fog_history_valid()
+{
+    return FogHistoryValid(LatestFogDevice()) ? 1 : 0;
+}
+
+extern "C" void __cdecl vf_test_fail_ray_source_copy(int fail)
+{
+    RefuseRaySourceCopy(fail != 0);
+}
+
 extern "C" void __cdecl vf_test_fail_fog_resources(unsigned kinds)
 {
     FailFogResourceCreation(kinds);

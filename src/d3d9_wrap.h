@@ -40,6 +40,7 @@ bool FogReadyToRender(FogDevice* device, const D3DVIEWPORT9& vp, const char** sk
 bool RenderGodRaysAfterWorld(FogDevice* device, const char** skipReason);
 StockFogFit LastStockFogFit(FogDevice* device);
 bool AdaptiveLightingHistory(FogDevice* device);
+bool FogHistoryValid(FogDevice* device);
 void ManagedNoiseTextures(FogDevice* device, const void** density, const void** authored);
 unsigned SurfaceLightDraws(FogDevice* device);
 void DrawnFogShaders(FogDevice* device, IDirect3DPixelShader9** march, IDirect3DPixelShader9** composite,

@@ -160,6 +160,7 @@ public:
     bool ReadyToRender(const D3DVIEWPORT9& vp, const char** skip);
     const StockFogFit& LastStockFogFit() const { return m_renderer.LastStockFogFit(); }
     bool AdaptiveLightingHistory() const { return m_renderer.AdaptiveLightingHistory(); }
+    bool FogHistoryValid() const { return m_renderer.HistoryValid(); }
     const void* DensityNoise() const { return m_renderer.DensityNoise(); }
     const void* AuthoredNoise() const { return m_renderer.AuthoredNoise(); }
     unsigned SurfaceLightDraws() const { return m_renderer.SurfaceLightDraws(); }
@@ -1539,6 +1540,11 @@ StockFogFit LastStockFogFit(FogDevice* device)
 bool AdaptiveLightingHistory(FogDevice* device)
 {
     return device && device->AdaptiveLightingHistory();
+}
+
+bool FogHistoryValid(FogDevice* device)
+{
+    return device && device->FogHistoryValid();
 }
 
 void ManagedNoiseTextures(FogDevice* device, const void** density, const void** authored)

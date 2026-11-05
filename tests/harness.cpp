@@ -63,6 +63,8 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_set_config(const Config*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_get_config(Config*);
 extern "C" __declspec(dllimport) int __cdecl vf_test_render(const FrameInputs*, const char**);
 extern "C" __declspec(dllimport) int __cdecl vf_test_adaptive_lighting_history();
+extern "C" __declspec(dllimport) int __cdecl vf_test_fog_history_valid();
+extern "C" __declspec(dllimport) void __cdecl vf_test_fail_ray_source_copy(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_managed_noise(const void** density, const void** authored);
 extern "C" __declspec(dllimport) void __cdecl vf_test_fail_fog_resources(unsigned kinds);
 extern "C" __declspec(dllimport) unsigned __cdecl vf_test_fog_resource_attempts(unsigned kind);

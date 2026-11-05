@@ -253,7 +253,10 @@ the UI. While it draws, the stock fog is pushed out of range for the world rende
 volumetric fog keep the stock fog. An unexpected draw failure restores it on the next frame. The client's glow
 (`screen + g·blur²`, with `g` from the day/night light) runs afterwards and would bleach bright fog to white, so fogged
 pixels are pre-compensated with the live glow amount. God rays use the display highlight range left after the glow, and
-need a scene copy; without one they are omitted.
+need a scene copy and the low-resolution copy of the world viewport their mask is drawn from; without either they are
+omitted, and a failed low-resolution copy is logged once. When the late god ray pass after the early composite fails,
+the fog's temporal history stays as the early composite left it, since that pass never writes the fog or history
+targets.
 
 **Lights on surfaces.** The client lights the ground and buildings only with the sun or moon and its ambient colour; its
 point lights reach models alone. With `SurfaceLights` above 0 and a light uploaded, one full-resolution pass after the march

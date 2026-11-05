@@ -18,6 +18,7 @@
 void ForceFogParams(const FogParams* fog);
 void KeepSurfaceLightsInTheTarget(bool keep);
 void TakeGodRaysFromTheTarget(bool fromTarget);
+void RefuseRaySourceCopy(bool refused);
 #endif
 enum FogResourceKind : unsigned
 {
@@ -57,6 +58,7 @@ public:
     const StockFogFit& LastStockFogFit() const { return m_stockFogFit; }
     const char* LastSkipReason() const { return m_skip; }
     bool AdaptiveLightingHistory() const { return m_adaptiveLightingHistory; }
+    bool HistoryValid() const { return m_historyValid; }
     const void* DensityNoise() const { return m_densityNoise; }
     const void* AuthoredNoise() const { return m_authoredNoise; }
     IDirect3DPixelShader9* DrawnMarch() const { return m_drawnMarch; }
@@ -108,11 +110,12 @@ private:
 
     template <typename Passes>
     bool WithClientStateSaved(IDirect3DDevice9* dev, const SceneDepth& depth, Passes passes);
+    bool DrawLateGodRays(IDirect3DDevice9* dev, const SceneDepth& depth);
     void PrepareFullscreenPasses(IDirect3DDevice9* dev);
     bool LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
                        const SurfaceLightFrame& frame, bool intoLitScene);
     bool EnsureLitScene(IDirect3DDevice9* dev);
-    void CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
+    bool CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
                              IDirect3DTexture9* sceneTexture);
     void DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, const GodRayFrame& rays);
     bool DrawGodRaysOverScene(IDirect3DDevice9* dev, const SceneDepth& depth, IDirect3DSurface9* target,
@@ -213,6 +216,7 @@ private:
     UINT m_sceneCopyW = 0;
     UINT m_sceneCopyH = 0;
     bool m_sceneCopyFailed = false;
+    bool m_raySourceCopyFailureLogged = false;
     bool m_probeFailed = false;
 
     int m_historyIndex = 0;

@@ -273,6 +273,7 @@ constexpr float kMinGodRayStrength = 0.005f;
 bool g_fogParamsForced = false;
 bool g_surfaceLightsKeptInTarget = false;
 bool g_godRaysFromTarget = false;
+bool g_raySourceCopyRefused = false;
 unsigned g_failedResourceKinds = 0;
 unsigned g_resourceCreationAttempts[kFogNoise + 1] = {};
 FogParams g_forcedFogParams = {};
@@ -467,6 +468,11 @@ void KeepSurfaceLightsInTheTarget(bool keep)
 void TakeGodRaysFromTheTarget(bool fromTarget)
 {
     g_godRaysFromTarget = fromTarget;
+}
+
+void RefuseRaySourceCopy(bool refused)
+{
+    g_raySourceCopyRefused = refused;
 }
 
 void FailFogResourceCreation(unsigned kinds)
@@ -1395,6 +1401,14 @@ bool Renderer::Render(IDirect3DDevice9* dev, const SceneDepth& depth, const Fram
 
 bool Renderer::RenderGodRaysAfterWorld(IDirect3DDevice9* dev, const SceneDepth& depth)
 {
+    const bool historyValid = m_historyValid;
+    const bool drawn = DrawLateGodRays(dev, depth);
+    m_historyValid = historyValid;
+    return drawn;
+}
+
+bool Renderer::DrawLateGodRays(IDirect3DDevice9* dev, const SceneDepth& depth)
+{
     m_skip = "";
     const GodRayFrame rays = m_lateGodRays;
     m_lateGodRays = {};
@@ -1517,7 +1531,7 @@ bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
     return toTexture;
 }
 
-void Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
+bool Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
                                    IDirect3DTexture9* sceneTexture)
 {
     IDirect3DSurface9* raySurface = nullptr;
@@ -1525,17 +1539,30 @@ void Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* tar
     const RECT world = ViewportRect(vp);
     const RECT sceneWorld = {0, 0, static_cast<LONG>(vp.Width), static_cast<LONG>(vp.Height)};
     const bool fromTexture = sceneTexture && !Seam(g_godRaysFromTarget, false);
-    if (SUCCEEDED(m_raySource->GetSurfaceLevel(0, &raySurface)) &&
-        (!fromTexture || SUCCEEDED(sceneTexture->GetSurfaceLevel(0, &sceneSurface))))
+    HRESULT result = m_raySource->GetSurfaceLevel(0, &raySurface);
+    if (SUCCEEDED(result) && fromTexture)
+        result = sceneTexture->GetSurfaceLevel(0, &sceneSurface);
+    if (SUCCEEDED(result))
     {
         IDirect3DSurface9* const source = sceneSurface ? sceneSurface : target;
         const RECT* const sourceRect = sceneSurface ? &sceneWorld : &world;
-        const bool copied = SUCCEEDED(dev->StretchRect(source, sourceRect, raySurface, nullptr, D3DTEXF_LINEAR));
-        if (copied)
-            GlobalFrameCopies().CountColourCopy(ColourCopySite::GodRaySource);
+        result = Seam(g_raySourceCopyRefused, false)
+                     ? D3DERR_INVALIDCALL
+                     : dev->StretchRect(source, sourceRect, raySurface, nullptr, D3DTEXF_LINEAR);
     }
     SafeRelease(sceneSurface);
     SafeRelease(raySurface);
+    if (SUCCEEDED(result))
+    {
+        GlobalFrameCopies().CountColourCopy(ColourCopySite::GodRaySource);
+        return true;
+    }
+    if (!m_raySourceCopyFailureLogged)
+        VF_LOG_ERROR("god rays skipped: the scene copy they are drawn from failed (HRESULT 0x%08lX); no god rays "
+                     "while it fails",
+                     static_cast<unsigned long>(result));
+    m_raySourceCopyFailureLogged = true;
+    return false;
 }
 
 void Renderer::DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, const GodRayFrame& rays)
@@ -1811,9 +1838,11 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
                       compositeBlendsInShader);
     const bool sceneCopyReady =
         litSceneReady || (compositeBlendsInShader && CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite));
-    if (rays)
-        CopySceneForGodRays(dev, target, vp, litSceneReady ? m_litScene : (sceneCopyReady ? m_sceneCopy : nullptr));
-    if (raysNow)
+    IDirect3DTexture9* const raySceneTexture = litSceneReady ? m_litScene : (sceneCopyReady ? m_sceneCopy : nullptr);
+    const bool raysCopied = rays && CopySceneForGodRays(dev, target, vp, raySceneTexture);
+    const bool raysDrawnNow = raysNow && raysCopied;
+    const bool raysDrawnAfterWorld = raysAfterWorld && raysCopied;
+    if (raysDrawnNow)
         DrawGodRayMask(dev, depthTexture, godRays);
 
     FogBlend blend = fog.linear ? FogBlend::LinearFixedFunction : FogBlend::GammaFixedFunction;
@@ -1852,7 +1881,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     dev->SetPixelShaderConstantF(12, &compositeLayers[0].start, 6 * kFogLayers);
     m_drawnGlowCompensation = cfg.glowCompensation && sceneBlend ? in.clientGlowAmount : 0.0f;
     const Float4 composite[3] = {
-        {fog.authored ? cfg.classicExposure : cfg.exposure, raysNow && sceneBlend ? rayStrength : 0.0f,
+        {fog.authored ? cfg.classicExposure : cfg.exposure, raysDrawnNow && sceneBlend ? rayStrength : 0.0f,
          static_cast<float>(cfg.debugView), blendMode},
         {fog.rayColor[0], fog.rayColor[1], fog.rayColor[2], 0.0f},
         {sunPx[0], sunPx[1], cfg.sunMarker && sunInFront ? 1.0f : 0.0f, m_drawnGlowCompensation},
@@ -1867,7 +1896,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
         DrawCompositeBySampleDepth(dev, depth.bound, vp, compositeChoice, sceneBlend);
     else
         DrawFullscreenTriangle(dev);
-    if (raysAfterWorld)
+    if (raysDrawnAfterWorld)
     {
         m_lateGodRays = godRays;
         m_lateGodRays.pending = true;
