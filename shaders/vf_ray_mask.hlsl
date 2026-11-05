@@ -2,6 +2,9 @@
 
 float4 cRayMask : register(c9);
 float4 cRaySource : register(c10);
+float4 cCharacterBox : register(c11);
+float4 cCharacterFocus : register(c12);
+float4 cCharacterHeights : register(c13);
 
 sampler2D sDepth : register(s0);
 sampler2D sRaySource : register(s1);
@@ -32,18 +35,27 @@ float2 RayTexelSize()
     return cRaySource.zw;
 }
 
-float SkyShare(float2 firstPixel, float2 pixelsPerDepthTap)
+struct RayMask
 {
-    float sky = 0;
+    float4 rays : COLOR0;
+    float4 openWithoutTheCharacter : COLOR1;
+};
+
+float2 SkyShareWithAndWithoutTheCharacter(float2 firstPixel, float2 pixelsPerDepthTap)
+{
+    float2 share = 0;
     [unroll] for (int y = 0; y < kDepthTapsPerSourceTexel; y++)
     {
         [unroll] for (int x = 0; x < kDepthTapsPerSourceTexel; x++)
         {
             float2 pixel = min(firstPixel + float2(x, y) * pixelsPerDepthTap, ViewportLastPixelCentre());
-            sky += IsSky(SampleDepth(sDepth, pixel)) ? 1 : 0;
+            float depth = SampleDepth(sDepth, pixel);
+            bool sky = IsSky(depth);
+            bool character = OnTheOwnCharacter(pixel, depth, cCharacterBox, cCharacterFocus, cCharacterHeights);
+            share += float2(sky ? 1 : 0, sky || character ? 1 : 0);
         }
     }
-    return sky / (kDepthTapsPerSourceTexel * kDepthTapsPerSourceTexel);
+    return share / (kDepthTapsPerSourceTexel * kDepthTapsPerSourceTexel);
 }
 
 float3 BrightSky(float3 scene, float skyShare)
@@ -52,7 +64,7 @@ float3 BrightSky(float3 scene, float skyShare)
     return scene * skyShare * saturate((luminance - LuminanceThreshold()) * kThresholdRampSlope);
 }
 
-float4 main(float2 rayTexel : VPOS) : COLOR0
+RayMask main(float2 rayTexel : VPOS)
 {
     float2 fullPixelsPerRayTexel = ViewportSize() * RayTexelSize();
     float2 pixelsPerDepthTap = fullPixelsPerRayTexel / kDepthTapsPerRayTexel;
@@ -61,7 +73,7 @@ float4 main(float2 rayTexel : VPOS) : COLOR0
     float3 viewDirection = normalize(ViewRayAtUnitDepth(centre));
     float sunFalloff = pow(saturate(dot(viewDirection, DirectionToSunView())), AngularFalloffExponent());
     float3 brightSky = 0;
-    float openSky = 0;
+    float2 openSky = 0;
     [unroll] for (int y = 0; y < kSourceTexelsPerRayTexel; y++)
     {
         [unroll] for (int x = 0; x < kSourceTexelsPerRayTexel; x++)
@@ -70,11 +82,14 @@ float4 main(float2 rayTexel : VPOS) : COLOR0
             float2 sourceUv = (rayTexel + (sourceTexel + 0.5) / kSourceTexelsPerRayTexel) * RayTexelSize();
             float3 scene = tex2Dlod(sRaySource, float4(sourceUv, 0, 0)).rgb;
             float2 firstPixel = footprintOrigin + (sourceTexel * kDepthTapsPerSourceTexel + 0.5) * pixelsPerDepthTap;
-            float skyShare = SkyShare(firstPixel, pixelsPerDepthTap);
-            brightSky += BrightSky(scene, skyShare);
+            float2 skyShare = SkyShareWithAndWithoutTheCharacter(firstPixel, pixelsPerDepthTap);
+            brightSky += BrightSky(scene, skyShare.x);
             openSky += skyShare;
         }
     }
     float sourceTexels = kSourceTexelsPerRayTexel * kSourceTexelsPerRayTexel;
-    return float4(brightSky * sunFalloff / sourceTexels, openSky / sourceTexels);
+    RayMask mask;
+    mask.rays = float4(brightSky * sunFalloff / sourceTexels, openSky.x / sourceTexels);
+    mask.openWithoutTheCharacter = openSky.y / sourceTexels;
+    return mask;
 }

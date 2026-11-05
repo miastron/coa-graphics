@@ -2,6 +2,7 @@ float4 cShaftArc : register(c9);
 float4 cRayTarget : register(c10);
 
 sampler2D sRays : register(s0);
+sampler2D sOpenWithoutTheCharacter : register(s1);
 
 static const int kArcSamplesPerSide = 12;
 static const float kArcStepRadians = 0.044;
@@ -22,9 +23,9 @@ float4 RaysAt(float2 texel)
     return tex2Dlod(sRays, float4(texel * TargetTexelSize(), 0, 0));
 }
 
-float OpenSkyAt(float2 texel)
+float OpenSkyWithoutTheCharacterAt(float2 texel)
 {
-    return RaysAt(texel).a;
+    return tex2Dlod(sOpenWithoutTheCharacter, float4(texel * TargetTexelSize(), 0, 0)).a;
 }
 
 float2 RotatedAboutTheSun(float2 fromSun, float angle)
@@ -37,9 +38,9 @@ float2 RotatedAboutTheSun(float2 fromSun, float angle)
 
 float LeastOpenSkyOnOneSide(float2 fromSun, float turn)
 {
-    float least = OpenSkyAt(RotatedAboutTheSun(fromSun, turn));
+    float least = OpenSkyWithoutTheCharacterAt(RotatedAboutTheSun(fromSun, turn));
     [unroll] for (int k = 2; k <= kArcSamplesPerSide; k++)
-        least = min(least, OpenSkyAt(RotatedAboutTheSun(fromSun, k * turn)));
+        least = min(least, OpenSkyWithoutTheCharacterAt(RotatedAboutTheSun(fromSun, k * turn)));
     return least;
 }
 

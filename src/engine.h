@@ -16,6 +16,7 @@ struct FrameInputs
     float glProjection[16];
     float camPos[3];
     float camTarget[3];
+    float cameraFocus[3];
     D3DVIEWPORT9 viewport;
     float dayFraction;
     float toLight[3];
@@ -116,6 +117,7 @@ bool IsSupportedClient();
 void* GameD3DDevice();
 bool CameraInLiquid();
 void ReadCameraPosition(float out[3]);
+void ChooseCameraFocus();
 int ReadCurrentMap();
 bool ReadSceneLight(float toLight[3], uint32_t& ambientColor, uint32_t& directColor);
 

@@ -8,6 +8,7 @@
 #include "fog_model.h"
 #include "frame_copies.h"
 #include "fullscreen_triangle.h"
+#include "light_on_screen.h"
 #include "god_ray_blur.h"
 #include "noise_volume.h"
 #include "log.h"
@@ -416,6 +417,23 @@ void LogUploadedLight(uint32_t index, const LocalPointLight& light, const float*
                  light.uploadedColor[2], light.cutoff);
 }
 
+struct CharacterMask
+{
+    Float4 box;
+    Float4 focus;
+    Float4 heights;
+};
+
+CharacterMask MaskTheCharacter(const CharacterOnScreen& character)
+{
+    if (!character.present)
+        return {{1.0f, 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 0.0f}};
+    return {{character.pixelMin[0], character.pixelMin[1], character.pixelMax[0], character.pixelMax[1]},
+            {character.focusFromCamera[0], character.focusFromCamera[1], character.focusFromCamera[2],
+             character.reach * character.reach},
+            {-kCharacterBelowFocus, kCharacterAboveFocus, 0.0f, 0.0f}};
+}
+
 const char* UnusableTargets(IDirect3DSurface9* target, IDirect3DSurface9* boundDepth, const SceneDepth& depth,
                             D3DSURFACE_DESC& depthDesc)
 {
@@ -503,6 +521,8 @@ void Renderer::ReleaseDefaultPool()
     SafeRelease(m_raySource);
     SafeRelease(m_rays[0]);
     SafeRelease(m_rays[1]);
+    SafeRelease(m_raysOpenWithoutTheCharacter[0]);
+    SafeRelease(m_raysOpenWithoutTheCharacter[1]);
     SafeRelease(m_sceneCopy);
     SafeRelease(m_litScene);
     m_targetRetry.Reset();
@@ -932,6 +952,8 @@ bool Renderer::EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT r
     SafeRelease(m_raySource);
     SafeRelease(m_rays[0]);
     SafeRelease(m_rays[1]);
+    SafeRelease(m_raysOpenWithoutTheCharacter[0]);
+    SafeRelease(m_raysOpenWithoutTheCharacter[1]);
     m_historyValid = false;
 
     D3DFORMAT fogFormat = D3DFMT_A16B16G16R16F;
@@ -960,9 +982,21 @@ bool Renderer::EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT r
         SafeRelease(m_raySource);
         SafeRelease(m_rays[0]);
         SafeRelease(m_rays[1]);
+        SafeRelease(m_raysOpenWithoutTheCharacter[0]);
+        SafeRelease(m_raysOpenWithoutTheCharacter[1]);
         m_targetRetry.Failed();
         return Skip("render target creation failed");
     }
+
+    if (SupportsTwoTargets(dev) &&
+        !(CreateTarget(dev, rayW, rayH, rayFormat, &m_raysOpenWithoutTheCharacter[0]) &&
+          CreateTarget(dev, rayW, rayH, rayFormat, &m_raysOpenWithoutTheCharacter[1])))
+    {
+        SafeRelease(m_raysOpenWithoutTheCharacter[0]);
+        SafeRelease(m_raysOpenWithoutTheCharacter[1]);
+    }
+    if (!m_raysOpenWithoutTheCharacter[0])
+        VF_LOG_INFO("god rays: no second ray target, so the own character casts shafts");
 
     m_lowW = lowW;
     m_lowH = lowH;
@@ -1259,9 +1293,11 @@ void Renderer::LogFrameSummary(IDirect3DDevice9* dev, long long now, const Frame
                 "maxdist %.0f%s%s",
                 m_frame, vp.X, vp.Y, vp.Width, vp.Height, depthDesc.Width, depthDesc.Height, vp.MinZ, vp.MaxZ,
                 projectionNear, projectionFar, in.farClip, fog.maxDistance, gpuTime[0] ? ", " : "", gpuTime);
-    VF_LOG_INFO("  camera (%.2f %.2f %.2f) inverse-view origin (%.2f %.2f %.2f) target (%.2f %.2f %.2f)",
+    VF_LOG_INFO("  camera (%.2f %.2f %.2f) inverse-view origin (%.2f %.2f %.2f) target (%.2f %.2f %.2f) focus "
+                "(%.2f %.2f %.2f)",
                 in.camPos[0], in.camPos[1], in.camPos[2], viewToWorld[12], viewToWorld[13], viewToWorld[14],
-                in.camTarget[0], in.camTarget[1], in.camTarget[2]);
+                in.camTarget[0], in.camTarget[1], in.camTarget[2], in.cameraFocus[0], in.cameraFocus[1],
+                in.cameraFocus[2]);
     VF_LOG_INFO("  day %.4f %s toLight (%.3f %.3f %.3f) view (%.3f %.3f %.3f) vis %.2f above %.2f "
                 "sunPx (%.0f %.0f) rays %.2f",
                 in.dayFraction, in.lightIsMoon ? "moon" : "sun", in.toLight[0], in.toLight[1], in.toLight[2],
@@ -1577,13 +1613,21 @@ bool Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* tar
 void Renderer::DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, const GodRayFrame& rays)
 {
     const D3DVIEWPORT9& vp = rays.viewport;
+    IDirect3DTexture9* const* openWithoutTheCharacter =
+        m_raysOpenWithoutTheCharacter[0] ? m_raysOpenWithoutTheCharacter : m_rays;
     SetTarget(dev, m_rays[1]);
+    SetSecondTarget(dev, m_raysOpenWithoutTheCharacter[1]);
+    dev->SetRenderState(D3DRS_COLORWRITEENABLE1, 0xF);
     dev->SetPixelShader(m_rayMask);
-    const Float4 mask[2] = {
+    const CharacterMask character = MaskTheCharacter(rays.character);
+    const Float4 mask[5] = {
         {rays.toLightInView[0], rays.toLightInView[1], rays.toLightInView[2], kRayFalloff},
         {0.0f, kRayThreshold, 1.0f / m_rayW, 1.0f / m_rayH},
+        character.box,
+        character.focus,
+        character.heights,
     };
-    dev->SetPixelShaderConstantF(9, &mask[0].x, 2);
+    dev->SetPixelShaderConstantF(9, &mask[0].x, 5);
     BindTexture(dev, 0, depthTexture, false);
     BindTexture(dev, 1, m_raySource, true);
     DrawFullscreenTriangle(dev);
@@ -1594,6 +1638,7 @@ void Renderer::DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTex
     {
         const god_ray_blur::Pass blurPass = god_ray_blur::PassAt(pass);
         SetTarget(dev, m_rays[pass == 0 ? 0 : 1]);
+        SetSecondTarget(dev, m_raysOpenWithoutTheCharacter[pass == 0 ? 0 : 1]);
         const Float4 blur[3] = {
             {sunUv[0], sunUv[1], blurPass.stepTowardSun, blurPass.normalisation},
             {static_cast<float>(m_rayW), static_cast<float>(m_rayH), 1.0f / m_rayW, 1.0f / m_rayH},
@@ -1601,8 +1646,10 @@ void Renderer::DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTex
         };
         dev->SetPixelShaderConstantF(9, &blur[0].x, 3);
         BindTexture(dev, 0, m_rays[pass == 0 ? 1 : 0], true);
+        BindTexture(dev, 1, openWithoutTheCharacter[pass == 0 ? 1 : 0], true);
         DrawFullscreenTriangle(dev);
     }
+    SetSecondTarget(dev, nullptr);
 
     SetTarget(dev, m_rays[kShaftRays]);
     dev->SetPixelShader(m_rayShafts);
@@ -1612,6 +1659,7 @@ void Renderer::DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTex
     };
     dev->SetPixelShaderConstantF(9, &shafts[0].x, 2);
     BindTexture(dev, 0, m_rays[1 - kShaftRays], true);
+    BindTexture(dev, 1, openWithoutTheCharacter[1 - kShaftRays], true);
     DrawFullscreenTriangle(dev);
 }
 
@@ -1641,6 +1689,9 @@ bool Renderer::DrawGodRaysOverScene(IDirect3DDevice9* dev, const SceneDepth& dep
         {rays.sunPx[0], rays.sunPx[1], 0.0f, rays.glowToCompensate},
     };
     dev->SetPixelShaderConstantF(96, &composite[0].x, 3);
+    const CharacterMask character = MaskTheCharacter(rays.character);
+    dev->SetPixelShaderConstantF(100, &character.box.x, 3);
+    BindTexture(dev, 0, depth.texture, false);
     BindTexture(dev, 2, m_rays[kShaftRays], true);
     BindTexture(dev, 3, m_sceneCopy, false);
     DrawFullscreenTriangle(dev);
@@ -1726,17 +1777,11 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     Mul4x4(m_prevWorldToView, m_prevProj, prevViewProj);
     Mul4x4(viewToWorld, prevViewProj, reproj);
 
-    float sunPx[2] = {};
-    bool sunInFront = toLightInView[2] > 0.05f;
-    float sunScreenFade = 0.0f;
-    if (sunInFront)
-    {
-        float ndcX = toLightInView[0] / toLightInView[2] * proj[0] + proj[8];
-        float ndcY = toLightInView[1] / toLightInView[2] * proj[5] + proj[9];
-        sunPx[0] = vp.X + (ndcX * 0.5f + 0.5f) * vp.Width;
-        sunPx[1] = vp.Y + (0.5f - ndcY * 0.5f) * vp.Height;
-        sunScreenFade = std::clamp(1.6f - std::max(std::fabs(ndcX), std::fabs(ndcY)), 0.0f, 1.0f);
-    }
+    const LightOnScreen celestialOnScreen = ProjectLightOntoViewport(toLightInView, proj, vp);
+    const float sunPx[2] = {celestialOnScreen.pixel[0], celestialOnScreen.pixel[1]};
+    const bool sunInFront = celestialOnScreen.inFront;
+    const float sunNdcExtent = std::max(std::fabs(celestialOnScreen.ndc[0]), std::fabs(celestialOnScreen.ndc[1]));
+    const float sunScreenFade = sunInFront ? std::clamp(1.6f - sunNdcExtent, 0.0f, 1.0f) : 0.0f;
     const float rayStrength = cfg.godRays * fog.lightVisibility * sunScreenFade;
     const bool rays = rayStrength > kMinGodRayStrength;
     const bool raysAfterWorld = rays && pass == FogPass::BeforeTransparents;
@@ -1749,6 +1794,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     godRays.strength = rayStrength;
     std::memcpy(godRays.colour, fog.rayColor, sizeof(godRays.colour));
     godRays.glowToCompensate = cfg.glowCompensation ? in.clientGlowAmount : 0.0f;
+    godRays.character = ProjectCharacterOntoViewport(in.cameraFocus, in.camPos, in.cameraRelativeView, proj, vp);
 
     LogFrameSummary(dev, now, in, cfg, fog, authored, depthDesc, viewToWorld, toLightInView, sunPx, rayStrength);
 
@@ -1907,6 +1953,8 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
         {sunPx[0], sunPx[1], cfg.sunMarker && sunInFront ? 1.0f : 0.0f, m_drawnGlowCompensation},
     };
     dev->SetPixelShaderConstantF(96, &composite[0].x, 3);
+    const CharacterMask character = MaskTheCharacter(godRays.character);
+    dev->SetPixelShaderConstantF(100, &character.box.x, 3);
     BindTexture(dev, 0, depthTexture, false);
     BindTexture(dev, 1, fogResult, false);
     BindTexture(dev, 2, m_rays[kShaftRays], true);

@@ -1,5 +1,6 @@
 #include "engine.h"
 
+#include "client_camera_focus.h"
 #include "local_light_stabiliser.h"
 
 #include "client_memory.h"
@@ -243,6 +244,7 @@ struct OpaqueState
 
 OpaqueState g_opaque = {};
 uint32_t g_opaqueCaptures = 0;
+uintptr_t g_cameraFocus = kCameraPosition;
 
 bool Finite(const float* v, int count)
 {
@@ -417,6 +419,7 @@ bool BuildFrameInputsUnsafe(FrameInputs& out, bool withPointLights, const PointL
     out.viewport = g_opaque.viewport;
     ReadFloats(kCameraPosition, out.camPos, 3);
     ReadFloats(kCameraTarget, out.camTarget, 3);
+    ReadFloats(g_cameraFocus, out.cameraFocus, 3);
 
     out.dayFraction = Read<float>(kDayFraction);
     float dayStart = Read<float>(kSunDayStart);
@@ -778,6 +781,18 @@ bool CameraInLiquid()
 void ReadCameraPosition(float out[3])
 {
     ReadFloats(kCameraPosition, out, 3);
+}
+
+void ChooseCameraFocus()
+{
+    g_cameraFocus = CameraFocusReadable({}) ? kCameraFocus : kCameraPosition;
+    if (g_cameraFocus == kCameraFocus)
+        VF_LOG_INFO("camera focus read from 0x%08X, the position of the unit the camera follows",
+                    static_cast<unsigned>(kCameraFocus));
+    else
+        VF_LOG_ERROR("the camera focus stores at 0x%08X and 0x%08X differ from the 12340 client; the own character "
+                     "casts god-ray shafts",
+                     static_cast<unsigned>(kCameraFocusStore), static_cast<unsigned>(kCameraFocusHeightStore));
 }
 
 int ReadCurrentMap()

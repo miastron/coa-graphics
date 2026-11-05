@@ -123,6 +123,7 @@ void Attach(HMODULE module)
         VF_LOG_INFO("EngineHooks=0; the client runs unmodified");
         return;
     }
+    engine::ChooseCameraFocus();
     const bool engineHooks = InstallEngineHooks();
     g_engineHooks = engineHooks;
     AllowFogOnNewDevices(engineHooks);

@@ -3,6 +3,9 @@
 float4 cComposite : register(c96);
 float4 cGodRayColour : register(c97);
 float4 cSun : register(c98);
+float4 cCharacterBox : register(c100);
+float4 cCharacterFocus : register(c101);
+float4 cCharacterHeights : register(c102);
 
 sampler2D sFog : register(s1);
 sampler2D sGodRays : register(s2);
@@ -273,11 +276,14 @@ float4 DepthAwareUpsample(float2 pixel, float depth, float viewZ)
     return FogWithoutMatchingTap(pixel, depth, viewZ);
 }
 
-float3 DisplaySpaceGodRays(float2 viewportUv)
+float3 DisplaySpaceGodRays(float2 viewportUv, float2 pixel, float depth)
 {
     float3 godRays = 0;
     [branch] if (GodRayStrength() > 0)
-        godRays = tex2Dlod(sGodRays, float4(viewportUv, 0, 0)).rgb * cGodRayColour.rgb * GodRayStrength();
+    {
+        [branch] if (!OnTheOwnCharacter(pixel, depth, cCharacterBox, cCharacterFocus, cCharacterHeights))
+            godRays = tex2Dlod(sGodRays, float4(viewportUv, 0, 0)).rgb * cGodRayColour.rgb * GodRayStrength();
+    }
     return godRays;
 }
 
@@ -336,7 +342,7 @@ float4 CompositeAtDepth(float2 pixel, float depth)
     fog.rgb *= Exposure();
 
     float2 viewportUv = (pixel - ViewportOrigin()) / ViewportSize();
-    float3 godRays = DisplaySpaceGodRays(viewportUv);
+    float3 godRays = DisplaySpaceGodRays(viewportUv, pixel, depth);
     const bool linearLight = BlendsInLinearLight();
 
     [branch] if (DebugViewEnabled())

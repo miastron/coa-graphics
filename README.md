@@ -348,6 +348,35 @@ it, behind thirteen trunks and behind a canopy of leaves at God rays 0, 1 and 4 
 while the shafts between the trunks reach 0.36 in luma and nothing darkens (DXVK on the Radeon 780M). Upstream's change
 (LuxVelum `8550566` and `4358ace`); seen in the harness only.
 
+**The own character.** A tester found rays on and around the own character that moved with it, and none from the sun
+over the open plains of the Barrens and Durotar (upstream, 2026-10-28). The character stands in front of the sun more
+often than any tree: the mask counted it as an occluder like any other, and the shaft pass kept the open sky on both
+sides of it as a gap, so rays fanned out around the character wherever it walked. The DLL now reads the position of the
+unit the camera follows at `0xCD7778` (the camera position when the code that stores it there differs, see the
+evidence below) and treats an upright cylinder around it as the character: 3 yards in radius, from half a yard below
+the focus to 5 yards above. Each test rebuilds the world position of a depth sample from its pixel and depth and checks
+it against the cylinder, after a screen rectangle around the projected box that holds the cylinder; when a corner of
+that box comes within a quarter yard of the camera's plane, the rectangle is the whole viewport. The mask writes a
+second target, the sky share with the character's samples counted as open, which the radial blur carries along with
+the first; the shaft pass takes the minima along its arcs from it and the texel's own share from the first, so the
+character no longer makes a gap, and trunks behind and beside it keep their shafts. Both composites draw no rays on the
+character's pixels, so those shafts do not shine through it. A camera zoomed in closer than 3 yards beside the focus,
+within the cylinder's height, narrows the cylinder to stay a quarter yard clear of it; below three quarters of a yard,
+as in first person, beyond 100 yards and for an unreadable focus nothing is excluded. The second share is a second
+render target in the ray format; on a device without two simultaneous render targets the character casts shafts again,
+which the log says, and only the rays on its own pixels stay off. The harness renders a character 8 yards ahead, just
+below the sun, 2.5 yards beside it over the ground, in front of the thirteen trunks and between trunks 4 yards to either
+side at its own distance, and 2 yards ahead, at God rays 4 (`god-rays-character-*.png`): without the focus the sky
+around it changed by up to 42/255 and 92/255, the character brightened by up to 114/255, and at 2 yards by up to 96/255;
+with it all four stay at 0/255, the far trunks' shafts still reach 0.36 in luma, and the near trunks' shafts reach 0.052
+with or without the character (DXVK on the Radeon 780M). The mask grows to about 729 instruction slots at a sixteenth of
+the screen's pixels, the blur to 72, the late composite to 100 and the medium composite to 1018 (none past the ps_3_0
+limits). Mounts and vehicles larger than the cylinder, other players and creatures still cast shafts, ground and leaves
+inside the cylinder count as open sky, and the composites test one depth per pixel, so under multisampling the rays'
+edge along the character is not antialiased. An open plain with nothing in front of the sun has no shafts by design; the
+glow around the sun there is Sun scatter's and the client's. Upstream's change (LuxVelum `e7bda6b`); seen in the
+harness only.
+
 **God ray blur and banding.** The rays are then
 blurred toward the sun in two passes of eight taps: the first steps 0.075 of the way to the sun per tap, the second an
 eighth of that. The two passes only form one smooth falloff if the second decays by `0.9^(1/8)` per tap, so that the
@@ -1240,6 +1269,7 @@ Gx is the graphics device `[0xC5DF88]`.
 | View, projection | Gx `+0x1B00 + 64·[+0x1AF8]`, `+0xF88`; copies at `0xADF5E8`, `0xADF628` |
 | World viewport depth range (MinZ, MaxZ) | Gx `+0xF80` |
 | Camera position / look-at target | `0xCD8F5C`, `0xCD8F68` |
+| Camera focus: the unit the camera follows | `0xCD7778` (stored by `0x780860`), else the camera position |
 | Current map (`DayNight::s_mapId`) | `0xD38AC4` |
 | Day fraction | `0xD38B04` |
 | Stock fog groups: colour, start, end (read by the render callbacks) | `0xD38B8C`–`0xD38B94`, `0xD38BA0`–`0xD38BA8` |
@@ -1470,6 +1500,16 @@ Engine notes behind the code:
   (`0x40AD56`, `A3 BC 63 AB 00`) and `0x40AE0A` and `0x40AECF` set it to −1 for the ship and zeppelin screens, so
   it is not the world's map. Bytes checked in the 12340 image (timestamp `0x4C2452FE`). In-game logs showed map 0
   in Elwynn Forest with the old address; the value after a zeppelin ride is not yet confirmed in game.
+- Camera focus. The world render takes the world position it hands to the world update from the object the active
+  camera follows: `0x4FAAA0` (`8B 8F 20 7E 00 00 83 79 48 00 75 13 85 DB 74 0F`) takes the object's position when
+  `[camera + 0x48]` is 0 and the object exists, else the camera position (wowdecomp `WorldFrame.cpp`:
+  `position = (m_camera->m_model || !target) ? camPos : target->GetPosition()`), and calls `0x7831A0` with it
+  (`0x4FAADF`). `0x7831A0` hands it to `World::PrepareAreaOfInterest` `0x780860` (`0x783209`), which first stores it as
+  `World::s_currentWorldPos` at `0xCD7778`–`0xCD7780` (`0x780871`, `A3 78 77 CD 00 8B 4F 04 89 0D 7C 77 CD 00`;
+  `0x78087F`, `8B 57 08 89 15 80 77 CD 00`; wowdecomp `World.cpp`, `// STATIC: 0x00CD7778`). Bytes checked in the 12340
+  image (timestamp `0x4C2452FE`). The DLL reads the focus there while both stores match, and the camera position
+  otherwise (the log says which). It differs from `DNInfo.m_playerPos` `[0xD38B0C]` on a mount or vehicle the camera
+  follows instead of the player; not seen in game.
 - Far clip. The clamp `0x780770` is cdecl `float(float farclip, int mapId)`, result in ST0, caller pops; it
   bounds the value to `[0xA3E708]` (183.33) .. `[0xA3E710]` (1583.33). Its calls at `0x780810` (in the
   `farclip` CVar setter `0x780800`, also reached from Extensions.dll on zone changes) and `0x781444` (map load

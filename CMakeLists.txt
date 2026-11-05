@@ -157,10 +157,11 @@ target_compile_definitions(imgui
             IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS WIN32_LEAN_AND_MEAN NOMINMAX)
 
 set(COA_MODULE_SOURCES
-    src/client_code.cpp src/client_game_clock.cpp src/client_light_stay.cpp src/client_ripple_sprites.cpp
-    src/config.cpp src/engine_actors.cpp src/engine_grass.cpp src/engine_lights.cpp src/fog_data.cpp
-    src/fog_model.cpp src/frame_copies.cpp src/gpu_timing.cpp src/grass_density.cpp src/grass_doodads.cpp
-    src/grass_wind.cpp src/ini_section.cpp src/local_light_stabiliser.cpp src/log.cpp src/noise_volume.cpp
+    src/character_on_screen.cpp src/client_camera_focus.cpp src/client_code.cpp src/client_game_clock.cpp
+    src/client_light_stay.cpp src/client_ripple_sprites.cpp src/config.cpp src/engine_actors.cpp src/engine_grass.cpp
+    src/engine_lights.cpp src/fog_data.cpp src/fog_model.cpp src/frame_copies.cpp src/gpu_timing.cpp
+    src/grass_density.cpp src/grass_doodads.cpp src/grass_wind.cpp src/ini_section.cpp src/light_on_screen.cpp
+    src/local_light_stabiliser.cpp src/log.cpp src/noise_volume.cpp
     src/snow_cover.cpp src/snow_decals.cpp src/snow_footprints.cpp src/snow_shaders.cpp src/snow_surface.cpp
     src/snow_trenches.cpp src/spell_lights.cpp src/status_log.cpp src/target_facing.cpp src/terrain_shadows.cpp
     src/texture_filtering.cpp src/texture_tint.cpp src/transparent_fog.cpp src/tree_wind.cpp src/water_contacts.cpp

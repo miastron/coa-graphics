@@ -1,3 +1,5 @@
+#include "character_on_screen.h"
+#include "client_camera_focus.h"
 #include "client_game_clock.h"
 #include "client_light_stay.h"
 #include "client_ripple_sprites.h"
@@ -12,6 +14,7 @@
 #include "grading_renderer.h"
 #include "image_quality.h"
 #include "ini_section.h"
+#include "light_on_screen.h"
 #include "local_light_stabiliser.h"
 #include "log.h"
 #include "msaa_depth.h"
@@ -704,6 +707,9 @@ FrameInputs MakeInputs(const float* view, const float* proj, Vec3 eye, Vec3 at, 
     in.camTarget[0] = eye.x + f.x * 6;
     in.camTarget[1] = eye.y + f.y * 6;
     in.camTarget[2] = eye.z - 6;
+    in.cameraFocus[0] = eye.x;
+    in.cameraFocus[1] = eye.y;
+    in.cameraFocus[2] = eye.z;
     in.viewport = vp;
     in.dayFraction = 0.75f;
     Vec3 sun = Norm({1.0f, 0.12f, 0.16f});
@@ -2202,6 +2208,31 @@ void CheckShippedIniMatchesSettingsTable(const std::wstring& shippedIni)
           "key agree");
 }
 
+void CheckLightProjectsOntoTheViewport()
+{
+    const D3DVIEWPORT9 offset = {10, 20, 800, 600, 0.0f, 1.0f};
+    float projection[16] = {};
+    projection[0] = 1.2f;
+    projection[5] = 2.1f;
+    projection[8] = 0.02f;
+    projection[9] = -0.03f;
+    const Vec3 toLight = Norm({0.2f, 0.3f, 0.9f});
+    const float toLightInView[3] = {toLight.x, toLight.y, toLight.z};
+    const LightOnScreen onScreen = ProjectLightOntoViewport(toLightInView, projection, offset);
+    const float ndcX = toLight.x / toLight.z * projection[0] + projection[8];
+    const float ndcY = toLight.y / toLight.z * projection[5] + projection[9];
+    const float column = offset.X + (ndcX * 0.5f + 0.5f) * offset.Width;
+    const float row = offset.Y + (0.5f - ndcY * 0.5f) * offset.Height;
+    const float sideways[3] = {1.0f, 0.0f, 0.5f * kLightInFrontViewZ};
+    const float behind[3] = {0.0f, 0.6f, -0.8f};
+    Check(onScreen.inFront && Near(onScreen.pixel[0], column) && Near(onScreen.pixel[1], row) &&
+              Near(onScreen.ndc[0], ndcX) && Near(onScreen.ndc[1], ndcY) &&
+              !ProjectLightOntoViewport(sideways, projection, offset).inFront &&
+              !ProjectLightOntoViewport(behind, projection, offset).inFront,
+          "the sun or moon projects onto the viewport where the god rays and the sun marker put it, and a light "
+          "beside or behind the camera is not in front");
+}
+
 void CheckSettingsSaveKeepsTheIni(const std::wstring& outDir, const std::wstring& shippedIni)
 {
     const std::wstring savedIni = FullPath(outDir + L"\\saved.ini");
@@ -2715,6 +2746,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "local_light_stabiliser_checks.h"
 #include "spell_light_checks.h"
 #include "client_light_stay_checks.h"
+#include "camera_focus_checks.h"
 #include "client_game_clock_checks.h"
 #include "noise_variation_checks.h"
 #include "classic_phase_checks.h"
@@ -3083,6 +3115,9 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
         RUN_GROUP(spell_light_checks::CheckSpellLights());
         RUN_GROUP(target_arrow_checks::CheckTargetArrow());
         RUN_GROUP(client_light_stay_checks::CheckClientLightStay());
+        RUN_GROUP(camera_focus_checks::CheckTheFocusFollowsTheClientStores());
+        RUN_GROUP(camera_focus_checks::CheckTheCharacterBoxFollowsTheFocus());
+        RUN_GROUP(CheckLightProjectsOntoTheViewport());
         RUN_GROUP(client_game_clock_checks::CheckGameClock());
         RUN_GROUP(tree_wind_checks::CheckTreeWind());
         RUN_GROUP(wind_model_checks::CheckWindModel());
@@ -3185,6 +3220,9 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(target_arrow_checks::CheckTargetArrow());
     RUN_GROUP(target_arrow_checks::CheckTargetArrowOnTheDevice(h.dev));
     RUN_GROUP(client_light_stay_checks::CheckClientLightStay());
+    RUN_GROUP(camera_focus_checks::CheckTheFocusFollowsTheClientStores());
+    RUN_GROUP(camera_focus_checks::CheckTheCharacterBoxFollowsTheFocus());
+    RUN_GROUP(CheckLightProjectsOntoTheViewport());
     RUN_GROUP(client_game_clock_checks::CheckGameClock());
     RUN_GROUP(tree_wind_checks::CheckTreeWind());
     RUN_GROUP(wind_model_checks::CheckWindModel());
@@ -3221,6 +3259,8 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(CheckLightDisappearanceHistory(h));
     RUN_GROUP(CheckSunOcclusion(h));
     RUN_GROUP(god_ray_shafts::CheckGodRaysAddOnlyShafts(h, outDir));
+    RUN_GROUP(god_ray_shafts::CheckTheOwnCharacterCastsNoShafts(h, outDir));
+    RUN_GROUP(god_ray_shafts::CheckTrunksBesideTheOwnCharacterKeepTheirShafts(h, outDir));
     RUN_GROUP(classic_phase::CheckSunsetHaloKeepsItsHue(h, FullPath(iniPath)));
     RUN_GROUP(water_fft_checks::CheckWaterFft(h.dev));
     RUN_GROUP(water_mask_packing_checks::CheckWaveFoamMaskPacking(h.dev));

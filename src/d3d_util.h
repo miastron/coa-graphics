@@ -34,6 +34,24 @@ inline void SetTarget(IDirect3DDevice9* dev, IDirect3DTexture9* texture)
     }
 }
 
+inline void SetSecondTarget(IDirect3DDevice9* dev, IDirect3DTexture9* texture)
+{
+    IDirect3DSurface9* surface = nullptr;
+    if (texture && SUCCEEDED(texture->GetSurfaceLevel(0, &surface)))
+    {
+        dev->SetRenderTarget(1, surface);
+        surface->Release();
+        return;
+    }
+    dev->SetRenderTarget(1, nullptr);
+}
+
+inline bool SupportsTwoTargets(IDirect3DDevice9* dev)
+{
+    D3DCAPS9 caps = {};
+    return SUCCEEDED(dev->GetDeviceCaps(&caps)) && caps.NumSimultaneousRTs >= 2;
+}
+
 inline void SetPointClampSampler(IDirect3DDevice9* dev, DWORD stage, D3DTEXTUREFILTERTYPE mipFilter)
 {
     dev->SetSamplerState(stage, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);

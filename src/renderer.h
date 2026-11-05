@@ -1,5 +1,6 @@
 #pragma once
 
+#include "character_on_screen.h"
 #include "config.h"
 #include "engine.h"
 #include "engine_shadows.h"
@@ -96,6 +97,7 @@ private:
         float strength = 0.0f;
         float colour[3] = {};
         float glowToCompensate = 0.0f;
+        CharacterOnScreen character = {};
     };
 
     struct SurfaceLightFrame
@@ -194,6 +196,7 @@ private:
     IDirect3DTexture9* m_historyDepth = nullptr;
     IDirect3DTexture9* m_raySource = nullptr;
     IDirect3DTexture9* m_rays[2] = {};
+    IDirect3DTexture9* m_raysOpenWithoutTheCharacter[2] = {};
     IDirect3DTexture9* m_sceneCopy = nullptr;
     IDirect3DTexture9* m_litScene = nullptr;
     IDirect3DTexture9* m_localLightData = nullptr;

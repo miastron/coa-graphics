@@ -107,10 +107,14 @@ bool IsSky(float depth)
     return depth >= max(DeepestWorldDepth(), kSkyMinDepth);
 }
 
+float ViewZAtDepth(float depth)
+{
+    return DepthPerInverseViewZ() / (depth - DepthAtInfiniteViewZ());
+}
+
 float LinearDepth(float depth)
 {
-    return BeyondFarClip(depth) ? MaxFogDistance()
-                                : min(DepthPerInverseViewZ() / (depth - DepthAtInfiniteViewZ()), MaxFogDistance());
+    return BeyondFarClip(depth) ? MaxFogDistance() : min(ViewZAtDepth(depth), MaxFogDistance());
 }
 
 float2 LowResTexelToFullPixel(float2 lowResTexel)
@@ -158,4 +162,13 @@ float2 ViewToPixel(float3 viewPosition)
 float InterleavedGradientNoise(float2 pixel)
 {
     return frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))));
+}
+
+bool OnTheOwnCharacter(float2 pixel, float depth, float4 characterBox, float4 characterFocus,
+                       float4 characterHeights)
+{
+    float3 fromFocus = ViewToWorldDirection(ViewRayAtUnitDepth(pixel) * ViewZAtDepth(depth)) - characterFocus.xyz;
+    return all(pixel >= characterBox.xy) && all(pixel <= characterBox.zw) &&
+           dot(fromFocus.xy, fromFocus.xy) <= characterFocus.w && fromFocus.z >= characterHeights.x &&
+           fromFocus.z <= characterHeights.y;
 }
