@@ -64,6 +64,7 @@ void LocalLightStabiliser::Reset()
     m_count = 0;
     m_heldCount = 0;
     m_rejectedCaptures = 0;
+    m_orphanCaptures = 0;
     m_sceneStarting = true;
 }
 
@@ -248,17 +249,59 @@ void LocalLightStabiliser::FillFreeSlots()
     }
 }
 
+uint32_t LocalLightStabiliser::AdoptOrphanedEvictions(const Entry& weakestEvicted, uint32_t orphans)
+{
+    uint32_t adopted = 0;
+    for (; adopted < orphans; ++adopted)
+    {
+        Entry* heir = nullptr;
+        for (uint32_t i = 0; i < m_count; ++i)
+        {
+            Entry& entry = m_entries[i];
+            if (entry.slotted || !entry.present || entry.heirToEvictedSlot ||
+                entry.smoothedPriority <= kLocalLightSwapMargin * weakestEvicted.smoothedPriority)
+                continue;
+            if (!heir || entry.smoothedPriority > heir->smoothedPriority)
+                heir = &entry;
+        }
+        if (!heir)
+            break;
+        heir->heirToEvictedSlot = true;
+        heir->challengeCaptures = 0;
+    }
+    return adopted;
+}
+
 void LocalLightStabiliser::CancelEvictionsWithoutHeirs()
 {
     uint32_t evictions = 0;
     uint32_t waitingHeirs = 0;
+    const Entry* weakestEvicted = nullptr;
     for (uint32_t i = 0; i < m_count; ++i)
     {
         const Entry& entry = m_entries[i];
         evictions += entry.slotted && entry.evicted ? 1 : 0;
         waitingHeirs += !entry.slotted && entry.present && entry.heirToEvictedSlot ? 1 : 0;
+        if (entry.slotted && entry.evicted &&
+            (!weakestEvicted || entry.smoothedPriority < weakestEvicted->smoothedPriority))
+            weakestEvicted = &entry;
     }
-    for (; evictions > waitingHeirs; --evictions)
+    if (evictions > waitingHeirs)
+        waitingHeirs += AdoptOrphanedEvictions(*weakestEvicted, evictions - waitingHeirs);
+    if (evictions <= waitingHeirs)
+    {
+        m_orphanCaptures = 0;
+        return;
+    }
+    if (++m_orphanCaptures < kLocalLightSwapCaptures)
+        return;
+    m_orphanCaptures = 0;
+    CallOffLeastFadedEvictions(evictions - waitingHeirs);
+}
+
+void LocalLightStabiliser::CallOffLeastFadedEvictions(uint32_t count)
+{
+    for (; count > 0; --count)
     {
         Entry* leastFaded = nullptr;
         for (uint32_t i = 0; i < m_count; ++i)

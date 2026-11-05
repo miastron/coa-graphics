@@ -616,6 +616,34 @@ void CheckEvictionWhoseHeirTookAnotherSlotRampsBack()
           "full strength instead of fading out and in again");
 }
 
+void CheckChallengerMissingSomeCapturesTakesTheSlot()
+{
+    constexpr int kMissedCaptureEvery = 7;
+    const LocalLightCamera camera = ForwardCamera();
+    LocalLightStabiliser stabiliser;
+    std::vector<LocalPointLight> lamps = NineLightsAhead();
+    lamps.pop_back();
+    LocalLightInputs inputs = CaptureOf(lamps, camera);
+    StepFrame(stabiliser, camera, 0.0, inputs);
+    std::vector<LocalPointLight> withChallenger = lamps;
+    withChallenger.push_back(StabiliserLight(9, 0.0f, 0.0f, 10.0f, 4.0f));
+    int tookTheSlot = 0;
+    int fullStrength = 0;
+    for (int frame = 1; frame <= 3 * kFadeFrames && !fullStrength; ++frame)
+    {
+        inputs = CaptureOf(frame % kMissedCaptureEvery ? withChallenger : lamps, camera);
+        StepFrame(stabiliser, camera, frame * kStabiliserFrameSeconds, inputs);
+        float weight = 0.0f;
+        if (!tookTheSlot && Uploads(inputs, 9) && !Uploads(inputs, 8) && inputs.pointLightCount == 8)
+            tookTheSlot = frame;
+        if (Uploads(inputs, 9, &weight) && weight == 1.0f)
+            fullStrength = frame;
+    }
+    Check(tookTheSlot && tookTheSlot <= kFadeFrames + 10 && fullStrength && stabiliser.Activity().evictions <= 2,
+          "a strong challenger missing from every seventh capture takes the weakest slot once it has faded and then "
+          "shines at full strength, instead of its eviction being called off at each miss");
+}
+
 void CheckMovingLightKeepsItsEntry()
 {
     constexpr double kCaptureSeconds = 0.1;
@@ -666,6 +694,7 @@ void CheckLocalLightStabiliser()
     CheckNoSwapWhileASlotFadesOut();
     CheckEvictionWithoutHeirRampsBack();
     CheckEvictionWhoseHeirTookAnotherSlotRampsBack();
+    CheckChallengerMissingSomeCapturesTakesTheSlot();
     CheckMovingLightKeepsItsEntry();
 }
 }
