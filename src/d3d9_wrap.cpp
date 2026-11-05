@@ -1024,6 +1024,7 @@ HRESULT WrappedD3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND window, DW
 
     const D3DPRESENT_PARAMETERS requested = *pp;
     const DWORD usedFlags = fog ? flags & ~static_cast<DWORD>(D3DCREATE_PUREDEVICE) : flags;
+    DWORD createdFlags = usedFlags;
     D3DPRESENT_PARAMETERS used = requested;
     MultisampleDecision decision = fog ? PrepareMultisampling(adapter, type, used) : MultisampleDecision{};
     FogDevice* device = nullptr;
@@ -1036,6 +1037,7 @@ HRESULT WrappedD3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND window, DW
         if (!device)
         {
             used = requested;
+            createdFlags = flags;
             IDirect3DDevice9* real = nullptr;
             hr = m_real->CreateDevice(adapter, type, window, flags, &used, &real);
             if (FAILED(hr))
@@ -1048,7 +1050,7 @@ HRESULT WrappedD3D9::CreateDevice(UINT adapter, D3DDEVTYPE type, HWND window, DW
 
     VF_LOG_INFO("CreateDevice: %lux%lu windowed=%d flags 0x%02lX -> 0x%02lX ms requested %d (quality %lu) used %d "
                 "depth requested %s used %s fog=%d",
-                used.BackBufferWidth, used.BackBufferHeight, used.Windowed, flags, usedFlags,
+                used.BackBufferWidth, used.BackBufferHeight, used.Windowed, flags, createdFlags,
                 requested.MultiSampleType, requested.MultiSampleQuality, used.MultiSampleType,
                 DepthFormatName(RequestedDepthFormat(requested)), DepthFormatName(BoundDepthFormat(device->Real())),
                 device->FogActive() ? 1 : 0);
