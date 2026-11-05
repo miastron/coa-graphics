@@ -40,6 +40,7 @@ private:
         double smoothedPriority = 0.0;
         float weight = 0.0f;
         uint32_t challengeCaptures = 0;
+        uint32_t absentCaptures = 0;
         bool slotted = false;
         bool evicted = false;
         bool heirToEvictedSlot = false;

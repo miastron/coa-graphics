@@ -206,6 +206,7 @@ void LocalLightStabiliser::MatchCandidates(const LocalLightCamera& camera, const
         entry->smoothedPriority = Smoothed(entry->smoothedPriority, priority, dt);
         entry->present = inView;
         entry->outOfView = !inView;
+        entry->absentCaptures = 0;
     }
     for (uint32_t i = 0; i < m_count; ++i)
     {
@@ -370,7 +371,9 @@ void LocalLightStabiliser::RemoveSpentEntries()
     {
         Entry entry = m_entries[i];
         const bool shining = entry.present && !entry.evicted && !entry.outOfView;
-        if (entry.slotted && entry.weight <= 0.0f && !shining)
+        const bool briefMiss = !entry.present && !entry.evicted && !entry.outOfView &&
+                               ++entry.absentCaptures < kLocalLightSwapCaptures;
+        if (entry.slotted && entry.weight <= 0.0f && !shining && !briefMiss)
         {
             if (!entry.outOfView)
                 ++m_activity.fadeOuts;

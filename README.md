@@ -223,8 +223,8 @@ The eight uploaded lights are chosen by a stabiliser rather than re-ranked from 
   still competes while its sphere reaches into the view, which a sphere of up to 200 yd does from far away. A candidate is
   the nearest light already known with the same node address within 2 yd plus 40 yd for each second since the last
   capture that was not held (see Gaps and frames), so a colour or attenuation that animates between captures stays one
-  light, and so does a light that moves at up to 40 yd/s at any frame rate, also across held captures, while an address
-  the client reuses 10 yd away within one frame at 60 fps is a new light.
+  light, and so does a light that moves at up to 40 yd/s at any frame rate, also across held captures that span up to 1 s,
+  while an address the client reuses 10 yd away within one frame at 60 fps is a new light.
 - **Taking a slot.** A free slot goes first to a challenger that evicted its holder, otherwise to the visible candidate with
   the highest smoothed priority (0.3 s). An occupied slot changes hands only when a candidate's smoothed priority exceeds
   1.5 times the weakest slot's, for three captures in a row.
@@ -238,7 +238,9 @@ The eight uploaded lights are chosen by a stabiliser rather than re-ranked from 
   eviction that no challenger waits for any more, because the challenger left or took a slot freed elsewhere first, passes
   to the strongest other visible candidate whose smoothed priority exceeds 1.5 times the evicted light's, such as the
   challenger back after missing a capture; with no such candidate for three captures in a row it is called off, and the
-  evicted light ramps back up instead of fading out and in again. A
+  evicted light ramps back up instead of fading out and in again. A slotted light that is not evicted keeps its slot
+  through two missed captures in a row even at nothing, so a light that has just taken a slot and drops out of one
+  capture does not hand it back to the light it replaced. A
   light that has faded keeps its smoothed priority while it is still captured inside the view, and fades back in if it wins
   a slot again. The slot it lost goes to its challenger, so the challenger is not undercut by its momentary rank.
 - **Forgetting.** A slotted light whose last captured sphere lies more than 5 yd outside the view is forgotten at once, freeing

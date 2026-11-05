@@ -705,6 +705,29 @@ void CheckMovingLightKeepsItsEntryAcrossHeldCaptures()
           "nothing, as the identity radius grows with the time since the last capture that was matched");
 }
 
+void CheckChallengerMissingEveryFourthCaptureKeepsTheSlotLit()
+{
+    const LocalLightCamera camera = ForwardCamera();
+    LocalLightStabiliser stabiliser;
+    std::vector<LocalPointLight> lamps = NineLightsAhead();
+    lamps.pop_back();
+    LocalLightInputs inputs = CaptureOf(lamps, camera);
+    StepFrame(stabiliser, camera, 0.0, inputs);
+    std::vector<LocalPointLight> withChallenger = lamps;
+    withChallenger.push_back(StabiliserLight(9, 0.0f, 0.0f, 10.0f, 4.0f));
+    bool lit = true;
+    for (int frame = 1; frame <= 6 * kFadeFrames; ++frame)
+    {
+        inputs = CaptureOf(frame % 4 ? withChallenger : lamps, camera);
+        StepFrame(stabiliser, camera, frame * kStabiliserFrameSeconds, inputs);
+        float weight = 0.0f;
+        if (frame > 4 * kFadeFrames)
+            lit = lit && Uploads(inputs, 9, &weight) && weight >= 0.5f;
+    }
+    Check(lit, "a strong challenger missing from every fourth capture shines once it has taken the slot, and a slot "
+               "that faded to nothing is not handed back at the first missed capture");
+}
+
 void CheckLocalLightStabiliser()
 {
     CheckBoundaryChurnIsAbsorbed();
@@ -726,6 +749,7 @@ void CheckLocalLightStabiliser()
     CheckEvictionWithoutHeirRampsBack();
     CheckEvictionWhoseHeirTookAnotherSlotRampsBack();
     CheckChallengerMissingSomeCapturesTakesTheSlot();
+    CheckChallengerMissingEveryFourthCaptureKeepsTheSlotLit();
     CheckMovingLightKeepsItsEntry();
     CheckMovingLightKeepsItsEntryAcrossHeldCaptures();
 }
