@@ -49,7 +49,10 @@ GRADING_CURVE_FORMAT = "<I32B"
 
 LIGHT_PARAMS_SLOTS = 8
 CLEAR_SLOT = 0
+STORM_SLOT = 2
+WEATHER_SLOTS = (CLEAR_SLOT, STORM_SLOT)
 GENERATED_ID_BASE = 1000000
+SUN_KEEPING_COPY_ID_BASE = 2 * GENERATED_ID_BASE
 HALF_MINUTES_PER_DAY = 2880
 MATCH_SAMPLES = 24
 DISPLAY_GAMMA = 2.2
@@ -72,6 +75,22 @@ GROUND_FOG_ONLY_SKYBOXES = {"hellfireskybox.mdx": (0.0, 0.0, 0.3)}
 HEIGHT_SHIFT_STEP = 25.0
 LAYER_NOISE_FADE = 15
 KEY_DIRECT = 3
+
+NORTHREND = 571
+SUN_KEEPING_SKYBOXES = {NORTHREND: frozenset({"shalozar.mdx", "shalozar(red).mdx", "ashrand_sky01.mdx",
+                                               "8riv_stormsongsky01.mdx", "10drg_sky01.mdx"})}
+BOREAN_TUNDRA_AND_SHOLAZAR_BASIN = (
+    (1229, 4698), (1629, 4698), (1629, 4448), (1829, 4448), (1829, 3448), (2229, 3448), (2229, 2848), (2879, 2848),
+    (3479, 3298), (4129, 3398), (4379, 4348), (4829, 4348), (5179, 3898), (5529, 3848), (5529, 3048), (6029, 2848),
+    (7079, 4548), (7029, 6348), (4879, 6598), (4879, 8298), (2729, 8298), (2729, 7698), (1329, 7698))
+GRIZZLY_HILLS = (
+    (1992, -2185), (2392, -2385), (2392, -3085), (3092, -3335), (2642, -3835), (2942, -4485), (2792, -5735),
+    (3092, -6385), (5292, -6135), (5492, -4885), (5242, -4335), (4892, -4185), (5042, -3585), (4492, -3335),
+    (4942, -1835), (4342, -1535), (2842, -1585), (1992, -1185))
+SUN_KEEPING_OUTLINES = {NORTHREND: (BOREAN_TUNDRA_AND_SHOLAZAR_BASIN, GRIZZLY_HILLS)}
+OUTLINE_HEIGHT_RANGE = (-64000.0, 64000.0)
+OUTLINE_ONLY_POSITION = (CLIENT_COORDINATE_ORIGIN, CLIENT_COORDINATE_ORIGIN, 0.0)
+NO_FALLOFF = (0.0, 0.0)
 
 
 class ClientTables:
@@ -191,6 +210,12 @@ class ClientLighting:
         sun = self.int_band(params_id, SUN_BAND)
         return not sun or any(any(rgb) for rgb in sun.values)
 
+    def keeps_sun(self, params_id, map_id):
+        skybox = self.skybox(params_id)
+        if skybox and skybox[0] in SUN_KEEPING_SKYBOXES.get(map_id, ()):
+            return True
+        return self.draws_sun(params_id)
+
     def int_band(self, params_id, band):
         return self.ints.get(params_id * INT_BANDS_PER_PARAMS - (INT_BANDS_PER_PARAMS - 1) + band)
 
@@ -288,9 +313,15 @@ class FogData:
             offset += size * count
         if offset != len(data):
             raise SystemExit("the input fogdata.bin has %d bytes, its header promises %d" % (len(data), offset))
-        lights, params, self.keys, self.layers, self.zone_lights, self.zone_points, self.curves = tables
+        lights, params, self.keys, self.layers, zone_lights, zone_points, self.curves = tables
         self.lights = [light for light in lights if light[0] < GENERATED_ID_BASE]
         self.params = {p[0]: p for p in params if p[0] < GENERATED_ID_BASE}
+        self.zone_lights = []
+        self.zone_points = []
+        for zone in zone_lights:
+            if zone[0] < GENERATED_ID_BASE:
+                self.zone_lights.append(zone[:5] + (len(self.zone_points), zone[6]))
+                self.zone_points.extend(zone_points[zone[5]:zone[5] + zone[6]])
 
     def keys_of(self, params_id):
         params = self.params.get(params_id)
@@ -332,6 +363,8 @@ class Builder:
         self.keys = []
         self.layers = []
         self.lights = list(fog.lights)
+        self.zone_lights = list(fog.zone_lights)
+        self.zone_points = list(fog.zone_points)
         self.generated = {}
         self.rebuild_classic_keys()
 
@@ -345,10 +378,23 @@ class Builder:
             self.params[params_id] = (params_id, first, len(self.keys) - first, old[3])
 
     def add_light(self, light, template):
+        start, end = light[5] / CLIENT_UNITS_PER_YARD, light[6] / CLIENT_UNITS_PER_YARD
+        self.lights.append((GENERATED_ID_BASE + light[0], light[1], *world_position(light), start, end,
+                            *self.slot_params(light, template)))
+
+    def add_sun_keeping_copy(self, light, template, outlines):
+        copy_id = SUN_KEEPING_COPY_ID_BASE + light[0]
+        self.lights.append((copy_id, light[1], *OUTLINE_ONLY_POSITION, *NO_FALLOFF,
+                            *self.slot_params(light, template, WEATHER_SLOTS)))
+        for outline in outlines:
+            zone_id = GENERATED_ID_BASE + len(self.zone_lights) - len(self.fog.zone_lights)
+            self.zone_lights.append((zone_id, light[1], copy_id, *OUTLINE_HEIGHT_RANGE, len(self.zone_points),
+                                     len(outline)))
+            self.zone_points.extend(outline)
+
+    def slot_params(self, light, template, sun_kept_in_slots=()):
         classic, twin = template[:2]
-        light_id = GENERATED_ID_BASE + light[0]
-        x, y, z = world_position(light)
-        height_shift = height_shift_between(classic, light, z)
+        height_shift = height_shift_between(classic, light, world_position(light)[2])
         slots = []
         for slot in range(LIGHT_PARAMS_SLOTS):
             target_params = light[7 + slot]
@@ -358,17 +404,18 @@ class Builder:
             classic_params = classic[7 + slot] if self.fog.has_fog(classic[7 + slot]) else classic[7 + CLEAR_SLOT]
             glow_params = classic[7 + slot] if classic[7 + slot] in self.fog.params else classic[7 + CLEAR_SLOT]
             twin_params = twin[7 + slot] or twin[7 + CLEAR_SLOT]
-            recipe = (classic_params, twin_params, target_params, glow_params, height_shift)
+            keeps_sun = slot in sun_kept_in_slots or self.client.keeps_sun(target_params, light[1])
+            recipe = (classic_params, twin_params, target_params, glow_params, height_shift, keeps_sun)
             if recipe not in self.generated:
                 self.generated[recipe] = GENERATED_ID_BASE + len(self.generated)
                 self.add_params(self.generated[recipe], *recipe)
             slots.append(self.generated[recipe])
-        start, end = light[5] / CLIENT_UNITS_PER_YARD, light[6] / CLIENT_UNITS_PER_YARD
-        self.lights.append((light_id, light[1], x, y, z, start, end, *slots))
+        return slots
 
-    def add_params(self, params_id, classic_params, twin_params, target_params, glow_params, height_shift):
+    def add_params(self, params_id, classic_params, twin_params, target_params, glow_params, height_shift,
+                   keeps_sun):
         first = len(self.keys)
-        added_flags = 0 if self.client.draws_sun(target_params) else NO_SUN_FLAG
+        added_flags = 0 if keeps_sun else NO_SUN_FLAG
         skybox = self.client.skybox(target_params)
         layer_densities = GROUND_FOG_ONLY_SKYBOXES.get(skybox[0]) if skybox else None
         if layer_densities:
@@ -402,8 +449,8 @@ class Builder:
     def blob(self):
         params = [self.params[p] for p in sorted(self.params)]
         tables = ((LIGHT_FORMAT, self.lights), (PARAMS_FORMAT, params), (KEY_FORMAT, self.keys),
-                  (LAYER_FORMAT, self.layers), (ZONE_LIGHT_FORMAT, self.fog.zone_lights),
-                  (ZONE_POINT_FORMAT, self.fog.zone_points), (GRADING_CURVE_FORMAT, self.fog.curves))
+                  (LAYER_FORMAT, self.layers), (ZONE_LIGHT_FORMAT, self.zone_lights),
+                  (ZONE_POINT_FORMAT, self.zone_points), (GRADING_CURVE_FORMAT, self.fog.curves))
         header = struct.pack(HEADER_FORMAT, FILE_MAGIC, FORMAT_VERSION, *(len(rows) for _, rows in tables))
         return header + b"".join(struct.pack(f, *row) for f, rows in tables for row in rows)
 
@@ -421,7 +468,20 @@ def convert(fog, client):
         template = nearest_template(pool, client.signature(light[7 + CLEAR_SLOT]))
         builder.add_light(light, template)
         chosen.setdefault(light[1], []).append((light[0], template[0][0]))
-    return builder.blob(), chosen, len(pool)
+    copied = []
+    for map_id, outlines in sorted(SUN_KEEPING_OUTLINES.items()):
+        background = first_converted_map_wide_light(client, map_id)
+        if map_id in covered or not background:
+            continue
+        template = nearest_template(pool, client.signature(background[7 + CLEAR_SLOT]))
+        builder.add_sun_keeping_copy(background, template, outlines)
+        copied.append((map_id, background[0], len(outlines)))
+    return builder.blob(), chosen, len(pool), copied
+
+
+def first_converted_map_wide_light(client, map_id):
+    return next((light for light in client.lights
+                 if light[1] == map_id and light[7 + CLEAR_SLOT] and is_map_wide(light)), None)
 
 
 def main():
@@ -436,12 +496,14 @@ def main():
         fog = FogData(handle.read())
     with ClientTables(args.client) as tables:
         client = ClientLighting(tables)
-    blob, chosen, pool = convert(fog, client)
+    blob, chosen, pool, copied = convert(fog, client)
     with open(args.output, "wb") as handle:
         handle.write(blob)
     maps = ", ".join("%d: %d" % (m, len(lights)) for m, lights in sorted(chosen.items()))
-    print("%s: %d Classic lights kept, %d client lights added from %d templates on maps %s; %d bytes"
-          % (args.output, len(fog.lights), sum(len(v) for v in chosen.values()), pool, maps, len(blob)))
+    copies = ", ".join("map %d light %d for %d zone outlines" % copy for copy in copied) or "none"
+    print("%s: %d Classic lights kept, %d client lights added from %d templates on maps %s; copies that keep the "
+          "sun: %s; %d bytes"
+          % (args.output, len(fog.lights), sum(len(v) for v in chosen.values()), pool, maps, copies, len(blob)))
     if args.list:
         for map_id, lights in sorted(chosen.items()):
             print("map %d: %s" % (map_id, " ".join("%d<-%d" % pair for pair in lights)))
