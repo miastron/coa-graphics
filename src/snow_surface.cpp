@@ -106,18 +106,33 @@ bool SnowSurface::UploadTrenches(IDirect3DDevice9* dev, TrenchMap& map)
     }
     if (!m_trenches)
         return false;
-    if (map.Generation() == m_trenchGeneration)
+    if (m_trenchesFilled && !map.ChangedRows())
         return true;
-    D3DLOCKED_RECT locked = {};
-    if (FAILED(m_trenches->LockRect(0, &locked, nullptr, 0)))
-        return false;
     const uint32_t* texels = map.Texels();
-    for (int row = 0; row < kTrenchTexels; ++row)
-        std::memcpy(static_cast<unsigned char*>(locked.pBits) + row * locked.Pitch, texels + row * kTrenchTexels,
-                    sizeof(uint32_t) * kTrenchTexels);
-    if (FAILED(m_trenches->UnlockRect(0)))
-        return false;
-    m_trenchGeneration = map.Generation();
+    for (int first = 0; first < kTrenchTexels;)
+    {
+        if (m_trenchesFilled && !map.RowChanged(first))
+        {
+            ++first;
+            continue;
+        }
+        int end = first + 1;
+        while (end < kTrenchTexels && (!m_trenchesFilled || map.RowChanged(end)))
+            ++end;
+        const RECT rows = {0, first, kTrenchTexels, end};
+        D3DLOCKED_RECT locked = {};
+        if (FAILED(m_trenches->LockRect(0, &locked, &rows, 0)))
+            return false;
+        for (int row = first; row < end; ++row)
+            std::memcpy(static_cast<unsigned char*>(locked.pBits) + (row - first) * locked.Pitch,
+                        texels + static_cast<size_t>(row) * kTrenchTexels, sizeof(uint32_t) * kTrenchTexels);
+        if (FAILED(m_trenches->UnlockRect(0)))
+            return false;
+        m_trenchRowsUploaded += static_cast<unsigned>(end - first);
+        first = end;
+    }
+    map.MarkUploaded();
+    m_trenchesFilled = true;
     return true;
 }
 
@@ -133,6 +148,7 @@ void SnowSurface::Bind(IDirect3DDevice9* dev, const SnowFrame& frame) const
     dev->SetVertexShaderConstantF(kSnowVertexRegister, &frame.vertex.registers[0][0], kSnowVertexRegisterCount);
     dev->SetPixelShaderConstantF(kSnowPixelRegister, &frame.pixel.registers[0][0], kSnowPixelRegisterCount);
     dev->SetPixelShaderConstantF(kTrenchPixelRegister, &frame.trench.registers[0][0], kTrenchPixelRegisterCount);
+    dev->SetPixelShaderConstantF(kTrenchFadeRegister, frame.trench.fade, 1);
 }
 
 bool SnowSurface::StillBound(IDirect3DDevice9* dev, const SnowFrame& frame) const
@@ -162,7 +178,7 @@ void SnowSurface::Release()
 {
     SafeRelease(m_texture);
     SafeRelease(m_trenches);
-    m_trenchGeneration = ~0u;
+    m_trenchesFilled = false;
     m_trenchFailed = false;
     m_terrainShaders.clear();
     for (auto& twin : m_depthTwins)

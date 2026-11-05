@@ -93,6 +93,7 @@ struct SnowSurfaceStats
     unsigned terrainShaders = 0;
     unsigned terrainDraws = 0;
     unsigned reboundDraws = 0;
+    unsigned trenchRowsUploaded = 0;
 };
 
 bool UploadSnowMap(FogDevice* device, const SnowMap& map);

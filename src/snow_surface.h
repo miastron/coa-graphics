@@ -21,6 +21,7 @@ public:
     void KeepBoundForDraw(IDirect3DDevice9* dev, const SnowFrame& frame);
     unsigned TerrainDraws() const { return m_terrainDraws; }
     unsigned ReboundDraws() const { return m_reboundDraws; }
+    unsigned TrenchRowsUploaded() const { return m_trenchRowsUploaded; }
     void Release();
     bool Ready() const { return m_texture && m_uploaded; }
     unsigned Uploads() const { return m_uploads; }
@@ -31,7 +32,8 @@ private:
 
     IDirect3DTexture9* m_texture = nullptr;
     IDirect3DTexture9* m_trenches = nullptr;
-    unsigned m_trenchGeneration = ~0u;
+    unsigned m_trenchRowsUploaded = 0;
+    bool m_trenchesFilled = false;
     bool m_trenchFailed = false;
     std::unordered_set<IDirect3DVertexShader9*> m_terrainShaders;
     std::unordered_map<IDirect3DPixelShader9*, IDirect3DPixelShader9*> m_depthTwins;

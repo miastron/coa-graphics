@@ -208,10 +208,10 @@ void CheckDepthRules()
     Check(std::fabs(SnowDepthAt(1.0f, 0.0f, drifting) - 0.35f * 0.65f) < 1e-5f &&
               std::fabs(SnowDepthAt(1.0f, 1.0f, drifting) - 0.35f * 1.35f) < 1e-5f,
           "drifts vary the depth by the drift share either way");
-    const uint32_t texel = SnowTexel(1.0f, 0.5f, 1.0f, 0x7F);
+    const uint32_t texel = SnowTexel(1.0f, 0.5f, 0.5f * kSnowMaxDepthYards, 0x7F);
     Check(Channel(texel, 24) == 128 && Channel(texel, 16) == 128 && Channel(texel, 8) == 255 &&
               Channel(texel, 0) == 0x7F,
-          "a snow texel holds the slope factor in alpha, depth over 2 yd in red, coverage in green and noise in blue");
+          "a snow texel holds the slope factor in alpha, depth over 1.2 yd in red, coverage in green, noise in blue");
 }
 
 void CheckSnowMap()
@@ -325,7 +325,7 @@ void CheckConstants()
     map.Box(box);
     Check(unplaced.registers[2][1] == 0.0f && on.registers[2][1] == 1.0f && off.registers[2][1] == 0.0f &&
               on.registers[0][2] == kSnowMaxDepthYards && std::fabs(on.registers[0][0] * kSnowMapYards - 1.0f) < 1e-5f,
-          "the lift is on only once the map is placed and uploaded, scaling red by the 2 yd range");
+          "the lift is on only once the map is placed and uploaded, scaling red by the 1.2 yd range");
     Check(std::memcmp(on.registers[1], box, sizeof(box)) == 0 && std::memcmp(pixel.registers[1], box, sizeof(box)) == 0,
           "both shaders fade the snow out at the window's box");
     Check(pixel.registers[0][3] == 1.0f && SnowPixelConstantsFor(map, false).registers[0][3] == 0.0f &&
@@ -565,21 +565,72 @@ void CheckLiftOnTheDevice(IDirect3DDevice9* dev)
           "ground outside the snow window stays where the client put it");
     Check(edge - bare > kPixelTolerance * 0.5f && snowy - edge > kPixelTolerance * 0.5f,
           "the lift fades in over the last yards of the window instead of stepping");
+    const SnowVertexConstants on = SnowVertexConstantsFor(map, true);
+    const float pixelsPerYard = kTargetSide * 0.5f / kRangeYards;
+    const float cpuSnowy = SnowLiftAt(map, on, kCameraX, kCameraY);
+    const float cpuEdge = SnowLiftAt(map, on, box[0] + kSnowEdgeFadeYards * 0.5f, kCameraY);
+    std::printf("     snow lift on the CPU: %.3f yd at the camera, %.3f yd half way into the edge fade\n", cpuSnowy,
+                cpuEdge);
+    Check(std::fabs(cpuSnowy - depth) < 0.005f &&
+              std::fabs(cpuEdge * pixelsPerYard - (edge - bare)) < kPixelTolerance &&
+              SnowLiftAt(map, on, box[0] - 20.0f, kCameraY) == 0.0f &&
+              SnowLiftAt(map, SnowVertexConstantsFor(map, false), kCameraX, kCameraY) == 0.0f,
+          "the CPU reads the same lift as the rewritten terrain shader, for the ground circles laid on the snow");
+}
+
+void CheckDecalLift()
+{
+    std::vector<float> matrix(16, 0.0f);
+    matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1.0f;
+    matrix[12] = 100.0f;
+    matrix[13] = 200.0f;
+    matrix[14] = 30.0f;
+    std::vector<float> vertices(145 * 3, 0.0f);
+    std::vector<float> heights(145, 0.0f);
+    for (int k = 0; k < 145; ++k)
+    {
+        vertices[k * 3] = -0.5f * k;
+        vertices[k * 3 + 1] = -0.25f * k;
+        heights[k] = 2.0f + k;
+    }
+    struct
+    {
+        const float* matrix;
+        const float* vertices;
+        const float* normals;
+        const float* heights;
+    } batch = {matrix.data(), vertices.data(), nullptr, heights.data()};
+    const auto lift = [](float x, float y) { return 0.001f * x + 0.0001f * y; };
+    const uintptr_t address = reinterpret_cast<uintptr_t>(&batch);
+    const bool lifted = engine::LiftDecalBatch(address, lift);
+    const float* swapped = batch.heights;
+    const float expected = heights[10] + lift(100.0f - 5.0f, 200.0f - 2.5f);
+    const bool liftedRight = lifted && swapped != heights.data() && std::fabs(swapped[10] - expected) < 1e-5f;
+    engine::RestoreDecalBatch();
+    Check(liftedRight && batch.heights == heights.data() && heights[10] == 12.0f,
+          "a terrain batch of a ground circle draws with its heights raised by the snow at each vertex, and gets its "
+          "own heights back after the build");
+    batch.heights = nullptr;
+    Check(!engine::LiftDecalBatch(address, lift) && batch.heights == nullptr,
+          "a ground circle batch without terrain heights (a building) is left as it is");
+    engine::RestoreDecalBatch();
 }
 
 void CheckTrenchShape()
 {
-    const float r = TrenchRadius(0.306f);
-    Check(std::fabs(r - 0.306f * kTrenchRadiusScale) < 1e-5f && TrenchRadius(0.01f) == kTrenchMinRadius &&
-              TrenchRadius(9.0f) == kTrenchMaxRadius,
-          "a trench is a little wider than the unit's collision radius, within 0.3 to 1.5 yd");
+    const float r = 0.5f;
     Check(std::fabs(TrenchPressAt(0.0f, r) - kTrenchPress) < 1e-5f &&
               std::fabs(TrenchPressAt(0.3f * r, r) - kTrenchPress) < 1e-5f && TrenchPressAt(r, r) == 0.0f &&
               TrenchPressAt(0.5f * r, r) > TrenchPressAt(0.9f * r, r) && TrenchPressAt(0.99f * r, r) < 0.01f,
-          "a trench has a flat floor under the unit and rounds smoothly up to the snow surface at its radius");
+          "a print has a flat floor and rounds smoothly up to the snow surface at its edge");
     Check(TrenchRimAt(0.5f * r, r) == 0.0f && TrenchRimAt(1.25f * r, r) > 0.99f && TrenchRimAt(1.7f * r, r) == 0.0f &&
               TrenchRimAt(2.0f * r, r) == 0.0f,
-          "the rim rises beside the trench, highest at 1.25 radii, and is gone at 1.7");
+          "the rim rises around a print, highest at 1.25 of its size, and is gone at 1.7");
+}
+
+TrenchScuff Scuff(float fromX, float fromY, float toX, float toY, float radius, float share)
+{
+    return {{fromX, fromY}, {toX, toY}, radius, share, 0};
 }
 
 void CheckTrenchMap()
@@ -588,63 +639,149 @@ void CheckTrenchMap()
     map.Place(kCameraX, kCameraY);
     float box[4];
     map.Box(box);
-    Check(box[0] < kCameraX && kCameraX < box[2] && std::fabs(box[2] - box[0] - kTrenchSpanYards) < 1e-3f,
-          "the trench window holds the player and spans 64 yd");
-    const float from[2] = {kCameraX, kCameraY};
-    const float to[2] = {kCameraX + 2.0f, kCameraY};
+    Check(box[0] < kCameraX && kCameraX < box[2] && std::fabs(box[2] - box[0] - kTrenchSpanYards) < 1e-3f &&
+              std::fabs(kTrenchSpanYards - 64.0f) < 1e-3f && kTrenchTexelYards <= 0.0625f,
+          "the footprint window holds the player, spans 64 yd and is fine enough for a foot");
+    map.Texels();
+    map.MarkUploaded();
     const unsigned before = map.Generation();
-    map.Stamp(from, to, 0.5f);
+    map.StampScuff(Scuff(kCameraX, kCameraY, kCameraX + 2.0f, kCameraY, 0.5f, 1.0f));
     Check(map.Generation() != before && map.PressAt(kCameraX + 1.0f, kCameraY + 0.1f) > 0.8f &&
               map.PressAt(kCameraX + 1.0f, kCameraY + 0.6f) == 0.0f &&
-              map.RimAt(kCameraX + 1.0f, kCameraY + 0.5f) > 0.5f &&
+              map.RimAt(kCameraX + 1.0f, kCameraY + 0.62f) > 0.5f &&
               map.RimAt(kCameraX + 1.0f, kCameraY + 0.1f) < 0.2f,
-          "a walked segment is pressed along its length with a rim on both sides and none in the trench");
+          "a stamped segment is pressed along its length with a rim on both sides and none in its floor");
+    Check(map.ChangedRows() > 0 && map.ChangedRows() <= static_cast<int>(2.0f * 1.7f * 0.5f / kTrenchTexelYards) + 2,
+          "a stamp marks only the rows it touches for upload");
     const unsigned stamped = map.Generation();
-    map.Stamp(from, to, 0.5f);
-    Check(map.Generation() == stamped, "stamping the same trench again changes nothing and uploads nothing");
+    map.StampScuff(Scuff(kCameraX, kCameraY, kCameraX + 2.0f, kCameraY, 0.5f, 1.0f));
+    Check(map.Generation() == stamped, "stamping the same place again changes nothing and uploads nothing");
+    map.StampScuff(Scuff(kCameraX, kCameraY + 3.0f, kCameraX + 2.0f, kCameraY + 3.0f, 0.5f, 0.3f));
+    Check(map.PressAt(kCameraX + 1.0f, kCameraY + 3.0f) > 0.2f && map.PressAt(kCameraX + 1.0f, kCameraY + 3.0f) < 0.3f,
+          "a shallow stamp presses its share of the depth");
     const uint32_t texel = map.Texels()[0];
-    Check((texel >> 24) == 0xFFu, "trench texels are opaque");
+    Check((texel >> 24) == 0xFFu, "footprint texels are opaque");
+    map.MarkUploaded();
     map.Relax(15.0f, 30.0f);
     const float half = map.PressAt(kCameraX + 1.0f, kCameraY + 0.1f);
-    Check(half > 0.3f && half < 0.5f, "a trench relaxes linearly toward the surface over its fill-in time");
+    Check(half > 0.3f && half < 0.5f, "a footprint relaxes linearly toward the surface over its fill-in time");
+    Check(map.ChangedRows() > 0 && map.ChangedRows() < kTrenchTexels / 4,
+          "relaxing uploads only the rows that hold footprints");
     map.Relax(30.0f, 30.0f);
     Check(map.ActiveTexels() == 0 && map.PressAt(kCameraX + 1.0f, kCameraY + 0.1f) == 0.0f,
-          "a trench is gone after its fill-in time");
-    map.Stamp(from, to, 0.5f);
+          "a footprint is gone after its fill-in time");
+    map.StampScuff(Scuff(kCameraX, kCameraY, kCameraX + 2.0f, kCameraY, 0.5f, 1.0f));
     map.Place(kCameraX + 5.0f, kCameraY);
-    Check(map.PressAt(kCameraX + 1.0f, kCameraY) > 0.0f, "a small move keeps the window and its trenches");
+    Check(map.PressAt(kCameraX + 1.0f, kCameraY) > 0.0f, "a small move keeps the window and its footprints");
     map.Place(kCameraX + 40.0f, kCameraY);
     Check(map.PressAt(kCameraX + 1.0f, kCameraY) == 0.0f &&
-              map.PressAt(kCameraX + 1.0f + kTrenchSpanYards, kCameraY) == 0.0f,
-          "trenches that leave the moved window are cleared, and no stale trench reappears at its wrapped place");
+              map.PressAt(kCameraX + 1.0f + kTrenchSpanYards, kCameraY) == 0.0f && map.ActiveTexels() == 0,
+          "footprints that leave the moved window are cleared, and none reappears at its wrapped place");
 }
 
-void CheckTrenchStamper()
+float DeepestAcross(const TrenchMap& map, float x, float y)
+{
+    float deepest = 0.0f;
+    for (int i = -4; i <= 4; ++i)
+        deepest = std::max(deepest, map.PressAt(x, y + i * 0.02f));
+    return deepest;
+}
+
+void CheckFootprintGaits()
+{
+    const NearbyUnit walker = {1, {0.0f, 0.0f, 0.0f}, kFootprintHumanRadius, false};
+    NearbyUnit rider = walker;
+    rider.mounted = true;
+    NearbyUnit wolf = walker;
+    wolf.radius = 0.6f;
+    wolf.fourLegged = true;
+    const FootprintGait feet = GaitFor(walker);
+    const FootprintGait hooves = GaitFor(rider);
+    const FootprintGait paws = GaitFor(wolf);
+    Check(!feet.fourLegs && hooves.fourLegs && paws.fourLegs && hooves.size >= kFootprintMountSize &&
+              feet.halfLength > feet.halfWidth && hooves.halfLength == hooves.halfWidth,
+          "people walk on two oval feet, mounts and four-legged beasts on four round ones");
+    Check(feet.halfWidth >= kTrenchTexelYards && feet.halfLength >= 2.0f * kTrenchTexelYards,
+          "a human foot spans several footprint texels");
+    Check(StepLength(feet, kFootprintRunSpeed) > StepLength(feet, kFootprintWalkSpeed) &&
+              StepLength(feet, kFootprintWalkSpeed) > 0.6f && StepLength(feet, kFootprintWalkSpeed) < 0.9f &&
+              DragShare(kFootprintWalkSpeed) > DragShare(kFootprintRunSpeed),
+          "steps lengthen with speed, and a running foot drags less than a walking one");
+    Check(FourLeggedCreature(kCreatureTypeBeast, 1) && FourLeggedCreature(kCreatureTypeCritter, 0) &&
+              !FourLeggedCreature(kCreatureTypeBeast, 11) && !FourLeggedCreature(kCreatureTypeBeast, 7) &&
+              !FourLeggedCreature(7, 0),
+          "wolves and critters walk on four legs, raptors, birds and humanoids on two");
+}
+
+void CheckFootprintStamper()
 {
     TrenchMap map;
-    TrenchStamper stamper;
+    FootprintStamper stamper;
     map.Place(kCameraX, kCameraY);
     NearbyUnitFrame units;
     units.count = 2;
-    units.units[0] = {1, {kCameraX, kCameraY, 0.0f}, 0.306f, false};
-    units.units[1] = {2, {kCameraX, kCameraY + 10.0f, 5.0f}, 0.306f, false};
+    units.units[0] = {1, {kCameraX, kCameraY, 0.0f}, kFootprintHumanRadius, false};
+    units.units[1] = {2, {kCameraX, kCameraY + 10.0f, 5.0f}, kFootprintHumanRadius, false};
     const bool onGround[2] = {true, false};
-    Check(stamper.Step(map, units, onGround) == 1 && map.PressAt(kCameraX, kCameraY) > 0.8f &&
-              map.PressAt(kCameraX, kCameraY + 10.0f) == 0.0f,
-          "a unit on the ground presses a trench where it stands, one off the ground does not");
-    units.units[0].position[0] = kCameraX + 1.5f;
-    stamper.Step(map, units, onGround);
-    Check(map.PressAt(kCameraX + 0.75f, kCameraY) > 0.8f, "a walking unit leaves a trench without gaps");
-    units.units[0].position[0] = kCameraX + 10.0f;
-    stamper.Step(map, units, onGround);
-    Check(map.PressAt(kCameraX + 6.0f, kCameraY) == 0.0f && map.PressAt(kCameraX + 10.0f, kCameraY) > 0.8f,
-          "a unit that jumps further than 3 yd in a frame leaves no streak across the gap");
+    const FootprintGait gait = GaitFor(units.units[0]);
+    const float track = gait.halfTrack;
+    Check(stamper.Step(map, units, onGround, 0.0f) == 1 && DeepestAcross(map, kCameraX, kCameraY + track) > 0.8f &&
+              DeepestAcross(map, kCameraX, kCameraY - track) > 0.8f && map.PressAt(kCameraX, kCameraY) < 0.05f &&
+              DeepestAcross(map, kCameraX, kCameraY + 10.0f) == 0.0f,
+          "a unit standing on the ground leaves two footprints side by side, one off the ground leaves none");
+    const float frame = 1.0f / 30.0f;
+    const float speed = 3.0f;
+    const float step = StepLength(gait, speed);
+    for (int i = 1; i <= 60; ++i)
+    {
+        units.units[0].position[0] = kCameraX + speed * frame * i;
+        stamper.Step(map, units, onGround, frame);
+    }
+    const float left = kCameraY + track;
+    const float right = kCameraY - track;
+    std::printf("     footprints: step %.2f yd; left track at 1 step %.2f, 2 steps %.2f; right track at 1 step %.2f, "
+                "2 steps %.2f\n",
+                step, DeepestAcross(map, kCameraX + step, left), DeepestAcross(map, kCameraX + 2.0f * step, left),
+                DeepestAcross(map, kCameraX + step, right), DeepestAcross(map, kCameraX + 2.0f * step, right));
+    Check(DeepestAcross(map, kCameraX + step, left) > 0.8f && DeepestAcross(map, kCameraX + 3.0f * step, left) > 0.8f &&
+              DeepestAcross(map, kCameraX + 2.0f * step, right) > 0.8f &&
+              DeepestAcross(map, kCameraX + 4.0f * step, right) > 0.8f,
+          "a walking unit plants its left and right feet in turn, one step apart");
+    const float scuff = DeepestAcross(map, kCameraX + 2.0f * step, left);
+    Check(scuff > 0.1f && scuff < 0.5f && DeepestAcross(map, kCameraX + step, right) < 0.5f,
+          "the lifted foot drags a shallow scuff between its own prints");
+    Check(map.PressAt(kCameraX + 2.0f * step, kCameraY) < 0.05f,
+          "the snow between the two tracks is not pressed");
+    Check(map.FadeAt(kCameraX + step, left) != map.FadeAt(kCameraX + 2.0f * step, right),
+          "each print carries its own fade-out distance");
+    units.units[0].position[0] = kCameraX + 12.0f;
+    stamper.Step(map, units, onGround, frame);
+    Check(DeepestAcross(map, kCameraX + 8.0f, left) == 0.0f && DeepestAcross(map, kCameraX + 12.0f, left) > 0.8f,
+          "a unit that jumps further than 3 yd in a frame lands with both feet and leaves no streak across the gap");
+
+    TrenchMap herd;
+    FootprintStamper hooves;
+    herd.Place(kCameraX, kCameraY);
+    NearbyUnitFrame mounts;
+    mounts.count = 1;
+    mounts.units[0] = {3, {kCameraX, kCameraY, 0.0f}, kFootprintHumanRadius, true};
+    const FootprintGait horse = GaitFor(mounts.units[0]);
+    hooves.Step(herd, mounts, onGround, 0.0f);
+    const float hindTrack = horse.halfTrack * horse.hindTrackShare;
+    Check(DeepestAcross(herd, kCameraX + horse.halfBody, kCameraY + horse.halfTrack) > 0.8f &&
+              DeepestAcross(herd, kCameraX + horse.halfBody, kCameraY - horse.halfTrack) > 0.8f &&
+              DeepestAcross(herd, kCameraX - horse.halfBody, kCameraY + hindTrack) > 0.8f &&
+              DeepestAcross(herd, kCameraX - horse.halfBody, kCameraY - hindTrack) > 0.8f &&
+              herd.PressAt(kCameraX, kCameraY) == 0.0f,
+          "a standing mount leaves four hoof prints, front and hind, and none under its belly");
     TrenchLight light = {{1.0f, 2.0f, 3.0f}, {0.0f, 0.6f, 0.8f}, 0.4f};
-    const TrenchConstants on = TrenchConstantsFor(map, true, 0.3f, light);
-    const TrenchConstants off = TrenchConstantsFor(map, false, 0.3f, light);
+    const TrenchReach reach = {28.0f, 8.0f};
+    const TrenchConstants on = TrenchConstantsFor(map, true, 0.3f, light, reach);
+    const TrenchConstants off = TrenchConstantsFor(map, false, 0.3f, light, reach);
     Check(on.registers[0][3] == 1.0f && off.registers[0][3] == 0.0f && on.registers[0][2] == 0.3f &&
-              on.registers[2][0] == 1.0f && on.registers[3][1] == 0.6f && on.registers[3][3] == 0.4f,
-          "the trench constants carry the switch, the rim share, the camera and the light");
+              on.registers[2][0] == 1.0f && on.registers[3][1] == 0.6f && on.registers[3][3] == 0.4f &&
+              on.fade[0] == 28.0f && on.fade[1] == 8.0f && on.fade[3] == 2.0f * kTrenchTexelYards,
+          "the footprint constants carry the switch, the rim share, the camera, the light and the fade distances");
     Check(std::fabs(AmbientShare(0xFF404040u, 0xFFC0C0C0u) - 0.25f) < 0.01f && AmbientShare(0, 0) == 1.0f,
           "the ambient share is the ambient light's part of the total");
     float projection[16] = {};
@@ -653,7 +790,7 @@ void CheckTrenchStamper()
     float row[4] = {};
     Check(TrenchDepthRow(projection, 0.0f, 1.0f, row) && row[0] == 1.0f && row[1] == -1.0f &&
               row[2] == kTrenchDepthPushBack && !TrenchDepthRow(projection, 0.5f, 0.5f, row),
-          "the trench depth row maps view depth to the depth buffer the way the fog reads it back");
+          "the footprint depth row maps view depth to the depth buffer the way the fog reads it back");
 }
 
 const char* const kTrenchRigVertex = "vs_3_0\n"
@@ -724,19 +861,20 @@ void CheckTrenchShadingOnTheDevice(IDirect3DDevice9* dev)
     trenches.Place(kCameraX, kCameraY);
     const float from[2] = {kCameraX - 3.0f, kCameraY};
     const float to[2] = {kCameraX + 3.0f, kCameraY};
-    trenches.Stamp(from, to, 0.5f);
+    trenches.StampScuff(Scuff(from[0], from[1], to[0], to[1], 0.5f, 1.0f));
     SnowSurface surface;
     const bool uploaded = surface.Upload(dev, snow) && surface.UploadTrenches(dev, trenches);
     const TrenchLight light = {{kCameraX, kCameraY + 0.001f, 40.0f}, {0.0f, 0.7071f, 0.7071f}, 0.3f};
 
     const float halfSpan = 2.0f;
     const float placement[4] = {1.0f / halfSpan, 1.0f / halfSpan, -kCameraX / halfSpan, -kCameraY / halfSpan};
-    float brightness[2][4] = {};
+    const TrenchReach kPassReach[3] = {{64.0f, 1.0f}, {64.0f, 1.0f}, {10.0f, 1.0f}};
+    float brightness[3][4] = {};
     bool drawn = uploaded;
-    for (int pass = 0; pass < 2; ++pass)
+    for (int pass = 0; pass < 3; ++pass)
     {
         SnowFrame frame = {SnowVertexConstantsFor(snow, false), SnowPixelConstantsFor(snow, false),
-                           TrenchConstantsFor(trenches, pass == 1, 0.3f, light)};
+                           TrenchConstantsFor(trenches, pass >= 1, 0.3f, light, kPassReach[pass])};
         surface.Bind(dev, frame);
         dev->SetVertexShader(rig.vertex);
         dev->SetVertexShaderConstantF(11, placement, 1);
@@ -777,9 +915,10 @@ void CheckTrenchShadingOnTheDevice(IDirect3DDevice9* dev)
     dev->SetTexture(kSnowPixelSampler, nullptr);
     dev->SetTexture(kTrenchPixelSampler, nullptr);
     std::printf("     trench shading off: centre %.0f, wall toward light %.0f, wall away %.0f, outside %.0f; "
-                "on: %.0f, %.0f, %.0f, %.0f\n",
+                "on: %.0f, %.0f, %.0f, %.0f; beyond the footprint distance: %.0f, %.0f, %.0f, %.0f\n",
                 brightness[0][0], brightness[0][1], brightness[0][2], brightness[0][3], brightness[1][0],
-                brightness[1][1], brightness[1][2], brightness[1][3]);
+                brightness[1][1], brightness[1][2], brightness[1][3], brightness[2][0], brightness[2][1],
+                brightness[2][2], brightness[2][3]);
     Check(drawn, "the trench shading rig draws with the rewritten terrain pixel shader");
     Check(brightness[0][0] == brightness[0][3] && brightness[0][1] == brightness[0][3],
           "with the trenches switched off the pixel shader leaves the colour as the client drew it");
@@ -788,6 +927,9 @@ void CheckTrenchShadingOnTheDevice(IDirect3DDevice9* dev)
     Check(brightness[1][0] < brightness[1][3] - 4.0f, "the floor of a trench is darker than the snow around it");
     Check(brightness[1][1] > brightness[1][2] + 4.0f,
           "the trench wall facing the light is brighter than the wall facing away from it");
+    Check(brightness[2][0] == brightness[0][0] && brightness[2][1] == brightness[0][1] &&
+              brightness[2][2] == brightness[0][2],
+          "footprints further from the camera than the footprint distance are not drawn");
 }
 
 void CheckSnowStaysBoundOnTheDevice(IDirect3DDevice9* dev)
@@ -852,7 +994,7 @@ void CheckTrenchDepthOnTheDevice(IDirect3DDevice9* dev)
     trenches.Place(kCameraX, kCameraY);
     const float from[2] = {kCameraX - 3.0f, kCameraY};
     const float to[2] = {kCameraX + 3.0f, kCameraY};
-    trenches.Stamp(from, to, 0.5f);
+    trenches.StampScuff(Scuff(from[0], from[1], to[0], to[1], 0.5f, 1.0f));
     SnowSurface surface;
     bool drawn = created && surface.Upload(dev, snow) && surface.UploadTrenches(dev, trenches);
     const TrenchLight light = {{kCameraX, kCameraY + 0.001f, 40.0f}, {0.0f, 0.7071f, 0.7071f}, 0.3f};
@@ -875,7 +1017,7 @@ void CheckTrenchDepthOnTheDevice(IDirect3DDevice9* dev)
     if (drawn)
     {
         SnowFrame frame = {SnowVertexConstantsFor(snow, false), SnowPixelConstantsFor(snow, false),
-                           TrenchConstantsFor(trenches, true, 0.3f, light)};
+                           TrenchConstantsFor(trenches, true, 0.3f, light, {64.0f, 1.0f})};
         surface.Bind(dev, frame);
         dev->SetPixelShaderConstantF(kTrenchDepthRegister, depthRow, 1);
         dev->SetVertexShaderConstantF(11, placement, 1);
@@ -936,7 +1078,9 @@ void CheckSnow()
     CheckConstants();
     CheckTrenchShape();
     CheckTrenchMap();
-    CheckTrenchStamper();
+    CheckFootprintGaits();
+    CheckFootprintStamper();
+    CheckDecalLift();
     CheckShaderEdits();
 }
 }

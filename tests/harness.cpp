@@ -22,6 +22,8 @@
 #include "engine_grass.h"
 #include "grass_wind.h"
 #include "snow_cover.h"
+#include "snow_decals.h"
+#include "snow_footprints.h"
 #include "snow_shaders.h"
 #include "snow_surface.h"
 #include "wdbc.h"

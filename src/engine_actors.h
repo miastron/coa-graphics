@@ -30,7 +30,14 @@ struct NearbyUnit
     float position[3] = {};
     float radius = 0.0f;
     bool mounted = false;
+    float facing = 0.0f;
+    bool fourLegged = false;
 };
+
+constexpr int kCreatureTypeBeast = 1;
+constexpr int kCreatureTypeCritter = 8;
+
+bool FourLeggedCreature(int creatureType, uint32_t creatureFamily);
 
 struct NearbyUnitFrame
 {

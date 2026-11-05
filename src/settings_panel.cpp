@@ -584,13 +584,18 @@ bool DrawSnow(Config& c)
                       "How strongly the snow spreads past the painted snow ground with ragged edges, 0 = the "
                       "client's own snow texture alone");
     changed |= Slider(c, &Config::snowBreakup, "Edge breakup", "%.2f", "0 smooth edges .. 1 ragged, patchy ones");
-    changed |= Toggle("Trenches", c.snowTrenches,
-                      "Your character and the units near you press trenches into the snow as they walk, with a "
-                      "raised rim beside them");
-    changed |= Slider(c, &Config::snowTrenchSeconds, "Trench fill-in", "%.0f",
-                      "Seconds a trench takes to fill back in");
-    changed |= Slider(c, &Config::snowTrenchRim, "Trench rim", "%.2f",
-                      "Height of the rim beside a trench, share of the snow depth");
+    changed |= Toggle("Footprints", c.snowFootprints,
+                      "Your character and the units near you leave footprints in the snow as they walk, left and "
+                      "right, four tracks for mounts and four-legged beasts, with the lifted foot dragging a shallow "
+                      "scuff between its prints");
+    changed |= Slider(c, &Config::snowFootprintSeconds, "Footprint fill-in", "%.0f",
+                      "Seconds a footprint takes to fill back in");
+    changed |= Slider(c, &Config::snowFootprintRim, "Footprint rim", "%.2f",
+                      "Height of the snow pushed up around a footprint, share of the snow depth");
+    changed |= Slider(c, &Config::snowFootprintRadius, "Footprint distance", "%.0f",
+                      "How far from the camera footprints are drawn, yards");
+    changed |= Slider(c, &Config::snowFootprintFade, "Footprint fade", "%.1f",
+                      "Distance over which footprints fade out one by one toward that limit, yards");
     return changed;
 }
 

@@ -64,7 +64,8 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
   setup, wind grid and unit parting per chunk), `wind_model` (wind profiles from `WindProfile.cdbc`, weather,
   gusts); snow: `snow_cover` (snow map around the camera from the painted snow layers), `snow_shaders` (terrain shader
   rewrite: lift, ragged edges, trench march and its depth-writing twin), `snow_surface` (the maps' textures, bound
-  with the terrain shaders), `snow_trenches` (trench map stamped by nearby units), `engine_snow` (chunk layers, alpha
+  with the terrain shaders), `snow_trenches` (footprint map), `snow_footprints` (gaits, left and right
+  prints), `snow_decals` (ground circles lifted onto the snow), `engine_snow` (chunk layers, alpha
   maps, terrain shader tables); look: `forever_look` (Forever glow byte before the fog composite, grading decisions at
   world done and frame end), `grading_renderer` (colour grading pass); image: `image_quality` (world viewport at world
   done, the pass at frame end), `image_renderer` (SMAA, sharpening and bloom passes).

@@ -1677,5 +1677,5 @@ SnowSurfaceStats SnowSurfaceStatsOf(FogDevice* device)
         return SnowSurfaceStats();
     const SnowSurface& snow = device->Snow();
     return {snow.Ready(), snow.Uploads(), static_cast<unsigned>(snow.TerrainShaders()), snow.TerrainDraws(),
-            snow.ReboundDraws()};
+            snow.ReboundDraws(), snow.TrenchRowsUploaded()};
 }

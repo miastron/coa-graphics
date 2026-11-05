@@ -465,6 +465,30 @@ SnowVertexConstants SnowVertexConstantsFor(const SnowMap& map, bool active)
     return out;
 }
 
+float SnowLiftAt(const SnowMap& map, const SnowVertexConstants& constants, float x, float y)
+{
+    const float* box = constants.registers[1];
+    const float edge = std::min(std::min(x - box[0], y - box[1]), std::min(box[2] - x, box[3] - y));
+    const float fade = std::clamp(edge * constants.registers[2][0], 0.0f, 1.0f) * constants.registers[2][1];
+    if (fade <= 0.0f)
+        return 0.0f;
+    const float u = x / kSnowTexelYards - 0.5f;
+    const float v = y / kSnowTexelYards - 0.5f;
+    const int i = static_cast<int>(std::floor(u));
+    const int j = static_cast<int>(std::floor(v));
+    const float tu = u - i;
+    const float tv = v - j;
+    const uint32_t* texels = map.Texels();
+    const auto depth = [&](int di, int dj) {
+        const uint32_t texel =
+            texels[static_cast<size_t>(SnowTexelIndex(j + dj)) * kSnowMapTexels + SnowTexelIndex(i + di)];
+        return ((texel >> kByteShiftDepth) & 0xFFu) / kByteScale;
+    };
+    const float low = depth(0, 0) + (depth(1, 0) - depth(0, 0)) * tu;
+    const float high = depth(0, 1) + (depth(1, 1) - depth(0, 1)) * tu;
+    return (low + (high - low) * tv) * constants.registers[0][2] * fade;
+}
+
 SnowPixelConstants SnowPixelConstantsFor(const SnowMap& map, bool active)
 {
     const SnowSettings& s = map.Settings();

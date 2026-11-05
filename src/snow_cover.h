@@ -39,7 +39,7 @@ constexpr int kSnowAlphaPerTexel = kSnowAlphaSide / kSnowTexelsPerChunk;
 constexpr int kSnowMapTexels = kSnowWindowChunks * kSnowTexelsPerChunk;
 constexpr float kSnowTexelYards = kTerrainChunkYards / kSnowTexelsPerChunk;
 constexpr float kSnowMapYards = kSnowTexelYards * kSnowMapTexels;
-constexpr float kSnowMaxDepthYards = 2.0f;
+constexpr float kSnowMaxDepthYards = kTrenchDepthRangeYards;
 constexpr float kSnowEdgeFadeYards = 16.0f;
 constexpr int kSnowChunksPerFrame = 8;
 constexpr int kSnowErosionTexels = 2;
@@ -145,6 +145,7 @@ constexpr float kSnowShadowGain = 3.0f;
 
 SnowVertexConstants SnowVertexConstantsFor(const SnowMap& map, bool active);
 SnowPixelConstants SnowPixelConstantsFor(const SnowMap& map, bool active);
+float SnowLiftAt(const SnowMap& map, const SnowVertexConstants& constants, float x, float y);
 
 struct SnowFrame
 {

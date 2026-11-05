@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <iterator>
 
 namespace
 {
@@ -34,9 +35,20 @@ constexpr uintptr_t kUnitMovement = 0xD8;
 constexpr uintptr_t kUnitMovementBlock = 0x788;
 constexpr uintptr_t kUnitTransportGuid = 0x790;
 constexpr uintptr_t kUnitPosition = 0x798;
+constexpr uintptr_t kUnitFacing = 0x7A8;
 constexpr uintptr_t kUnitMovementFlags = 0x7CC;
 constexpr uintptr_t kUnitCollisionRadius = 0x850;
 constexpr uintptr_t kUnitCollisionHeight = 0x854;
+constexpr uintptr_t kUnitFields = 0xD0;
+constexpr uintptr_t kUnitFieldShapeshiftForm = 0x1D3;
+constexpr uintptr_t kUnitCreatureCache = 0x964;
+constexpr uintptr_t kCreatureCacheType = 0x10;
+constexpr uintptr_t kCreatureCacheFamily = 0x14;
+constexpr uintptr_t kUnitShapeshiftSuppressed = 0x9F4;
+constexpr uintptr_t kShapeshiftFormMaxId = 0x00AD4A00;
+constexpr uintptr_t kShapeshiftFormMinId = 0x00AD4A04;
+constexpr uintptr_t kShapeshiftFormRecords = 0x00AD4A14;
+constexpr uintptr_t kShapeshiftFormCreatureType = 0x10;
 constexpr uintptr_t kUnitMountState = 0x9C0;
 constexpr uintptr_t kUnitClientFlags = 0xA30;
 constexpr uint32_t kUnitSuppressedMountFlag = 0x10000000;
@@ -94,6 +106,26 @@ const GuardBytes kMountedLayout[] = {
      {0x83, 0xB9, 0xC0, 0x09, 0x00, 0x00, 0x00, 0x7E, 0x12, 0xF7, 0x81, 0x30, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x10}},
 };
+
+const GuardBytes kCreatureLayout[] = {
+    {"unit raw facing", 0x006E6F60, 10, {0x8B, 0x81, 0xD8, 0x00, 0x00, 0x00, 0xD9, 0x40, 0x20, 0xC3}},
+    {"creature type shapeshift form", 0x0071F300, 19,
+     {0x80, 0xB9, 0xF4, 0x09, 0x00, 0x00, 0x00, 0x74, 0x04, 0x33, 0xC0, 0xEB, 0x0D, 0x8B, 0x81, 0xD0, 0x00, 0x00,
+      0x00}},
+    {"creature type form table", 0x0071F313, 15,
+     {0x0F, 0xB6, 0x80, 0xD3, 0x01, 0x00, 0x00, 0x8B, 0x15, 0x04, 0x4A, 0xAD, 0x00, 0x3B, 0xC2}},
+    {"creature type form record", 0x0071F324, 19,
+     {0x3B, 0x05, 0x00, 0x4A, 0xAD, 0x00, 0x7F, 0x16, 0x2B, 0xC2, 0x8B, 0x15, 0x14, 0x4A, 0xAD, 0x00, 0x8B, 0x04,
+      0x82}},
+    {"creature type cache entry", 0x0071F337, 19,
+     {0x85, 0xC0, 0x74, 0x07, 0x8B, 0x40, 0x10, 0x85, 0xC0, 0x7F, 0x42, 0x8B, 0x81, 0x64, 0x09, 0x00, 0x00, 0x85,
+      0xC0}},
+    {"creature type cache type", 0x0071F34A, 6, {0x74, 0x04, 0x8B, 0x40, 0x10, 0xC3}},
+    {"creature family", 0x007153E0, 14,
+     {0x8B, 0x81, 0x64, 0x09, 0x00, 0x00, 0x85, 0xC0, 0x74, 0x04, 0x8B, 0x40, 0x14, 0xC3}},
+};
+
+constexpr uint32_t kTwoLeggedFamilies[] = {7, 11, 12, 26, 30, 39};
 
 const GuardBytes kActivePlayerLayout[] = {
     {"day and night info address", 0x007ECEF0, 5, {0xB8, 0x00, 0x8B, 0xD3, 0x00}},
@@ -278,6 +310,47 @@ bool UnitIsMounted(uintptr_t object)
            !(Read<uint32_t>(object + kUnitClientFlags) & kUnitSuppressedMountFlag);
 }
 
+int ShapeshiftCreatureTypeUnsafe(uintptr_t object)
+{
+    if (Read<uint8_t>(object + kUnitShapeshiftSuppressed))
+        return 0;
+    const uintptr_t fields = Read<uintptr_t>(object + kUnitFields);
+    if (!ValidPointer(fields, kUnitFieldShapeshiftForm + 1))
+        return 0;
+    const int form = Read<uint8_t>(fields + kUnitFieldShapeshiftForm);
+    if (!form || form < Read<int32_t>(kShapeshiftFormMinId) || form > Read<int32_t>(kShapeshiftFormMaxId))
+        return 0;
+    const uintptr_t records = Read<uintptr_t>(kShapeshiftFormRecords);
+    const uintptr_t record =
+        Read<uintptr_t>(records + (form - Read<int32_t>(kShapeshiftFormMinId)) * sizeof(uintptr_t));
+    return ValidPointer(record, kShapeshiftFormCreatureType + sizeof(int32_t))
+               ? Read<int32_t>(record + kShapeshiftFormCreatureType)
+               : 0;
+}
+
+bool UnitFourLeggedUnsafe(uintptr_t object)
+{
+    const uintptr_t cache = Read<uintptr_t>(object + kUnitCreatureCache);
+    const bool cached = ValidPointer(cache, kCreatureCacheFamily + sizeof(uint32_t));
+    const uint32_t family = cached ? Read<uint32_t>(cache + kCreatureCacheFamily) : 0;
+    const int shapeshifted = ShapeshiftCreatureTypeUnsafe(object);
+    if (shapeshifted > 0)
+        return FourLeggedCreature(shapeshifted, 0);
+    return cached && FourLeggedCreature(Read<int32_t>(cache + kCreatureCacheType), family);
+}
+
+bool UnitFourLegged(uintptr_t object)
+{
+    __try
+    {
+        return UnitFourLeggedUnsafe(object);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
 bool ReadNearbyUnitUnsafe(uintptr_t object, NearbyUnit& unit)
 {
     if (!IsUnit(object) || !ValidPointer(object, kUnitClientFlags + sizeof(uint32_t)))
@@ -291,6 +364,10 @@ bool ReadNearbyUnitUnsafe(uintptr_t object, NearbyUnit& unit)
     std::memcpy(unit.position, reinterpret_cast<const void*>(position), sizeof(unit.position));
     unit.radius = Read<float>(object + kUnitCollisionRadius);
     unit.mounted = UnitIsMounted(object);
+    unit.facing = Read<float>(object + kUnitFacing);
+    if (!std::isfinite(unit.facing))
+        unit.facing = 0.0f;
+    unit.fourLegged = UnitFourLegged(object);
     return true;
 }
 
@@ -321,7 +398,9 @@ bool NearbyUnitLayoutMatches()
     __try
     {
         return LayoutMatchesUnsafe() &&
-               GuardsMatch(kMountedLayout, "nearby units", "the grass is not parted around other units");
+               GuardsMatch(kMountedLayout, "nearby units", "the grass is not parted around other units") &&
+               GuardsMatch(kCreatureLayout, "nearby units",
+                           "the grass is not parted around other units and they leave no footprints");
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -392,6 +471,14 @@ bool ValidCentre(const float centre[3])
             return false;
     return true;
 }
+}
+
+bool FourLeggedCreature(int creatureType, uint32_t creatureFamily)
+{
+    if (creatureType != kCreatureTypeBeast && creatureType != kCreatureTypeCritter)
+        return false;
+    return std::find(std::begin(kTwoLeggedFamilies), std::end(kTwoLeggedFamilies), creatureFamily) ==
+           std::end(kTwoLeggedFamilies);
 }
 
 float WaterContactDepth(const WaterContact& contact)

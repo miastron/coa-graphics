@@ -53,11 +53,8 @@ uint32_t Byte(float value)
 {
     return static_cast<uint32_t>(std::clamp(value, 0.0f, 1.0f) * kByteScale + 0.5f);
 }
-}
 
-float TrenchRadius(float collisionRadius)
-{
-    return std::clamp(collisionRadius * kTrenchRadiusScale, kTrenchMinRadius, kTrenchMaxRadius);
+constexpr size_t kTexelCount = static_cast<size_t>(kTrenchTexels) * kTrenchTexels;
 }
 
 float TrenchPressAt(float distance, float radius)
@@ -78,9 +75,8 @@ float TrenchRimAt(float distance, float radius)
 }
 
 TrenchMap::TrenchMap()
-    : m_press(static_cast<size_t>(kTrenchTexels) * kTrenchTexels, 0.0f),
-      m_rim(static_cast<size_t>(kTrenchTexels) * kTrenchTexels, 0.0f),
-      m_texels(static_cast<size_t>(kTrenchTexels) * kTrenchTexels, kOpaque)
+    : m_press(kTexelCount, 0.0f), m_rim(kTexelCount, 0.0f), m_fade(kTexelCount, 0), m_texels(kTexelCount, kOpaque),
+      m_rowActive(kTrenchTexels, 0), m_changedRows(kTrenchTexels, 0), m_packedRows(kTrenchTexels, 0)
 {
 }
 
@@ -95,10 +91,25 @@ bool TrenchMap::InWindow(int worldI, int worldJ) const
            worldJ < m_originJ + kTrenchTexels;
 }
 
+void TrenchMap::MarkRow(int row)
+{
+    if (!m_changedRows[row])
+        ++m_changedRowCount;
+    m_changedRows[row] = 1;
+    m_packedRows[row] = 1;
+}
+
 void TrenchMap::Reset()
 {
-    std::fill(m_press.begin(), m_press.end(), 0.0f);
-    std::fill(m_rim.begin(), m_rim.end(), 0.0f);
+    for (int row = 0; row < kTrenchTexels; ++row)
+        if (m_rowActive[row])
+        {
+            const size_t first = static_cast<size_t>(row) * kTrenchTexels;
+            std::fill(m_press.begin() + first, m_press.begin() + first + kTrenchTexels, 0.0f);
+            std::fill(m_rim.begin() + first, m_rim.begin() + first + kTrenchTexels, 0.0f);
+            m_rowActive[row] = 0;
+            MarkRow(row);
+        }
     m_placed = false;
     m_active = 0;
     m_pendingRelax = 0.0f;
@@ -107,27 +118,24 @@ void TrenchMap::Reset()
 
 void TrenchMap::ClearOutside(int originI, int originJ)
 {
-    for (int u = 0; u < kTrenchTexels; ++u)
-    {
-        const int worldI = m_originI + Wrapped(u - m_originI);
-        if (worldI >= originI && worldI < originI + kTrenchTexels)
-            continue;
-        for (int v = 0; v < kTrenchTexels; ++v)
-        {
-            const size_t index = static_cast<size_t>(v) * kTrenchTexels + u;
-            m_press[index] = 0.0f;
-            m_rim[index] = 0.0f;
-        }
-    }
     for (int v = 0; v < kTrenchTexels; ++v)
     {
-        const int worldJ = m_originJ + Wrapped(v - m_originJ);
-        if (worldJ >= originJ && worldJ < originJ + kTrenchTexels)
+        if (!m_rowActive[v])
             continue;
-        std::fill(m_press.begin() + static_cast<size_t>(v) * kTrenchTexels,
-                  m_press.begin() + static_cast<size_t>(v + 1) * kTrenchTexels, 0.0f);
-        std::fill(m_rim.begin() + static_cast<size_t>(v) * kTrenchTexels,
-                  m_rim.begin() + static_cast<size_t>(v + 1) * kTrenchTexels, 0.0f);
+        const int worldJ = m_originJ + Wrapped(v - m_originJ);
+        const bool rowLeaves = worldJ < originJ || worldJ >= originJ + kTrenchTexels;
+        for (int u = 0; u < kTrenchTexels; ++u)
+        {
+            const int worldI = m_originI + Wrapped(u - m_originI);
+            if (!rowLeaves && worldI >= originI && worldI < originI + kTrenchTexels)
+                continue;
+            const size_t index = static_cast<size_t>(v) * kTrenchTexels + u;
+            if (m_press[index] <= 0.0f && m_rim[index] <= 0.0f)
+                continue;
+            m_press[index] = 0.0f;
+            m_rim[index] = 0.0f;
+            MarkRow(v);
+        }
     }
 }
 
@@ -150,22 +158,22 @@ void TrenchMap::Place(float x, float y)
     ++m_generation;
 }
 
-void TrenchMap::Stamp(const float* from, const float* to, float radius)
+template <typename Shape>
+void TrenchMap::StampArea(float lowX, float lowY, float highX, float highY, float share, uint8_t fade, Shape shape)
 {
-    if (!m_placed || radius <= 0.0f)
+    if (!m_placed || share <= 0.0f)
         return;
-    const float reach = kTrenchRimOuter * radius;
-    const int lowI = std::max(WorldTexel(std::min(from[0], to[0]) - reach), m_originI);
-    const int highI = std::min(WorldTexel(std::max(from[0], to[0]) + reach), m_originI + kTrenchTexels - 1);
-    const int lowJ = std::max(WorldTexel(std::min(from[1], to[1]) - reach), m_originJ);
-    const int highJ = std::min(WorldTexel(std::max(from[1], to[1]) + reach), m_originJ + kTrenchTexels - 1);
+    const int lowI = std::max(WorldTexel(lowX), m_originI);
+    const int highI = std::min(WorldTexel(highX), m_originI + kTrenchTexels - 1);
+    const int lowJ = std::max(WorldTexel(lowY), m_originJ);
+    const int highJ = std::min(WorldTexel(highY), m_originJ + kTrenchTexels - 1);
     bool changed = false;
     for (int j = lowJ; j <= highJ; ++j)
         for (int i = lowI; i <= highI; ++i)
         {
-            const float distance = SegmentDistance(from, to, TexelCentre(i), TexelCentre(j));
-            const float press = TrenchPressAt(distance, radius);
-            const float rim = TrenchRimAt(distance, radius);
+            const float distance = shape(TexelCentre(i), TexelCentre(j));
+            const float press = share * TrenchPressAt(distance, 1.0f);
+            const float rim = share * TrenchRimAt(distance, 1.0f);
             if (press <= 0.0f && rim <= 0.0f)
                 continue;
             const size_t index = IndexOf(i, j);
@@ -173,14 +181,47 @@ void TrenchMap::Stamp(const float* from, const float* to, float radius)
             const float raised = std::min(std::max(m_rim[index], rim), 1.0f - pressed);
             if (pressed == m_press[index] && raised == m_rim[index])
                 continue;
+            const int row = Wrapped(j);
             if (m_press[index] <= 0.0f && m_rim[index] <= 0.0f)
+            {
                 ++m_active;
+                ++m_rowActive[row];
+            }
             m_press[index] = pressed;
             m_rim[index] = raised;
+            m_fade[index] = fade;
+            MarkRow(row);
             changed = true;
         }
     if (changed)
         ++m_generation;
+}
+
+void TrenchMap::StampPrint(const TrenchPrint& print)
+{
+    if (print.halfLength <= 0.0f || print.halfWidth <= 0.0f)
+        return;
+    const float reach = kTrenchRimOuter * std::max(print.halfLength, print.halfWidth);
+    const float c = std::cos(print.angle);
+    const float s = std::sin(print.angle);
+    const float x = print.centre[0];
+    const float y = print.centre[1];
+    StampArea(x - reach, y - reach, x + reach, y + reach, print.share, print.fade, [&](float px, float py) {
+        const float along = ((px - x) * c + (py - y) * s) / print.halfLength;
+        const float across = ((py - y) * c - (px - x) * s) / print.halfWidth;
+        return std::sqrt(along * along + across * across);
+    });
+}
+
+void TrenchMap::StampScuff(const TrenchScuff& scuff)
+{
+    if (scuff.radius <= 0.0f)
+        return;
+    const float reach = kTrenchRimOuter * scuff.radius;
+    StampArea(std::min(scuff.from[0], scuff.to[0]) - reach, std::min(scuff.from[1], scuff.to[1]) - reach,
+              std::max(scuff.from[0], scuff.to[0]) + reach, std::max(scuff.from[1], scuff.to[1]) + reach, scuff.share,
+              scuff.fade,
+              [&](float px, float py) { return SegmentDistance(scuff.from, scuff.to, px, py) / scuff.radius; });
 }
 
 bool TrenchMap::Relax(float seconds, float relaxSeconds)
@@ -195,12 +236,21 @@ bool TrenchMap::Relax(float seconds, float relaxSeconds)
         return false;
     const float amount = relaxSeconds > 0.0f ? m_pendingRelax / relaxSeconds : 1.0f;
     m_pendingRelax = 0.0f;
-    for (size_t i = 0; i < m_press.size(); ++i)
+    for (int row = 0; row < kTrenchTexels; ++row)
     {
-        m_press[i] = std::max(m_press[i] - amount, 0.0f);
-        m_rim[i] = std::max(m_rim[i] - amount, 0.0f);
+        if (!m_rowActive[row])
+            continue;
+        int active = 0;
+        for (size_t i = static_cast<size_t>(row) * kTrenchTexels, end = i + kTrenchTexels; i < end; ++i)
+        {
+            m_press[i] = std::max(m_press[i] - amount, 0.0f);
+            m_rim[i] = std::max(m_rim[i] - amount, 0.0f);
+            active += m_press[i] > 0.0f || m_rim[i] > 0.0f ? 1 : 0;
+        }
+        m_active -= m_rowActive[row] - active;
+        m_rowActive[row] = active;
+        MarkRow(row);
     }
-    Count();
     ++m_generation;
     return true;
 }
@@ -208,8 +258,14 @@ bool TrenchMap::Relax(float seconds, float relaxSeconds)
 void TrenchMap::Count()
 {
     m_active = 0;
-    for (size_t i = 0; i < m_press.size(); ++i)
-        m_active += m_press[i] > 0.0f || m_rim[i] > 0.0f ? 1 : 0;
+    for (int row = 0; row < kTrenchTexels; ++row)
+    {
+        int active = 0;
+        for (size_t i = static_cast<size_t>(row) * kTrenchTexels, end = i + kTrenchTexels; i < end; ++i)
+            active += m_press[i] > 0.0f || m_rim[i] > 0.0f ? 1 : 0;
+        m_rowActive[row] = active;
+        m_active += active;
+    }
 }
 
 void TrenchMap::Box(float* box) const
@@ -234,53 +290,34 @@ float TrenchMap::RimAt(float x, float y) const
     return InWindow(i, j) ? m_rim[IndexOf(i, j)] : 0.0f;
 }
 
+int TrenchMap::FadeAt(float x, float y) const
+{
+    const int i = WorldTexel(x);
+    const int j = WorldTexel(y);
+    return InWindow(i, j) ? m_fade[IndexOf(i, j)] : 0;
+}
+
 const uint32_t* TrenchMap::Texels()
 {
-    if (m_packed != m_generation)
+    for (int row = 0; row < kTrenchTexels; ++row)
     {
-        for (size_t i = 0; i < m_texels.size(); ++i)
-            m_texels[i] = kOpaque | Byte(m_press[i]) << kPressShift | Byte(m_rim[i]) << kRimShift;
-        m_packed = m_generation;
+        if (!m_packedRows[row])
+            continue;
+        for (size_t i = static_cast<size_t>(row) * kTrenchTexels, end = i + kTrenchTexels; i < end; ++i)
+            m_texels[i] = kOpaque | Byte(m_press[i]) << kPressShift | Byte(m_rim[i]) << kRimShift | m_fade[i];
+        m_packedRows[row] = 0;
     }
     return m_texels.data();
 }
 
-unsigned TrenchStamper::Step(TrenchMap& map, const NearbyUnitFrame& units, const bool* onGround)
+void TrenchMap::MarkUploaded()
 {
-    for (auto& walker : m_walkers)
-        walker.second.seen = false;
-    unsigned stamps = 0;
-    for (uint32_t i = 0; i < units.count; ++i)
-    {
-        const NearbyUnit& unit = units.units[i];
-        if (!onGround[i])
-        {
-            m_walkers.erase(unit.guid);
-            continue;
-        }
-        const float here[2] = {unit.position[0], unit.position[1]};
-        const float radius = TrenchRadius(unit.radius);
-        auto found = m_walkers.find(unit.guid);
-        if (found != m_walkers.end())
-        {
-            const float dx = here[0] - found->second.position[0];
-            const float dy = here[1] - found->second.position[1];
-            const bool jumped = dx * dx + dy * dy > kTrenchJumpYards * kTrenchJumpYards;
-            map.Stamp(jumped ? here : found->second.position, here, radius);
-        }
-        else
-        {
-            map.Stamp(here, here, radius);
-        }
-        m_walkers[unit.guid] = {{here[0], here[1]}, true};
-        ++stamps;
-    }
-    for (auto it = m_walkers.begin(); it != m_walkers.end();)
-        it = it->second.seen ? std::next(it) : m_walkers.erase(it);
-    return stamps;
+    std::fill(m_changedRows.begin(), m_changedRows.end(), uint8_t{0});
+    m_changedRowCount = 0;
 }
 
-TrenchConstants TrenchConstantsFor(const TrenchMap& map, bool active, float rimShare, const TrenchLight& light)
+TrenchConstants TrenchConstantsFor(const TrenchMap& map, bool active, float rimShare, const TrenchLight& light,
+                                   const TrenchReach& reach)
 {
     TrenchConstants out = {};
     out.registers[0][0] = 1.0f / kTrenchSpanYards;
@@ -295,6 +332,10 @@ TrenchConstants TrenchConstantsFor(const TrenchMap& map, bool active, float rimS
     }
     out.registers[2][3] = kTrenchDepthRangeYards;
     out.registers[3][3] = light.ambientShare;
+    out.fade[0] = reach.radius;
+    out.fade[1] = reach.fade;
+    out.fade[2] = 1.0f / kTrenchFadeSoftYards;
+    out.fade[3] = 2.0f * kTrenchTexelYards;
     return out;
 }
 
@@ -326,10 +367,4 @@ TrenchMap& GlobalTrenchMap()
 {
     static TrenchMap map;
     return map;
-}
-
-TrenchStamper& GlobalTrenchStamper()
-{
-    static TrenchStamper stamper;
-    return stamper;
 }

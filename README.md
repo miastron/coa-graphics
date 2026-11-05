@@ -912,45 +912,70 @@ fog stay the client's.
   so it follows the sun and the shadows. Fully painted snow keeps the client's own texture. The pixel constants are
   c220 to c223; client pixel shaders read nothing above c26. A pixel shader is only fed a world position when every
   terrain vertex shader took the lift; otherwise `SnowEdges` acts as 0.
-- **Trenches.** Your character and the 16 nearest units within 30 yd press trenches into the snow as they walk, with a
-  rim beside them, and the trenches fill back in over `SnowTrenchSeconds` (30). They follow the Living Azeroth
-  module's trenches (round stamps along the path, a rim of a share of the depth, linear relaxing), stamped from the
-  unit list the grass parting reads; the module's sizes from `CreatureModelData` footprints are not read, the radius
-  is 1.3 times the unit's collision radius (0.3 to 1.5 yd). A unit stamps only while it stands on the terrain: its
-  height within 0.6 yd of the terrain under it, from the chunk's `MCVT` over the four triangles of each cell meeting in
-  its centre vertex (the vertex grid `0x7C3C60`), so units on bridges, in buildings, flying or swimming leave none. A
-  unit that moves more than 3 yd in a frame starts a new trench rather than drawing a line. The trench map is 256 x 256
-  texels of 0.25 yd, 64 yd around the player, wrapped like the snow map: red is how far the snow is pressed (0.9 of
-  its depth on a flat floor out to 0.35 radii, then a smoothstep up to the surface at the radius), green the rim (a
-  sine bump from 0.8 to 1.7 radii, kept below what the press leaves). The trenches are not geometry: the rewritten
-  terrain pixel shader, inside the trench window and where the snow has depth, marches the view ray from the camera
-  through the height field `depth x (rim x SnowTrenchRim - press)` below the raised surface in 13 probes (`texldl` on
-  sampler s10, so it may run inside the branch), takes the first point under the field and moves it back to where the
-  ray crosses the field between that probe and the one before (one secant step), and lights the ground there by the
-  field's normal from central differences over two texels: the colour the client drew times
+- **Footprints.** Your character and the 16 nearest units within 30 yd leave footprints in the snow as they walk,
+  and the prints fill back in over `SnowFootprintSeconds` (30). The first version followed the Living Azeroth
+  module's trenches (round stamps along the whole path, 1.3 times the collision radius wide); in the game one
+  body-wide trench per unit read as a sledge track, so the owner asked for separate feet. A unit stamps only while it
+  stands on the terrain: its height within 0.6 yd of the terrain under it, from the chunk's `MCVT` over the four
+  triangles of each cell meeting in its centre vertex (the vertex grid `0x7C3C60`), so units on bridges, in
+  buildings, flying or swimming leave none. Each unit walks its own path: the distance it covers is cut into steps
+  of `size x (0.45 + 0.11 speed)` yd (about 0.8 yd walking at 2.5 yd/s, 1.2 yd running at 7), where `size` is the
+  collision radius over a human's 0.306 (0.5 to 3), and each step plants the next foot at the exact point along the
+  path where the step ends, so the spacing does not depend on the frame rate. People plant left and right feet in
+  turn, 0.11 size yd either side of the path: oval prints 0.34 by 0.16 size yd, turned to the unit's facing, so a
+  unit walking backwards or sideways leaves them turned the way it faces. Mounts (at least size 1.6) and four-legged
+  creatures plant diagonal pairs, the front foot 0.45 size yd ahead and 0.13 size yd to the side and the hind foot
+  as far behind on the other side, 0.8 as wide, as round hoof prints 0.075 size yd across the radius. A new unit, one
+  landing and one that moved more than 3 yd in a frame stands on all its feet at once. Each foot drags a shallow scuff
+  from its last print to its next one, 0.8 of the print's half width wide and 0.4 of the print's depth at a walk,
+  falling to 0.15 at a run; the snow pushed up around a print is the rim. The footprint map is 1024 x 1024 texels of
+  0.0625 yd (a human print spans five texels by three), 64 yd around the player, wrapped like the snow map: red is
+  how far the snow is pressed (0.9 of its depth on a flat floor out to 0.35 of the print, then a smoothstep up to the
+  surface at its edge), green the rim (a sine bump from 0.8 to 1.7 of the print, kept below what the press leaves),
+  blue the print's own random byte for the fade. Only the rows a stamp, the relaxing or a moved window changed are
+  uploaded, in runs of whole rows (`LockRect` with that rectangle; DXVK's managed textures track the dirty box and
+  upload only it, `d3d9_device.cpp` `AddDirtyBox`), and the relaxing steps every 0.25 s.
+- **Which units walk on four legs.** A mounted unit always does. Otherwise the creature type decides, read the way
+  `CGUnit_C::GetCreatureType` (`0x71F300`, checked in pieces at `0x71F313`, `0x71F324`, `0x71F337` and
+  `0x71F34A`) does: the shapeshift form (the byte at `+0x1D3` of the unit fields at
+  `+0xD0`, unless the byte at `+0x9F4` suppresses it) looked up in `SpellShapeshiftForm` (minimum id `0xAD4A04`,
+  maximum `0xAD4A00`, records `0xAD4A14`, creature type at `+0x10`), else the creature cache entry at `+0x964` (type
+  at `+0x10`; `CGUnit_C::GetCreatureFamily` `0x7153E0` reads the family at `+0x14`). Beasts and critters walk on four
+  legs except the two-legged families (carrion birds 7, raptors 11, tallstriders 12, birds of prey 26, dragonhawks 30
+  and devilsaurs 39), so a druid in cat or bear form and a shaman's ghost wolf leave four tracks. The facing is the
+  movement's at `+0x20` (`CGUnit_C::GetRawFacing` `0x6E6F60`: `mov eax, [ecx+0xD8]` then `fld [eax+0x20]`).
+- **Drawing the footprints.** They are not geometry: the rewritten terrain pixel shader, inside the footprint window
+  and where the snow has depth, marches the view ray from the camera through the height field
+  `depth x (rim x SnowFootprintRim - press)` below the raised surface in 13 probes (`texldl` on sampler s10, so it may
+  run inside the branch), takes the first point under the field and moves it back to where the ray crosses the field
+  between that probe and the one before (one secant step), and lights the ground there by the field's normal from
+  central differences over two texels: the colour the client drew times
   `(ambient + (1 - ambient) N.L) / (ambient + (1 - ambient) L.z)`, at most 2, and darkened by 0.35 of the press.
-  The first version, nine probes without the secant step, a one-texel forward difference and a `sqrt(1 - (d/r)^2)`
-  wall, drew stepped contour lines across the walls and along relaxing trenches, which looked blocky in the game.
-  `L` is the direction to the sun or moon from the sky's positions (`0xD38B18`, `0xD38E28`, `0xD38E48` by the day
-  window `0xA41CA4` and `0xA41CA0`) and the ambient share the ambient colour's (`0xD38BD4`) part of the ambient plus
-  direct (`0xD38BD8`), the reads the fog's frame inputs already use. So the trench keeps the client's own snow
-  texture, light and shadow, its far wall lit and its near wall in shade; at a grazing view its edge does not cut the
-  silhouette. The pixel constants are c204 to c207 (switch, rim share, window, camera, light) and the shader defines
-  c208 and c209.
+  A first version with nine probes, no secant step, a one-texel forward difference and a `sqrt(1 - (d/r)^2)` wall
+  drew stepped contour lines across the walls and looked blocky in the game. `L` is the direction to the sun or moon
+  from the sky's positions (`0xD38B18`, `0xD38E28`, `0xD38E48` by the day window `0xA41CA4` and `0xA41CA0`) and the
+  ambient share the ambient colour's (`0xD38BD4`) part of the ambient plus direct (`0xD38BD8`), the reads the fog's
+  frame inputs already use. So a print keeps the client's own snow texture, light and shadow. The prints fade out
+  the way the grass copies thin out: each pixel takes its print's random byte `t` and is drawn at
+  `clamp((reach - t x SnowFootprintFade) / 1.5 yd)` of its depth, where `reach` is the nearer of `SnowFootprintRadius`
+  (28) less the distance from the camera and the distance to the edge of the footprint window (which recentres every
+  8 yd, so its edge is 24 to 32 yd from the player). So prints go one by one over the last `SnowFootprintFade` (8) yd
+  instead of at a line. The pixel constants are c204 to c207 (switch, rim share, window, camera, light) and c211
+  (fade distance, fade width, the 1.5 yd softness and the two-texel normal spacing); the shader defines c208 and
+  c209.
 - **Trench depth.** Without it the depth buffer holds the raised surface, so a character standing in a trench was cut
   off at the old snow line. The rewritten vertex shader also hands the pixel shader its view depth in texcoord7's `w`
-  (the `z` row of the world-view transform in c0 to c3, which all 128 variants start with
-  `mul r0, c1, v0.y / mad r0, v0.x, c0, r0 / mad r0, v0.z, c2, r0 / add r0, r0, c3`, the projection `o0` from c4 to
-  c7). Each rewritten terrain pixel shader is assembled twice, and the wrapper creates the second, depth-writing
-  copy beside the one it hands the client. At the first indexed draw after the client binds a terrain pixel shader
-  (and once a frame), while the trench constants are on and the trench map has texels in use, it binds that copy and
-  sets c210 to the depth mapping the fog uses to read depth back (`depth = a + b / viewDepth`, `a` and `b` from the
-  client's current projection `_33` and `_43` and the viewport's depth range with the client's pending range, the
-  same reads as the opaque state capture); otherwise the client's copy stays bound. The depth copy writes `oDepth`
-  for every pixel: the surface's view depth, or at the trench point the view depth scaled by how far that point lies
-  behind the surface along the view ray, pushed back by a factor 1.00001 so that a decal drawn later with the same
-  geometry still passes its depth test. Writing `oDepth` turns off early depth rejection for those draws, which is
-  why the copy is used only near trenches.
+  (the `z` row of the world-view transform in c0 to c3, which all 128 variants start with `mul r0, c1, v0.y / mad r0,
+  v0.x, c0, r0 / mad r0, v0.z, c2, r0 / add r0, r0, c3`, the projection `o0` from c4 to c7). Each rewritten terrain
+  pixel shader is assembled twice, and the wrapper creates the second, depth-writing copy beside the one it hands the
+  client. At the first indexed draw after the client binds a terrain pixel shader (and once a frame), while the
+  footprint constants are on and the footprint map has texels in use, it binds that copy and sets c210 to the depth
+  mapping the fog uses to read depth back (`depth = a + b / viewDepth`, `a` and `b` from the client's current projection
+  `_33` and `_43` and the viewport's depth range with the client's pending range, the same reads as the opaque state
+  capture); otherwise the client's copy stays bound. The depth copy writes `oDepth` for every pixel: the surface's view
+  depth, or at the trench point the view depth scaled by how far that point lies behind the surface along the view ray,
+  pushed back by a factor 1.00001 so that a decal drawn later with the same geometry still passes its depth test.
+  Writing `oDepth` turns off early depth rejection for those draws, which is why the copy is used only near trenches.
 - **Binding.** When the client binds a rewritten terrain vertex shader, the wrapper binds the snow map to vertex
   sampler 0 and to sampler s9 (wrap, linear), the trench map to s10, and sets the constants. The client's terrain
   uses samplers s0 to s8. In the game, with depth above 0, neighbouring terrain chunks were sometimes raised on one
@@ -965,16 +990,34 @@ fog stay the client's.
   anything replaced them. The status line counts those draws and the ones that had to be rebound. In the game, in
   Dun Morogh, about 5% of the terrain draws had to be rebound (50,648 of 969,781 after four minutes), and the gaps were
   gone.
+- **Ground circles.** Selection circles, the target circle, area spell targeting and the other projected textures are
+  drawn over copies of the terrain's triangles: `ProjectTexRender2d` (`0x7E3E80`) and `ProjectTex2dDrawShaderEffect`
+  (`0x7E3AA0`) query them (`World::GetTris`, `CMap::QueryTris`), and for each batch build a vertex buffer from the
+  batch's heights (`ProjectTexBuildVertexBuffer` `0x7E2FD0` with normals, the variant `0x7E32F0` with a colour). For
+  terrain the batch (`World::TriData::Batch`) holds the chunk's own heights at `+0x0C` (`batch->m_heightList =
+  chunk->m_height` in `CMap::GetTriSubchunk` `0x7A6260`), the shared 145-vertex grid `CMapChunk::vertexList` at `+0x04`
+  and a translation to the chunk corner at `+0x00`; buildings have no heights. Both builders read the heights through
+  the batch when they fill the buffer (`cmp [esi+0x0C], ebx` at `0x7E3006` and `0x7E3327`, `mov edi, [esi+0x0C]` / `fld
+  [edi+edx*4]` at `0x7E3046`, the index and vertex reads at `0x7E3020`, `0x7E3030`, `0x7E3340` and `0x7E3350`, the
+  colour one's height read `mov edx, [esi+0x0C]` at `0x7E3366`), with the batch in `esi` (the colour one takes it in
+  `eax`, `mov eax, esi` before the call). With any snow depth these circles lay under the raised snow. The four calls
+  (`0x7E3CAC` and `0x7E3CC4` in the shader effect render, `0x7E41CB` and `0x7E41E3` in the 2D render, bytes checked from
+  `0x7E3CA2`, `0x7E3CBC`, `0x7E41C1` and `0x7E41DB`) are retargeted to thunks that, while the terrain shaders take the
+  lift, point the batch at a copy of its 145 heights each raised by the snow under that vertex, call the client's
+  builder with the same arguments and put the chunk's heights back. The snow under a vertex is read on the CPU the way
+  the rewritten vertex shader reads it: the snow map's red bilinear between texel centres, times the 1.2 yd range and
+  the window fade. The circles follow the snow surface, not the footprints.
 - **Limits.** The terrain vertices are 2 to 4 yd apart, so the raised ground ramps up over a few yards at a snow edge;
-  the sharp outline comes from the edges. Collision stays the client's, which is why characters sink in. Selection
-  circles, spell ground effects and footprints are drawn at the old ground and are hidden under deep snow until the
-  decal lift. Doodads and buildings stand in the snow as placed. Snow beyond about 260 yd is not raised.
+  the sharp outline comes from the edges. Collision stays the client's, which is why characters sink in. Spell
+  effects that are models placed on the ground, not projected textures, and the client's own footprint decals stay
+  at the old ground. Doodads and buildings stand in the snow as placed. Snow beyond about 260 yd is not raised.
 - **Settings.** `Snow`, `SnowDepth`, `SnowMaxSlope`, `SnowSlopeFade`, `SnowDrift`, `SnowEdges`, `SnowBreakup`,
-  `SnowTrenches`, `SnowTrenchSeconds` and `SnowTrenchRim` in
+  `SnowFootprints`, `SnowFootprintSeconds`, `SnowFootprintRim`, `SnowFootprintRadius` and `SnowFootprintFade` in
   `CoAGraphics.ini` and the Snow section of the settings window. The shader rewrite is made as the client creates its
   shaders, so it needs `Snow=1` at start; the keys then apply within a second, and `Snow=0` lowers the ground again.
   The log line `snow: map ...` once a minute counts the chunks read, those with snow, the shaders rewritten, the
-  trench texels in use and the unit stamps since the line before.
+  footprint texels in use, the prints since the line before, the footprint rows uploaded and the ground circle
+  batches lifted since the line before.
 - **Checks.** The harness reads the client's terrain shaders from `tests/shaders` (the vs_3_0 vertex shaders of
   `patch-E.mpq` and the `Terrain0` to `Terrain3` ps_3_0 pixel shaders of `patch.MPQ`) and checks that all 128 vertex
   shaders and the 161 pixel shaders with the fog ending take the rewrite and reassemble, that the 32 full variants
@@ -983,17 +1026,23 @@ fog stay the client's.
   snow map with a synthetic terrain: chunks nearest first and a few a frame, the window box, an unchanged window read
   no more, the alpha rows along world x, refills on a changed identity, unloaded chunks, a moved window, steep ground
   and a new map. On the device it draws a point with the rewritten vertex shader and the uploaded map: raised by the
-  map's depth, not raised outside the window and half raised in the fade. For the trenches it checks the stamp
-  shape and rim, a walked segment, an unchanged restamp, relaxing, the moved window (no stale trench at its wrapped
-  place), units on and off the ground, a jump, the constants and the ambient share, and on the device draws a
-  trench under a light from one side with a stand-in for the client's pixel shader rewritten the same way: the
-  floor darker, the wall toward the light brighter than the one away, untouched snow and a switched-off trench map
-  as the client drew them. It checks that every pixel shader also reassembles with the depth write, the depth row,
-  and on the device draws the trench with the depth-writing copy into a depth buffer and then a plane 0.05 yd under
-  the snow: the plane shows in the trench and stays hidden behind untouched snow. In the game the first trenches
-  were stamped by the player and nearby units (about 3,000 to 6,000 unit stamps a minute in Dun Morogh) and looked
-  blocky, and the character was hidden below the old snow line; the secant step, the rounder profile and the depth
-  write answer that and have not been seen in the game yet.
+  map's depth, not raised outside the window and half raised in the fade; the CPU reads the same lift at the
+  camera and in the fade. For the footprints it checks the print shape and rim, a stamped segment, a shallow one, an
+  unchanged restamp and that a stamp marks only its own rows, relaxing (only the rows with prints), the moved window
+  (no stale print at its wrapped place), the gaits (two oval feet, four round ones for mounts and beasts, steps
+  lengthening with speed, less drag at a run, the four-legged families), a standing unit's two prints and none
+  between them, a walk planting left and right feet one step apart with a shallow scuff between a foot's prints, a
+  jump, a standing mount's four hooves and none under its belly, the constants and the ambient share. For the
+  ground circles it lifts a stand-in terrain batch by a known lift and puts its heights back, and leaves a batch
+  without heights alone. On the device it draws a trench under a light from one side with a stand-in for the
+  client's pixel shader rewritten the same way: the floor darker, the wall toward the light brighter than the one
+  away, untouched snow, a switched-off map and a trench beyond the footprint distance as the client drew them. It
+  checks that every pixel shader also reassembles with the depth write, the depth row, and on the device draws the
+  trench with the depth-writing copy into a depth buffer and then a plane 0.05 yd under the snow: the plane shows in
+  the trench and stays hidden behind untouched snow. In the game the first trenches (about 3,000 to 6,000 unit
+  stamps a minute in Dun Morogh) looked blocky with the character hidden below the old snow line; the secant step,
+  the rounder profile and the depth write fixed that (owner, 2026-11-02, at `SnowDepth` 0.15). The footprints, the
+  fade and the lifted ground circles have not been seen in the game yet.
 
 ## Target facing arrow
 
@@ -1716,7 +1765,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `GrassModelBend` | 1 | Each kind of grass, flower and pebble bends from its own root to its own tip, measured from its model; 0 = every doodad bends by its texture row |
 | `GrassDensity` | 2 | Plants drawn per plant the client places, near you (1 to 4): the client's own grass drawn again on the GPU, each copy moved sideways in a direction of its plant's own and kept on its ground slope; `GrassDensityRadius` 150 (yd from the camera, the copies thin out plant by plant from half of it to all of it, each plant sinking into the ground), `GrassDensitySpread` 1 (yd), `GrassDensityFade` 32 (yd of approach over which a plant grows out of the ground). Needs the doodad hooks; 1 here, in `GrassWind` and in `GrassParting` at start leaves the shaders alone |
 | `GrassParting` | 1 | Grass leans away from your character and the 16 nearest units within 40 yd; `GrassPartingForce` 0.25 (yd), `GrassPartingRadiusScale` 4.5 (times the collision radius), `GrassPartingMinRadius` 1 (yd), `GrassPartingMountedScale` 2 |
-| `Snow` | 1 | Ground painted with snow is raised by a layer of snow with ragged edges; `SnowDepth` 0.35 (yd), `SnowMaxSlope` 40 and `SnowSlopeFade` 15 (degrees), `SnowDrift` 0.35 (share of the depth), `SnowEdges` 1 (0 = the client's own snow texture alone), `SnowBreakup` 0.5; `SnowTrenches` 1 (units press trenches with a rim), `SnowTrenchSeconds` 30 (fill-in time), `SnowTrenchRim` 0.3 (share of the depth). Needs 1 at start to rewrite the terrain shaders |
+| `Snow` | 1 | Ground painted with snow is raised by a layer of snow with ragged edges; `SnowDepth` 0.15 (yd, 0 to 0.6), `SnowMaxSlope` 40 and `SnowSlopeFade` 15 (degrees), `SnowDrift` 0.35 (share of the depth), `SnowEdges` 1 (0 = the client's own snow texture alone), `SnowBreakup` 0.5; `SnowFootprints` 1 (units leave left and right footprints, four tracks for mounts and four-legged beasts), `SnowFootprintSeconds` 30 (fill-in time), `SnowFootprintRim` 0.3 (share of the depth), `SnowFootprintRadius` 28 (yd from the camera), `SnowFootprintFade` 8 (yd over which the prints fade out one by one); selection and spell circles are laid on the snow. Needs 1 at start to rewrite the terrain shaders |
 
 Turning `FarClipMax` on from 0 needs a restart. Other changes, including turning it off, apply at the next `farclip`
 change, map load or zone change, where raising it shows a loading screen.

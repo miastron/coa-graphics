@@ -187,19 +187,21 @@ const BoolSetting kGrassWindBoolSettings[] = {
 };
 
 const FloatSetting kSnowFloatSettings[] = {
-    {"SnowDepth", &Config::snowDepth, 0.0f, 1.5f},
+    {"SnowDepth", &Config::snowDepth, 0.0f, 0.6f},
     {"SnowMaxSlope", &Config::snowMaxSlope, 10.0f, 80.0f},
     {"SnowSlopeFade", &Config::snowSlopeFade, 0.0f, 40.0f},
     {"SnowDrift", &Config::snowDrift, 0.0f, 1.0f},
     {"SnowEdges", &Config::snowEdges, 0.0f, 1.0f},
     {"SnowBreakup", &Config::snowBreakup, 0.0f, 1.0f},
-    {"SnowTrenchSeconds", &Config::snowTrenchSeconds, 2.0f, 300.0f},
-    {"SnowTrenchRim", &Config::snowTrenchRim, 0.0f, 1.0f},
+    {"SnowFootprintSeconds", &Config::snowFootprintSeconds, 2.0f, 300.0f},
+    {"SnowFootprintRim", &Config::snowFootprintRim, 0.0f, 1.0f},
+    {"SnowFootprintRadius", &Config::snowFootprintRadius, 4.0f, 32.0f},
+    {"SnowFootprintFade", &Config::snowFootprintFade, 1.0f, 16.0f},
 };
 
 const BoolSetting kSnowBoolSettings[] = {
     {"Snow", &Config::snow},
-    {"SnowTrenches", &Config::snowTrenches},
+    {"SnowFootprints", &Config::snowFootprints},
 };
 
 const BoolSetting kTreeWindBoolSettings[] = {

@@ -16,6 +16,8 @@
 #include "image_quality.h"
 #include "log.h"
 #include "snow_cover.h"
+#include "snow_decals.h"
+#include "snow_footprints.h"
 #include "snow_shaders.h"
 #include "snow_trenches.h"
 #include "test_seams.h"
@@ -117,6 +119,10 @@ DWORD g_snowLastStatus = 0;
 int g_trenchMapId = -1;
 LARGE_INTEGER g_trenchLastTick = {};
 unsigned g_trenchStamps = 0;
+uintptr_t g_decalNormalBuildTarget = engine::kProjectedNormalBuild;
+uintptr_t g_decalColourBuildTarget = engine::kProjectedColourBuild;
+bool g_decalLiftInstalled = false;
+unsigned g_decalBatchesLifted = 0;
 engine::ClientSnowTerrain g_snowTerrain;
 unsigned g_grassConstantFrames = 0;
 unsigned g_grassChunkUploads = 0;
@@ -455,12 +461,15 @@ void LogSnowStatus(const SnowMap& map, int mapId)
     VF_LOG_INFO("snow: map %d, %d of %d chunks around the camera read, %d with snow, %d waiting; terrain shaders "
                 "rewritten: %u vertex (%u not), %u pixel (%u left stock), %u in use on the device; snow map %s, %u "
                 "uploads; %u terrain draws so far, %u of them found the snow constants or map unbound and rebound "
-                "them; %d trench texels, %u unit stamps since the last line",
+                "them; %d footprint texels, %u footprints since the last line, %u footprint rows uploaded so far; %u "
+                "ground circle batches lifted onto the snow since the last line",
                 mapId, map.FilledChunks(), kSnowWindowChunks * kSnowWindowChunks, map.SnowChunks(),
                 map.PendingChunks(), shaders.VertexInjected(), shaders.VertexFailed(), shaders.PixelInjected(),
                 shaders.PixelLeft(), surface.terrainShaders, surface.ready ? "ready" : "not ready", surface.uploads,
-                surface.terrainDraws, surface.reboundDraws, GlobalTrenchMap().ActiveTexels(), g_trenchStamps);
+                surface.terrainDraws, surface.reboundDraws, GlobalTrenchMap().ActiveTexels(), g_trenchStamps,
+                surface.trenchRowsUploaded, g_decalBatchesLifted);
     g_trenchStamps = 0;
+    g_decalBatchesLifted = 0;
 }
 
 float TrenchSeconds()
@@ -490,19 +499,21 @@ void MarkUnitsOnGround(const NearbyUnitFrame& units, bool* onGround)
 TrenchConstants UpdateTrenches(const Config& cfg, FogDevice* device, int mapId, bool snowActive)
 {
     TrenchMap& map = GlobalTrenchMap();
-    TrenchStamper& stamper = GlobalTrenchStamper();
+    FootprintStamper& stamper = GlobalFootprintStamper();
     TrenchLight light = {{}, {0.0f, 0.0f, 1.0f}, 1.0f};
-    if (!snowActive || !cfg.snowTrenches || mapId != g_trenchMapId)
+    const TrenchReach reach = {cfg.snowFootprintRadius, cfg.snowFootprintFade};
+    if (!snowActive || !cfg.snowFootprints || mapId != g_trenchMapId)
     {
         if (map.Placed())
         {
             map.Reset();
             stamper.Reset();
+            UploadTrenchMap(device, map);
         }
         g_trenchMapId = mapId;
         TrenchSeconds();
-        if (!snowActive || !cfg.snowTrenches)
-            return TrenchConstantsFor(map, false, cfg.snowTrenchRim, light);
+        if (!snowActive || !cfg.snowFootprints)
+            return TrenchConstantsFor(map, false, cfg.snowFootprintRim, light, reach);
     }
     engine::ReadCameraPosition(light.camera);
     float centre[3];
@@ -513,14 +524,20 @@ TrenchConstants UpdateTrenches(const Config& cfg, FogDevice* device, int mapId, 
     bool onGround[kMaxNearbyUnits] = {};
     if (engine::CaptureNearbyUnits(centre, kTrenchUnitRange, units))
         MarkUnitsOnGround(units, onGround);
-    g_trenchStamps += stamper.Step(map, units, onGround);
-    map.Relax(TrenchSeconds(), cfg.snowTrenchSeconds);
+    const float seconds = TrenchSeconds();
+    g_trenchStamps += stamper.Step(map, units, onGround, seconds);
+    map.Relax(seconds, cfg.snowFootprintSeconds);
     const bool uploaded = UploadTrenchMap(device, map);
     uint32_t ambient = 0;
     uint32_t direct = 0;
     if (engine::ReadSceneLight(light.toLight, ambient, direct))
         light.ambientShare = AmbientShare(ambient, direct);
-    return TrenchConstantsFor(map, uploaded, cfg.snowTrenchRim, light);
+    return TrenchConstantsFor(map, uploaded, cfg.snowFootprintRim, light, reach);
+}
+
+float DecalSnowLift(float x, float y)
+{
+    return SnowLiftAt(GlobalSnowMap(), GlobalSnowFrame().vertex, x, y);
 }
 
 void UpdateSnowUnsafe()
@@ -2091,6 +2108,59 @@ __declspec(naked) static void GrassPassEndThunk()
     }
 }
 
+extern "C" void __cdecl vf_on_decal_build_begin(uintptr_t batch)
+{
+    if (g_snowFailed || !(GlobalSnowFrame().vertex.registers[2][1] > 0.0f) ||
+        !GlobalSnowShaders().VertexInjected())
+        return;
+    if (engine::LiftDecalBatch(batch, &DecalSnowLift))
+        ++g_decalBatchesLifted;
+}
+
+extern "C" void __cdecl vf_on_decal_build_end()
+{
+    engine::RestoreDecalBatch();
+}
+
+__declspec(naked) static void DecalNormalBuildThunk()
+{
+    __asm {
+        pushad
+        push esi
+        call vf_on_decal_build_begin
+        add esp, 4
+        popad
+        push dword ptr [esp + 8]
+        push dword ptr [esp + 8]
+        call dword ptr [g_decalNormalBuildTarget]
+        add esp, 8
+        pushad
+        call vf_on_decal_build_end
+        popad
+        ret
+    }
+}
+
+__declspec(naked) static void DecalColourBuildThunk()
+{
+    __asm {
+        pushad
+        push eax
+        call vf_on_decal_build_begin
+        add esp, 4
+        popad
+        push dword ptr [esp + 12]
+        push dword ptr [esp + 12]
+        push dword ptr [esp + 12]
+        call dword ptr [g_decalColourBuildTarget]
+        add esp, 12
+        pushad
+        call vf_on_decal_build_end
+        popad
+        ret
+    }
+}
+
 const void* RetargetGrassDoodadThunks(uintptr_t fillTarget, uintptr_t drawTarget, uintptr_t passEndTarget,
                                       GrassBandsFn bands, GrassShadowFn shadow, bool modelBend,
                                       const void*& drawThunk, const void*& passEndThunk)
@@ -2601,6 +2671,25 @@ bool InstallGrassWindHooks()
     return true;
 }
 
+void InstallDecalLift()
+{
+    const CallSite sites[] = {
+        {engine::kProjectedNormalBuildSites[0], engine::kProjectedNormalBuild,
+         reinterpret_cast<const void*>(&DecalNormalBuildThunk)},
+        {engine::kProjectedNormalBuildSites[1], engine::kProjectedNormalBuild,
+         reinterpret_cast<const void*>(&DecalNormalBuildThunk)},
+        {engine::kProjectedColourBuildSites[0], engine::kProjectedColourBuild,
+         reinterpret_cast<const void*>(&DecalColourBuildThunk)},
+        {engine::kProjectedColourBuildSites[1], engine::kProjectedColourBuild,
+         reinterpret_cast<const void*>(&DecalColourBuildThunk)},
+    };
+    if (!engine::DecalLiftCodeMatches(ClientCodeView()))
+        return;
+    if (!SitesHoldTheClientCalls(sites, "ground circle lift") || !PatchCallSites(sites))
+        return;
+    g_decalLiftInstalled = true;
+}
+
 bool InstallSnow()
 {
     const Config& cfg = GlobalConfig().Get();
@@ -2614,9 +2703,10 @@ bool InstallSnow()
     GlobalSnowMap().Configure(SnowSettingsFrom(cfg));
     GlobalSnowShaders().Enable(true);
     g_snowInstalled = true;
+    InstallDecalLift();
     VF_LOG_INFO("snow installed: terrain shaders are rewritten as the client creates them (SnowDepth=%.2f, "
-                "SnowEdges=%.2f)",
-                cfg.snowDepth, cfg.snowEdges);
+                "SnowEdges=%.2f); ground circles %s",
+                cfg.snowDepth, cfg.snowEdges, g_decalLiftInstalled ? "are lifted onto the snow" : "stay under it");
     return true;
 }
 
