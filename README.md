@@ -543,7 +543,11 @@ The water is tuned by eye against this mapping, not matched to Forever captures.
   with the X8R8G8B8 adapter format). The client's present-parameter builder takes a windowed back buffer format from the
   desktop's mode and a fullscreen one from `s_GxFormatToD3dFormat` = {R5G6B5, X8R8G8B8, A8R8G8B8, A2R10G10B10, ...}
   (`CGxDeviceD3d.cpp:2211`, `:2218`), so a fullscreen A8R8G8B8 back buffer is possible; which colour format the
-  32-bit setting picks is not confirmed.
+  32-bit setting picks is not confirmed. When the `INTZ` texture cannot be created or bound, the wrapper binds a plain
+  depth surface of the game's format and turns the fog off for that device; when that surface cannot be bound either,
+  `CreateDevice` releases the fog device and creates the device again with the game's own parameters and flags, and
+  `Reset` resets the device again with the game's parameters, so the game keeps its automatic depth (the next `Reset`
+  tries the fog depth again).
 - **Hooks.** Five 5-byte call displacements:
   - the world render call (`0x4FB03D`): stock-fog override and restore;
   - after the opaque M2 pass (`0x4F911D`): captures camera inputs;

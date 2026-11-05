@@ -24,7 +24,7 @@ void RunAtFirstDevice(void (*startup)());
 class FogDevice;
 FogDevice* LatestFogDevice();
 #ifdef VF_TESTING
-void RefuseFogDepthCreation(bool refused);
+void RefuseFogDepthCreation(bool intzRefused, bool fallbackRefused);
 bool RefreshSceneDepth(FogDevice* device);
 #endif
 MultisamplingStatus CurrentMultisamplingStatus();

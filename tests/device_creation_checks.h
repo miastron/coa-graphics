@@ -10,6 +10,8 @@ constexpr UINT kWidth = 1280;
 constexpr UINT kHeight = 720;
 constexpr D3DFORMAT kDxvkDisplayFormats[] = {D3DFMT_X8R8G8B8, D3DFMT_X1R5G5B5, D3DFMT_R5G6B5, D3DFMT_A2R10G10B10};
 constexpr int kReszDepthCopy = static_cast<int>(DepthCopyMethod::Resz);
+constexpr int kAcceptDepth = 0;
+constexpr int kRefuseAnyDepth = 2;
 
 struct DeviceScript
 {
@@ -244,6 +246,47 @@ void CheckFullscreenAlphaBackBufferAsksForStencilDepth(Direct3DCreate realCreate
     d3d->Release();
 }
 
+void CheckGameKeepsItsDepthWhenNoFogDepthCanBeBound(Direct3DCreate realCreate, HWND window)
+{
+    IDirect3D9* d3d = vf_test_wrap_direct3d9(realCreate, D3D_SDK_VERSION);
+    Config cfg = DeviceConfig(false);
+    vf_test_set_config(&cfg);
+    D3DPRESENT_PARAMETERS pp = ClientParameters(window, TRUE, D3DFMT_X8R8G8B8, D3DMULTISAMPLE_NONE);
+    IDirect3DDevice9* dev = nullptr;
+    vf_test_refuse_fog_depth(kRefuseAnyDepth);
+    const HRESULT created = d3d->CreateDevice(0, D3DDEVTYPE_HAL, window, kClientDeviceFlags, &pp, &dev);
+    vf_test_refuse_fog_depth(kAcceptDepth);
+    Check(SUCCEEDED(created) && dev && BoundDepthFormat(dev) == kClientDepthFormat && pp.EnableAutoDepthStencil &&
+              pp.AutoDepthStencilFormat == kClientDepthFormat,
+          "when neither the fog's INTZ depth nor a fallback depth can be created, CreateDevice gives the game a "
+          "device with its own automatic depth");
+    ReleaseDevice(dev);
+    d3d->Release();
+}
+
+void CheckGameKeepsItsDepthThroughAResetWithoutFogDepth(Direct3DCreate realCreate, HWND window)
+{
+    IDirect3D9* d3d = vf_test_wrap_direct3d9(realCreate, D3D_SDK_VERSION);
+    Config cfg = DeviceConfig(false);
+    vf_test_set_config(&cfg);
+    D3DPRESENT_PARAMETERS pp = ClientParameters(window, TRUE, D3DFMT_X8R8G8B8, D3DMULTISAMPLE_NONE);
+    IDirect3DDevice9* dev = nullptr;
+    const HRESULT created = d3d->CreateDevice(0, D3DDEVTYPE_HAL, window, kClientDeviceFlags, &pp, &dev);
+    const bool fogDepthBound = dev && BoundDepthFormat(dev) == kIntz;
+    vf_test_refuse_fog_depth(kRefuseAnyDepth);
+    const HRESULT refused = dev ? dev->Reset(&pp) : D3DERR_INVALIDCALL;
+    const D3DFORMAT keptDepth = dev ? BoundDepthFormat(dev) : D3DFMT_UNKNOWN;
+    vf_test_refuse_fog_depth(kAcceptDepth);
+    const HRESULT recovered = dev ? dev->Reset(&pp) : D3DERR_INVALIDCALL;
+    const D3DFORMAT returnedDepth = dev ? BoundDepthFormat(dev) : D3DFMT_UNKNOWN;
+    Check(SUCCEEDED(created) && fogDepthBound && SUCCEEDED(refused) && keptDepth == kClientDepthFormat &&
+              SUCCEEDED(recovered) && returnedDepth == kIntz,
+          "a Reset that can create neither the fog's INTZ depth nor a fallback depth leaves the game its own "
+          "automatic depth, and the next Reset binds the fog's INTZ depth again");
+    ReleaseDevice(dev);
+    d3d->Release();
+}
+
 void CheckDeviceCreation(Direct3DCreate realCreate, HWND window)
 {
     CheckDisplayFormats();
@@ -251,6 +294,8 @@ void CheckDeviceCreation(Direct3DCreate realCreate, HWND window)
     vf_test_get_config(&before);
     CheckFullscreenAlphaBackBufferKeepsTheFog(realCreate, window);
     CheckFullscreenAlphaBackBufferAsksForStencilDepth(realCreate, window);
+    CheckGameKeepsItsDepthWhenNoFogDepthCanBeBound(realCreate, window);
+    CheckGameKeepsItsDepthThroughAResetWithoutFogDepth(realCreate, window);
     vf_test_set_config(&before);
 }
 }

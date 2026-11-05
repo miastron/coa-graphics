@@ -503,9 +503,12 @@ extern "C" int __cdecl vf_test_fog_data_loaded()
     return GlobalFogData().Loaded() ? 1 : 0;
 }
 
-extern "C" void __cdecl vf_test_refuse_fog_depth(int refused)
+constexpr int kRefuseFogDepthTexture = 1;
+constexpr int kRefuseAnyDepth = 2;
+
+extern "C" void __cdecl vf_test_refuse_fog_depth(int mode)
 {
-    RefuseFogDepthCreation(refused != 0);
+    RefuseFogDepthCreation(mode >= kRefuseFogDepthTexture, mode >= kRefuseAnyDepth);
 }
 
 extern "C" void __cdecl vf_test_inject_fog_pass_fault(int faulting)
