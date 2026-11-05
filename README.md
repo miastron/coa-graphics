@@ -222,8 +222,9 @@ The eight uploaded lights are chosen by a stabiliser rather than re-ranked from 
   the ranking, so a light whose sphere lies wholly outside the view takes no slot. A light behind or beside the camera
   still competes while its sphere reaches into the view, which a sphere of up to 200 yd does from far away. A candidate is
   the nearest light already known with the same node address within 2 yd plus 40 yd for each second since the last
-  capture, so a colour or attenuation that animates between captures stays one light, and so does a light that moves at
-  up to 40 yd/s at any frame rate, while an address the client reuses 10 yd away within one frame at 60 fps is a new light.
+  capture that was not held (see Gaps and frames), so a colour or attenuation that animates between captures stays one
+  light, and so does a light that moves at up to 40 yd/s at any frame rate, also across held captures, while an address
+  the client reuses 10 yd away within one frame at 60 fps is a new light.
 - **Taking a slot.** A free slot goes first to a challenger that evicted its holder, otherwise to the visible candidate with
   the highest smoothed priority (0.3 s). An occupied slot changes hands only when a candidate's smoothed priority exceeds
   1.5 times the weakest slot's, for three captures in a row.
@@ -245,7 +246,9 @@ The eight uploaded lights are chosen by a stabiliser rather than re-ranked from 
   of the view while its last captured position still meets it, dims over 1 s and ramps back if it returns within that time.
   So a sphere on the edge does not hand its slot back and forth.
 - **Gaps and frames.** A capture that walked nothing (damaged table, table changed, read fault) keeps the previous set for up
-  to eight captures. The stabiliser steps once per captured world frame. When the frame inputs are read a second time in
+  to eight captures; they do not advance the clock of the identity radius and the priority smoothing, which counts the
+  time since the last capture that was not held (at most 1 s), while the fades keep the frame time. The stabiliser
+  steps once per captured world frame. When the frame inputs are read a second time in
   the same frame (the early composite and the whole-frame pass can both read them), the stabilised set is replayed. So
   hysteresis and holds count frames.
 - **Range.** There is no camera-distance bound: a light stays while its sphere meets the view and the client keeps it in

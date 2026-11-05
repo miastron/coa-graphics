@@ -50,6 +50,7 @@ private:
 
     void Replay(LocalLightInputs& lights) const;
     bool HoldOutput(LocalLightInputs& lights);
+    float AdvanceMatchClock(double seconds);
     void MatchCandidates(const LocalLightCamera& camera, const LocalLightInputs& lights, float dt);
     Entry* FindEntry(const LocalPointLight& light, float dt);
     Entry* AddEntry(const LocalPointLight& light, double priority);
@@ -74,6 +75,8 @@ private:
     int m_mapId = 0;
     uint32_t m_lastFrame = 0;
     double m_lastSeconds = 0.0;
+    double m_lastMatchSeconds = 0.0;
+    bool m_matched = false;
     double m_lastLogSeconds = 0.0;
     bool m_started = false;
     LocalLightActivity m_activity;

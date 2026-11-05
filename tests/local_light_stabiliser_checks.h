@@ -674,6 +674,37 @@ void CheckMovingLightKeepsItsEntry()
           "full strength once the fade time has passed");
 }
 
+void CheckMovingLightKeepsItsEntryAcrossHeldCaptures()
+{
+    constexpr float kMissileYardsPerSecond = 28.0f;
+    constexpr int kFirstHeldFrame = 30;
+    constexpr int kLastHeldFrame = kFirstHeldFrame + static_cast<int>(kLocalLightHoldCaptures) - 1;
+    const LocalLightCamera camera = ForwardCamera();
+    LocalLightStabiliser stabiliser;
+    LocalPointLight missile = StabiliserLight(1, 0.0f, 0.0f, 10.0f, 1.0f);
+    LocalLightInputs inputs = CaptureOf({missile}, camera);
+    StepFrame(stabiliser, camera, 0.0, inputs);
+    bool followed = true;
+    for (int frame = 1; frame <= kLastHeldFrame + kHalfSecondFrames; ++frame)
+    {
+        const double seconds = frame * kStabiliserFrameSeconds;
+        missile.position[2] = 10.0f + kMissileYardsPerSecond * static_cast<float>(seconds);
+        const bool held = frame >= kFirstHeldFrame && frame <= kLastHeldFrame;
+        inputs = held ? LocalLightInputs{} : CaptureOf({missile}, camera);
+        if (held)
+            inputs.capture = LocalLightCapture::DamagedTable;
+        StepFrame(stabiliser, camera, seconds, inputs);
+        float weight = 0.0f;
+        const LocalPointLight* uploaded = UploadedLight(inputs, 1);
+        followed = followed && inputs.pointLightCount == 1 && uploaded && Uploads(inputs, 1, &weight) &&
+                   weight == 1.0f && (held || uploaded->position[2] == missile.position[2]);
+    }
+    Check(followed && stabiliser.Activity().heldCaptures == kLocalLightHoldCaptures &&
+              stabiliser.Activity().admissions == 1 && stabiliser.Activity().fadeOuts == 0,
+          "a light moving 28 yd/s at 60 fps stays one light at full strength across eight held captures that walked "
+          "nothing, as the identity radius grows with the time since the last capture that was matched");
+}
+
 void CheckLocalLightStabiliser()
 {
     CheckBoundaryChurnIsAbsorbed();
@@ -696,5 +727,6 @@ void CheckLocalLightStabiliser()
     CheckEvictionWhoseHeirTookAnotherSlotRampsBack();
     CheckChallengerMissingSomeCapturesTakesTheSlot();
     CheckMovingLightKeepsItsEntry();
+    CheckMovingLightKeepsItsEntryAcrossHeldCaptures();
 }
 }

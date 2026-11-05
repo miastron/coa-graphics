@@ -66,6 +66,7 @@ void LocalLightStabiliser::Reset()
     m_rejectedCaptures = 0;
     m_orphanCaptures = 0;
     m_sceneStarting = true;
+    m_matched = false;
 }
 
 void LocalLightStabiliser::Step(const LocalLightCamera& camera, int mapId, uint32_t frame, double seconds,
@@ -96,7 +97,7 @@ void LocalLightStabiliser::Step(const LocalLightCamera& camera, int mapId, uint3
     }
     if (HoldOutput(lights))
         return;
-    MatchCandidates(camera, lights, dt);
+    MatchCandidates(camera, lights, AdvanceMatchClock(seconds));
     AdvanceWeights(dt);
     RemoveSpentEntries();
     FillFreeSlots();
@@ -111,6 +112,15 @@ void LocalLightStabiliser::Replay(LocalLightInputs& lights) const
 {
     std::memcpy(lights.pointLights, m_held, sizeof(m_held));
     lights.pointLightCount = m_heldCount;
+}
+
+float LocalLightStabiliser::AdvanceMatchClock(double seconds)
+{
+    const double elapsed =
+        m_matched ? std::clamp(seconds - m_lastMatchSeconds, 0.0, double{kLocalLightFadeSeconds}) : 0.0;
+    m_matched = true;
+    m_lastMatchSeconds = seconds;
+    return static_cast<float>(elapsed);
 }
 
 bool LocalLightStabiliser::HoldOutput(LocalLightInputs& lights)
