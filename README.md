@@ -1183,6 +1183,10 @@ Engine notes behind the code:
 - Depth copy. `NvAPI_D3D9_StretchRectEx` copies a multisampled D24S8 depth into a registered `INTZ` texture, one
   sample per pixel. The NVAPI functions come from `nvapi_QueryInterface` with the IDs of NVIDIA's public headers:
   `0x0150E828` Initialize, `0xA064BDFC` RegisterResource, `0xBB2B17AA` UnregisterResource, `0x22DE03AA` StretchRectEx.
+  `nvapi.dll` is loaded by its full path in the system folder (`GetSystemDirectoryW`, which WOW64 redirects to
+  SysWOW64 for the 32-bit client) with `LOAD_WITH_ALTERED_SEARCH_PATH`, so its imports are also searched there first;
+  the `LOAD_LIBRARY_SEARCH_SYSTEM32` flag would need KB2533623 on Vista and Windows 7. A failed load is logged with its
+  Windows error.
 - Liquid depth. While writes are forced on, the wrapper records the client's own `D3DRS_ZWRITEENABLE` requests
   and re-applies the last one afterwards, so the client's render-state cache stays accurate.
 - World-name text. `0x7E5818` (`E8 23 76 ED FF`) calls `0x6BCE40`, a cdecl wrapper that takes the font batch

@@ -67,6 +67,9 @@ constexpr D3DFORMAT kListDepthFormats[] = {D3DFMT_D16, D3DFMT_D24X8, D3DFMT_D24S
 constexpr int kListSampleCounts[] = {0, 2, 4, 6, 8, 10, 12, 14, 16};
 constexpr double kMaxListCostFactor = 3.0;
 constexpr double kListCostAllowanceMs = 10.0;
+constexpr DWORD kSearchFlagsAddedByKb2533623 = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
+                                              LOAD_LIBRARY_SEARCH_USER_DIRS | LOAD_LIBRARY_SEARCH_SYSTEM32 |
+                                              LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
 
 struct Targets
 {
@@ -396,6 +399,41 @@ void PrintFogFrame(const char* when, const FogFrame& f)
 bool FogFrameDrawn(const FogFrame& f)
 {
     return f.rendered && CopiedDepthMatches(f) && f.lumaChange > kMinFogLumaChange;
+}
+
+struct LibraryLoad
+{
+    std::wstring file;
+    DWORD flags = 0;
+};
+
+LibraryLoad g_windows7Load;
+
+HMODULE WINAPI LoadOnWindows7WithoutKb2533623(LPCWSTR file, HANDLE, DWORD flags)
+{
+    g_windows7Load = {file, flags};
+    SetLastError((flags & kSearchFlagsAddedByKb2533623) ? ERROR_INVALID_PARAMETER : ERROR_MOD_NOT_FOUND);
+    return nullptr;
+}
+
+std::wstring SystemFolderNvapi()
+{
+    wchar_t folder[MAX_PATH] = {};
+    const UINT length = GetSystemDirectoryW(folder, MAX_PATH);
+    return std::wstring(folder, length) + L"\\nvapi.dll";
+}
+
+void CheckNvapiLoadsWithoutKb2533623()
+{
+    const size_t logStart = water_settings_checks::DllLogSize();
+    const char* unavailable = vf_test_load_nvapi(LoadOnWindows7WithoutKb2533623);
+    const std::string log = runtime_cost::LogWrittenSince(logStart);
+    Check(g_windows7Load.file == SystemFolderNvapi() && (g_windows7Load.flags & kSearchFlagsAddedByKb2533623) == 0 &&
+              std::strcmp(unavailable, "nvapi.dll could not be loaded from the system folder") == 0 &&
+              runtime_cost::HasLine(log, "NVAPI unavailable: nvapi.dll could not be loaded from the system folder "
+                                         "(Windows error 126)"),
+          "NVAPI is loaded by its full path in the system folder, without the search flags that Windows 7 refuses "
+          "without KB2533623, and a failed load is logged with its Windows error instead of as a missing file");
 }
 
 void CheckVideoOptionsOffer(Harness& m, IDirect3D9* real, bool driverCopies)
