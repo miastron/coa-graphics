@@ -73,7 +73,7 @@ struct FogParams
     float farClip;
     float referenceZ;
     float farLimit;
-    float localLightDensityGain = 1.0f;
+    float localLightGain = 1.0f;
     bool linear;
     bool authored;
 };

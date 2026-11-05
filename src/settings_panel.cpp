@@ -220,6 +220,16 @@ bool SkyColour(const char* label, float& value, const char* region)
     return Slider(label, value, 0.0f, 1.0f, "%.2f", help);
 }
 
+bool RegionLocalLights(Config& c, float Config::*member, const char* label, const char* region)
+{
+    char help[kStatusTextSize];
+    std::snprintf(help, sizeof(help),
+                  "Local light intensity in %s, on top of Local light intensity; the region's density does not "
+                  "change the lamps' glow",
+                  region);
+    return Slider(c, member, label, "%.2f", help);
+}
+
 bool DrawRegions(Config& c)
 {
     const Section section("Regions", ImGuiTreeNodeFlags_DefaultOpen);
@@ -237,10 +247,14 @@ bool DrawRegions(Config& c)
                           "Fog thickness on the old continents, in their dungeons and on every other map, on top "
                           "of Density");
     changed |= SkyColour("Azeroth sky colour", c.azerothSkyColor, "Azeroth and on every other map");
+    changed |= RegionLocalLights(c, &Config::azerothLocalLights, "Azeroth local lights",
+                                 "Azeroth and on every other map");
     changed |= Multiplier("Outland density", c.outlandDensity, "Fog thickness in Outland, on top of Density");
     changed |= SkyColour("Outland sky colour", c.outlandSkyColor, "Outland");
+    changed |= RegionLocalLights(c, &Config::outlandLocalLights, "Outland local lights", "Outland");
     changed |= Multiplier("Northrend density", c.northrendDensity, "Fog thickness in Northrend, on top of Density");
     changed |= SkyColour("Northrend sky colour", c.northrendSkyColor, "Northrend");
+    changed |= RegionLocalLights(c, &Config::northrendLocalLights, "Northrend local lights", "Northrend");
     return changed;
 }
 
@@ -249,9 +263,10 @@ bool DrawLight(Config& c)
     const Section section("Light", ImGuiTreeNodeFlags_DefaultOpen);
     if (!section)
         return false;
-    bool changed = Multiplier("Sun scatter", c.sunScatter, "In-scattered sun or moon light: the halo around it");
-    changed |= Slider(c, &Config::moonScatter, "Moon scatter", "%.2f",
-                      "Share of Sun scatter the moon scatters at night, 1 = as bright as the sun");
+    bool changed = Multiplier("Sun scatter", c.sunScatter, "In-scattered sun light by day: the halo around it");
+    changed |= Multiplier("Moon scatter", c.moonScatter,
+                          "In-scattered moon light at night, on its own: Sun scatter does not change it. 1 = as "
+                          "bright as the sun's halo");
     changed |= Multiplier("Ambient", c.ambient, "Ambient fog brightness");
     changed |= Multiplier("Exposure", c.exposure, "Brightness of the layers used where no Classic data exists");
     changed |= Multiplier("Classic exposure", c.classicExposure, "Brightness of the Classic layers, 1 = default");

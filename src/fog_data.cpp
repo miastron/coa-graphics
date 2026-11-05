@@ -17,6 +17,8 @@ constexpr float kHalfMinutesPerDay = 2880.0f;
 constexpr uint32_t kMinimumOutlinePoints = 3;
 constexpr uint32_t kClientSelectedLayerFlag = 0x8;
 constexpr uint32_t kClientNoiseLayerFlag = 0x4;
+constexpr uint32_t kNoSunLayerFlag = 0x10;
+constexpr uint32_t kClearSkyLayerFlag = 0x20;
 constexpr float kNoiseScaleUnitYards = 100.0f;
 constexpr uint32_t kNoGradingCurve = 0;
 constexpr float kGradingCurveCodeMax = 255.0f;
@@ -81,6 +83,22 @@ void AddScaled(AuthoredLayer& acc, const AuthoredLayer& l, float w)
     acc.g += l.g * w;
     acc.strength += l.strength * w;
     acc.exponent += l.exponent * w;
+    acc.sunless += l.sunless * w;
+    acc.clearSky += l.clearSky * w;
+}
+
+float PresentLayersMean(const AuthoredLayer* layers, int count, float AuthoredLayer::*field)
+{
+    float sum = 0.0f;
+    int present = 0;
+    for (int i = 0; i < count; ++i)
+    {
+        if (layers[i].density <= 0.0f)
+            continue;
+        sum += layers[i].*field;
+        ++present;
+    }
+    return present > 0 ? sum / static_cast<float>(present) : 0.0f;
 }
 
 class NoiseBlend
@@ -548,6 +566,8 @@ AuthoredLayer FogData::Unpack(const Layer& layer)
     out.g = layer.g;
     out.strength = layer.strength;
     out.exponent = layer.exponent;
+    out.sunless = layer.flags & kNoSunLayerFlag ? 1.0f : 0.0f;
+    out.clearSky = layer.flags & kClearSkyLayerFlag ? 1.0f : 0.0f;
     out.flags = layer.flags;
     out.noise = UnpackNoise(layer);
     return out;
@@ -692,6 +712,8 @@ bool FogData::Resolve(int mapId, const float* position, float dayFraction, const
         for (int j = 0; j < condition.layerCount; ++j)
             layerBlends[j].Add(condition.layers[j], weight);
         directLight.Add(condition.directLight, condition.directLightPresence, weight);
+        out.sunless += PresentLayersMean(condition.layers, condition.layerCount, &AuthoredLayer::sunless) * weight;
+        out.clearSky += PresentLayersMean(condition.layers, condition.layerCount, &AuthoredLayer::clearSky) * weight;
         out.layerCount = std::max(out.layerCount, condition.layerCount);
     }
     for (int j = 0; j < out.layerCount; ++j)

@@ -86,7 +86,7 @@ constexpr int kMinLampLitColourLevel = 40;
 constexpr int kMaxLampColourLevelError = 3;
 constexpr float kFitLampCutoff = 30.0f;
 constexpr float kFitLampPhase = 0.3f;
-constexpr float kFitLocalLightDensityGain = 2.0f;
+constexpr float kFitLocalLightGain = 2.0f;
 
 struct LampPlacement
 {
@@ -453,13 +453,13 @@ FrameInputs LampsAroundTheCameraInputs()
     return v.in;
 }
 
-void CheckFitCarriesTheLocalLightDensityGain()
+void CheckFitCarriesTheLocalLightGain()
 {
     const FrameInputs lit = LampsAroundTheCameraInputs();
     FogParams fog = HomogeneousFog(kLampLitDensity, 0.0f);
     const StockFogFitLight light = {1.0f, 0.0f, lit.localLights.pointLightCount, kFitLampPhase};
     const StockFogFit plain = FitStockFog(fog, lit, light);
-    fog.localLightDensityGain = kFitLocalLightDensityGain;
+    fog.localLightGain = kFitLocalLightGain;
     const StockFogFit gained = FitStockFog(fog, lit, light);
     const int shifts[3] = {16, 8, 0};
     bool brighter = false;
@@ -471,12 +471,12 @@ void CheckFitCarriesTheLocalLightDensityGain()
         brighter = brighter || after > before;
         darker = darker || after < before;
     }
-    std::printf("     lamp-lit fog: fitted colour %06X, %06X with local light density gain %.1f; range %.1f..%.1f yd, "
+    std::printf("     lamp-lit fog: fitted colour %06X, %06X with local light gain %.1f; range %.1f..%.1f yd, "
                 "%.1f..%.1f yd\n",
-                plain.colour & 0xFFFFFF, gained.colour & 0xFFFFFF, kFitLocalLightDensityGain, plain.start, plain.end,
+                plain.colour & 0xFFFFFF, gained.colour & 0xFFFFFF, kFitLocalLightGain, plain.start, plain.end,
                 gained.start, gained.end);
     Check(plain.fogs && gained.fogs && brighter && !darker && plain.start == gained.start && plain.end == gained.end,
-          "the fitted stock fog of see-through batches takes the march's local light density gain: the lamps' "
+          "the fitted stock fog of see-through batches takes the march's local light gain: the lamps' "
           "in-scatter brightens and the fitted fog range stays");
 }
 
@@ -514,7 +514,7 @@ void CheckStockFogFit(const FogData& classic)
 {
     CheckFitAgainstTheVolumetricFog(classic);
     CheckBatchFogKeepsBlendModeColours();
-    CheckFitCarriesTheLocalLightDensityGain();
+    CheckFitCarriesTheLocalLightGain();
 }
 
 void CheckTransparentFogSetting(const std::wstring& outDir, const std::wstring& shippedIni)

@@ -16,7 +16,7 @@ float LocalLightPhaseG()
     return cLocalLightControl.z;
 }
 
-float LocalLightDensityGain()
+float LocalLightGain()
 {
     return cLocalLightControl.w;
 }

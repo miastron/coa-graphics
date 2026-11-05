@@ -6,14 +6,19 @@ import sys
 import zipfile
 
 DESCRIPTION = ("Add fog lights for every map the Classic data in a fogdata.bin does not cover, placed and coloured by "
-               "the 3.3.5 client's Light, LightIntBand and LightFloatBand tables (a DBFilesClient folder or zip), "
-               "with the layers and glow of the Classic light whose 3.3.5 lighting is most alike.")
-CLIENT_TABLES = ("Light.dbc", "LightIntBand.dbc", "LightFloatBand.dbc")
+               "the 3.3.5 client's Light, LightIntBand, LightFloatBand, LightParams and LightSkybox tables (a "
+               "DBFilesClient folder or zip), with the layers and glow of the Classic light whose 3.3.5 lighting is "
+               "most alike.")
+CLIENT_TABLES = ("Light.dbc", "LightIntBand.dbc", "LightFloatBand.dbc", "LightParams.dbc", "LightSkybox.dbc")
 DBC_MAGIC = b"WDBC"
 DBC_HEADER_FORMAT = "<4s4I"
 DBC_LIGHT_FORMAT = "<2i5f8i"
 DBC_INT_BAND_FORMAT = "<2I16I16I"
 DBC_FLOAT_BAND_FORMAT = "<2I16I16f"
+DBC_LIGHT_PARAMS_FORMAT = "<4if4f"
+DBC_SKYBOX_FORMAT = "<3I"
+LIGHT_PARAMS_SKYBOX = 2
+SKYBOX_DRAWS_SUN_AND_MOON = 0x2
 DBC_BAND_KEYS = 16
 INT_BANDS_PER_PARAMS = 18
 FLOAT_BANDS_PER_PARAMS = 6
@@ -22,6 +27,7 @@ AMBIENT_BAND = 1
 SKY_TOP_BAND = 2
 SKY_MIDDLE_BAND = 3
 FOG_BAND = 7
+SUN_BAND = 9
 FOG_DISTANCE_BAND = 0
 MATCHED_INT_BANDS = (FOG_BAND, SKY_TOP_BAND, SKY_MIDDLE_BAND, DIRECT_BAND, AMBIENT_BAND)
 FOG_DISTANCE_MATCH_WEIGHT = 0.05
@@ -60,6 +66,9 @@ LAYER_UPPER_HEIGHT = 8
 LAYER_LOWER_HEIGHT = 10
 RELATIVE_HEIGHTS_FLAG = 0x2
 NOISE_FLAG = 0x4
+NO_SUN_FLAG = 0x10
+CLEAR_SKY_FLAG = 0x20
+GROUND_FOG_ONLY_SKYBOXES = {"hellfireskybox.mdx": (0.0, 0.0, 0.3)}
 HEIGHT_SHIFT_STEP = 25.0
 LAYER_NOISE_FADE = 15
 KEY_DIRECT = 3
@@ -89,6 +98,12 @@ class ClientTables:
                 with open(os.path.join(self.source, candidate), "rb") as handle:
                     return handle.read()
         raise SystemExit("%s has no %s" % (self.source, name))
+
+    def strings(self, name):
+        data = self.read(name)
+        _, count, _, size, string_size = struct.unpack_from(DBC_HEADER_FORMAT, data)
+        start = struct.calcsize(DBC_HEADER_FORMAT) + count * size
+        return data[start:start + string_size]
 
     def records(self, name, record_format):
         data = self.read(name)
@@ -148,14 +163,39 @@ def float_bands(tables):
     return bands
 
 
+def skyboxes(tables):
+    names = tables.strings("LightSkybox.dbc")
+    found = {}
+    for skybox_id, name_offset, flags in tables.records("LightSkybox.dbc", DBC_SKYBOX_FORMAT):
+        path = names[name_offset:names.index(b"\0", name_offset)].decode("ascii", "replace")
+        found[skybox_id] = (path.replace("/", "\\").rsplit("\\", 1)[-1].lower(), flags)
+    return found
+
+
 class ClientLighting:
     def __init__(self, tables):
         self.lights = tables.records("Light.dbc", DBC_LIGHT_FORMAT)
         self.ints = int_bands(tables)
         self.floats = float_bands(tables)
+        self.light_params = {p[0]: p for p in tables.records("LightParams.dbc", DBC_LIGHT_PARAMS_FORMAT)}
+        self.skyboxes = skyboxes(tables)
+
+    def skybox(self, params_id):
+        params = self.light_params.get(params_id)
+        return self.skyboxes.get(params[LIGHT_PARAMS_SKYBOX]) if params else None
+
+    def draws_sun(self, params_id):
+        skybox = self.skybox(params_id)
+        if skybox and not skybox[1] & SKYBOX_DRAWS_SUN_AND_MOON:
+            return False
+        sun = self.int_band(params_id, SUN_BAND)
+        return not sun or any(any(rgb) for rgb in sun.values)
+
+    def int_band(self, params_id, band):
+        return self.ints.get(params_id * INT_BANDS_PER_PARAMS - (INT_BANDS_PER_PARAMS - 1) + band)
 
     def colour(self, params_id, band, half_minute):
-        entry = self.ints.get(params_id * INT_BANDS_PER_PARAMS - (INT_BANDS_PER_PARAMS - 1) + band)
+        entry = self.int_band(params_id, band)
         value = entry.at(half_minute) if entry else None
         return linear(value) if value else (0.0, 0.0, 0.0)
 
@@ -328,6 +368,11 @@ class Builder:
 
     def add_params(self, params_id, classic_params, twin_params, target_params, glow_params, height_shift):
         first = len(self.keys)
+        added_flags = 0 if self.client.draws_sun(target_params) else NO_SUN_FLAG
+        skybox = self.client.skybox(target_params)
+        layer_densities = GROUND_FOG_ONLY_SKYBOXES.get(skybox[0]) if skybox else None
+        if layer_densities:
+            added_flags |= CLEAR_SKY_FLAG
         for key, layers in self.fog.keys_of(classic_params):
             half_minute = key[0]
             colour = lambda params, band: self.client.colour(params, band, half_minute)
@@ -336,13 +381,13 @@ class Builder:
             density = self.density_ratio(twin_params, target_params, half_minute)
             self.keys.append((half_minute, len(layers), len(self.layers),
                               recoloured(key[KEY_DIRECT], twin_direct, target_direct), key[4]))
-            for layer in layers:
+            for index, layer in enumerate(layers):
                 layer = list(layer)
                 for field in (LAYER_EMISSIVE, LAYER_SHADOW_EMISSIVE, LAYER_NOISE_FADE):
                     layer[field] = recoloured(layer[field], twin_fog, target_fog) & RGB_MASK
                 layer[LAYER_DIFFUSE] = recoloured(layer[LAYER_DIFFUSE], twin_direct, target_direct) & RGB_MASK
-                layer[LAYER_DENSITY] *= density
-                layer[LAYER_FLAGS] &= ~NOISE_FLAG
+                layer[LAYER_DENSITY] *= density * (layer_densities[index] if layer_densities else 1.0)
+                layer[LAYER_FLAGS] = layer[LAYER_FLAGS] & ~NOISE_FLAG | added_flags
                 if not layer[LAYER_FLAGS] & RELATIVE_HEIGHTS_FLAG:
                     layer[LAYER_UPPER_HEIGHT] += height_shift
                     layer[LAYER_LOWER_HEIGHT] += height_shift

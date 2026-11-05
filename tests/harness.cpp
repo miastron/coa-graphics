@@ -1354,23 +1354,24 @@ void CheckLayerSlidersScaleTheClassicLayers(const FogData& data)
           "defaults, which keep the layers as authored");
 }
 
-void CheckMoonScattersAShareOfTheSun(const FogData& data)
+void CheckMoonScattersOnItsOwn(const FogData& data)
 {
-    const Vec3 hellfirePeninsula = {-3005.0f, 4469.0f, -18.0f};
+    const Vec3 goldshire = {-9456.8f, 54.7f, 59.6f};
     const Vec3 toLight = {0.607f, 0.607f, 0.513f};
     const float evening = 0.7279f;
-    const FrameInputs sunLit = ContinentFrame(kOutland, hellfirePeninsula, evening, toLight, false);
-    const FrameInputs moonLit = ContinentFrame(kOutland, hellfirePeninsula, evening, toLight, true);
+    const FrameInputs sunLit = ContinentFrame(kEasternKingdoms, goldshire, evening, toLight, false);
+    const FrameInputs moonLit = ContinentFrame(kEasternKingdoms, goldshire, evening, toLight, true);
     AuthoredFog fog = {};
-    const bool resolved = data.Resolve(kOutland, sunLit.camPos, evening, kClearWeather, fog);
+    const bool resolved = data.Resolve(kEasternKingdoms, sunLit.camPos, evening, kClearWeather, fog);
     const Config defaults;
-    Config bright = defaults;
-    bright.moonScatter = 1.0f;
+    Config noSun = defaults;
+    noSun.sunScatter = 0.0f;
     const FogParams sun = BuildFogParams(sunLit, defaults, &fog);
     const FogParams moon = BuildFogParams(moonLit, defaults, &fog);
-    const FogParams brightMoon = BuildFogParams(moonLit, bright, &fog);
+    const FogParams darkSun = BuildFogParams(sunLit, noSun, &fog);
+    const FogParams moonWithoutSun = BuildFogParams(moonLit, noSun, &fog);
     bool share = resolved && sun.authored;
-    bool full = share;
+    bool own = share;
     int lit = 0;
     for (int i = 0; i < kFogLayers; ++i)
         for (int c = 0; c < 3; ++c)
@@ -1379,32 +1380,45 @@ void CheckMoonScattersAShareOfTheSun(const FogData& data)
                 continue;
             ++lit;
             share = share && Near(moon.layers[i].diffuse[c], defaults.moonScatter * sun.layers[i].diffuse[c]);
-            full = full && Near(brightMoon.layers[i].diffuse[c], sun.layers[i].diffuse[c]);
+            own = own && darkSun.layers[i].diffuse[c] == 0.0f &&
+                  Near(moonWithoutSun.layers[i].diffuse[c], moon.layers[i].diffuse[c]);
         }
-    std::printf("     Hellfire Peninsula haze diffuse red: sun %.6f, moon %.6f at MoonScatter %.2f, %.6f at 1\n",
+    std::printf("     Goldshire haze diffuse red: sun %.6f, moon %.6f at MoonScatter %.2f; with SunScatter 0: sun "
+                "%.6f, moon %.6f\n",
                 sun.layers[0].diffuse[0], moon.layers[0].diffuse[0], defaults.moonScatter,
-                brightMoon.layers[0].diffuse[0]);
-    Check(defaults.moonScatter == 0.2f && lit > 0 && share && full,
-          "the moon scatters MoonScatter (0.2 by default) of the sun's light in the Classic and distance layers, so "
-          "its halo no longer looks like the sun's; MoonScatter 1 scatters it like the sun");
+                darkSun.layers[0].diffuse[0], moonWithoutSun.layers[0].diffuse[0]);
+    Check(defaults.moonScatter == 0.2f && lit > 0 && share && own,
+          "the moon scatters MoonScatter (0.2 by default) of the sun's light in the Classic and distance layers, on "
+          "its own: SunScatter 0 darkens the sun's halo and leaves the moon's");
 }
 
-void CheckLocalLightsKeepTheirGlowAtEveryRegionDensity()
+struct RegionLights
+{
+    int map;
+    float intensity;
+};
+
+void CheckLocalLightsGlowByRegion()
 {
     const Vec3 eye = {-3005.0f, 4469.0f, -18.0f};
     const Vec3 toLight = {0.607f, 0.607f, 0.513f};
     const float evening = 0.7279f;
-    bool kept = true;
+    bool followsRegion = true;
     for (float density : {0.15f, 0.5f, 1.0f, 2.0f})
     {
         Config cfg;
-        cfg.outlandDensity = density;
         cfg.azerothDensity = density;
-        for (int map : {kOutland, kEasternKingdoms})
+        cfg.outlandDensity = density;
+        cfg.northrendDensity = density;
+        cfg.azerothLocalLights = 1.5f;
+        cfg.outlandLocalLights = 2.5f;
+        cfg.northrendLocalLights = 4.0f;
+        const RegionLights regions[] = {{kEasternKingdoms, 1.5f}, {kOutland, 2.5f}, {kNorthrend, 4.0f}};
+        for (const RegionLights& region : regions)
         {
-            const FrameInputs frame = ContinentFrame(map, eye, evening, toLight, false);
-            const FogParams fog = BuildFogParams(frame, ConfigForMap(cfg, map), nullptr);
-            kept = kept && Near(fog.localLightDensityGain * density, 1.0f);
+            const FrameInputs frame = ContinentFrame(region.map, eye, evening, toLight, false);
+            const FogParams fog = BuildFogParams(frame, ConfigForMap(cfg, region.map), nullptr);
+            followsRegion = followsRegion && Near(fog.localLightGain * density, region.intensity);
         }
     }
     const Config defaults;
@@ -1412,11 +1426,13 @@ void CheckLocalLightsKeepTheirGlowAtEveryRegionDensity()
                                              ConfigForMap(defaults, kOutland), nullptr);
     const FogParams azeroth = BuildFogParams(ContinentFrame(kEasternKingdoms, eye, evening, toLight, false),
                                              ConfigForMap(defaults, kEasternKingdoms), nullptr);
-    std::printf("     local light density gain by default: Outland %.3f, Azeroth %.3f\n",
-                outland.localLightDensityGain, azeroth.localLightDensityGain);
-    Check(kept && Near(azeroth.localLightDensityGain, 1.0f),
-          "the local lights scatter with a gain of one over the region's density, so they glow at Outland's and "
-          "Northrend's density 0.15 as at density 1, and as before in Azeroth by default");
+    std::printf("     local light gain by default: Outland %.3f, Azeroth %.3f\n", outland.localLightGain,
+                azeroth.localLightGain);
+    Check(followsRegion && Near(azeroth.localLightGain, 1.0f) && defaults.outlandLocalLights == 3.0f &&
+              defaults.northrendLocalLights == 3.0f && Near(outland.localLightGain, 3.0f / 0.15f),
+          "the local lights scatter with their region's intensity over the region's density, so the density "
+          "sliders leave the lamps' glow alone; Outland and Northrend start at 3, as testers needed about three "
+          "times the old world's intensity there, and Azeroth stays as before by default");
 }
 
 void CheckOutlandSkyColourTintsTheConvertedFog(const FogData& data)
@@ -2679,8 +2695,8 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(CheckOutlandDensityThinsTheConvertedFog(classic));
     RUN_GROUP(CheckOutlandSkyColourTintsTheConvertedFog(classic));
     RUN_GROUP(CheckLayerSlidersScaleTheClassicLayers(classic));
-    RUN_GROUP(CheckMoonScattersAShareOfTheSun(classic));
-    RUN_GROUP(CheckLocalLightsKeepTheirGlowAtEveryRegionDensity());
+    RUN_GROUP(CheckMoonScattersOnItsOwn(classic));
+    RUN_GROUP(CheckLocalLightsGlowByRegion());
     RUN_GROUP(CheckNegligibleLightsLeaveTheLightLogAlone());
     RUN_GROUP(CheckStormBlendsLayersByClassicIndex(classic));
     RUN_GROUP(CheckScreenEffectLightSlot(classic));

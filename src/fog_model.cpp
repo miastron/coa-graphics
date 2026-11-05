@@ -55,6 +55,8 @@ constexpr float kNoLimit = 1.0e9f;
 constexpr float kMinRegionDensityForLocalLights = 0.05f;
 constexpr int kOutlandMap = 530;
 constexpr int kNorthrendMap = 571;
+constexpr float kClearSkyReferenceUpward = 0.005f;
+constexpr float kMaxClearSky = 0.9999f;
 
 float SmoothStep(float e0, float e1, float x)
 {
@@ -195,6 +197,11 @@ float ClassicLayerSetting(int classicLayer, const Config& cfg)
     }
 }
 
+float ClearSkyFalloff(float clearSky)
+{
+    return clearSky > 0.0f ? -std::log(1.0f - std::min(clearSky, kMaxClearSky)) / kClearSkyReferenceUpward : 0.0f;
+}
+
 void AuthoredLayers(const AuthoredFog& fog, const Config& cfg, const FogParams& p, float sunScatter, FogLayer* out,
                     LayerNoise* noise)
 {
@@ -216,7 +223,7 @@ void AuthoredLayers(const AuthoredFog& fog, const Config& cfg, const FogParams& 
         l.isotropic = 0.0f;
         Scale(a.emissive, cfg.ambient, l.emissive);
         l.strength = a.strength;
-        Scale(a.diffuse, 1.0f, l.diffuse);
+        Scale(a.diffuse, 1.0f - a.sunless, l.diffuse);
         l.exponent = a.exponent > 0.0f ? a.exponent : 1.0f;
         l.upperHeight = a.upperHeight + heightBase;
         l.upperFalloff = a.upperDensity > 0.0f ? a.upperDensity * kClassicUnits : 0.0f;
@@ -225,6 +232,7 @@ void AuthoredLayers(const AuthoredFog& fog, const Config& cfg, const FogParams& 
         Scale(a.shadowEmissive, cfg.ambient, l.shadowEmissive);
         l.shadowDensity = a.shadowMultiplier;
         l.shadowed = a.flags & kFlagShadowed ? 1.0f : 0.0f;
+        l.skyFalloff = ClearSkyFalloff(a.clearSky);
         Encode(l.emissive, p.linear);
         Encode(l.diffuse, p.linear);
         Encode(l.shadowEmissive, p.linear);
@@ -394,6 +402,19 @@ void TakeClientFogHue(const float* clientFog, float share, FogLayer* layers)
     }
 }
 
+float RegionLocalLights(const Config& cfg, MapRegion region)
+{
+    switch (region)
+    {
+    case MapRegion::Outland:
+        return cfg.outlandLocalLights;
+    case MapRegion::Northrend:
+        return cfg.northrendLocalLights;
+    default:
+        return cfg.azerothLocalLights;
+    }
+}
+
 float RegionDensity(const Config& cfg, MapRegion region)
 {
     switch (region)
@@ -452,21 +473,23 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
     Encode(p.lightColor, p.linear);
     SunScatterColor(fogColor, p.lightColor, p.sunScatterColor);
 
+    const float sunAndMoon = authored ? 1.0f - authored->sunless : 1.0f;
     float elevation = SmoothStep(-0.03f, 0.10f, in.toLight[2]);
-    p.lightVisibility = elevation * (in.lightIsMoon ? kMoonLightScale : 1.0f);
+    p.lightVisibility = elevation * (in.lightIsMoon ? kMoonLightScale : 1.0f) * sunAndMoon;
     p.lightAboveHorizon = SmoothStep(-kLightSettingHalfWidth, kLightSettingHalfWidth, in.toLight[2]);
     p.farClip = in.farClip;
     p.maxDistance = std::max(cfg.maxDistance, in.farClip);
     p.horizonStart = in.farClip * 0.85f;
     p.referenceZ = ReferenceZ(in);
     p.farLimit = std::clamp(in.fogEnd, 100.0f, in.farClip);
-    p.localLightDensityGain =
-        1.0f / std::max(RegionDensity(cfg, RegionOfMap(in.mapId)), kMinRegionDensityForLocalLights);
+    const MapRegion region = RegionOfMap(in.mapId);
+    p.localLightGain =
+        RegionLocalLights(cfg, region) / std::max(RegionDensity(cfg, region), kMinRegionDensityForLocalLights);
 
     float fogDistance = in.zoneFogDistance > 50.0f && in.zoneFogDistance < 20000.0f ? in.zoneFogDistance : in.fogEnd;
     fogDistance = std::clamp(fogDistance, 50.0f, 5000.0f);
-    const float scatter = cfg.sunScatter * (in.lightIsMoon ? cfg.moonScatter : 1.0f);
-    float elevationFadedScatter = elevation * scatter;
+    const float scatter = in.lightIsMoon ? cfg.moonScatter : cfg.sunScatter;
+    float elevationFadedScatter = elevation * scatter * sunAndMoon;
 
     FogLayer& distanceFog = p.layers[kDistanceFogLayer];
     p.directLightMatch = 1.0f;
@@ -480,7 +503,7 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
         HaloHue(*authored, p.rayColor);
         DistanceLayer(in, cfg, p, elevationFadedScatter, fogColor, distanceFog);
         const float thinness = ClassicFogThinness(p, *authored, in.camPos[2]);
-        distanceFog.density *= thinness + (1.0f - thinness) * interiorWeight;
+        distanceFog.density *= (thinness + (1.0f - thinness) * interiorWeight) * (1.0f - authored->clearSky);
     }
     else
     {

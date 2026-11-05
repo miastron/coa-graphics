@@ -33,6 +33,8 @@ struct AuthoredLayer
     float g;
     float strength;
     float exponent;
+    float sunless;
+    float clearSky;
     uint32_t flags;
     AuthoredNoise noise;
 };
@@ -65,6 +67,8 @@ struct AuthoredFog
     float glow;
     bool hasGradingCurve;
     float gradingCurve[kGradingCurveEntries];
+    float sunless;
+    float clearSky;
 };
 
 class FogData

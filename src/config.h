@@ -45,6 +45,9 @@ struct Config
     float azerothSkyColor = 0.0f;
     float outlandSkyColor = 0.0f;
     float northrendSkyColor = 0.0f;
+    float azerothLocalLights = 1.0f;
+    float outlandLocalLights = 3.0f;
+    float northrendLocalLights = 3.0f;
     int colorSpace = 1;
     int classicPhase = 0;
     float sunScatter = 1.0f;

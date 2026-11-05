@@ -214,8 +214,11 @@ chromaticity, `(c/peak)^2.2 · peak`, since the modern client scales light colou
 lacks its CPU packing. `DecodeLightColours=0` skips the decode for every colour. The logged torch colour, about (1, 0.27, 0.03) after the decode,
 is what an authored (1, 0.55, 0.20) becomes under it. Every point light scatters with one Henyey–Greenstein phase, normalised to 1 toward the light, with
 g = `LocalLightPhase`. The modern fog-light kernel 6227851 reads one g for all local lights. The lights scatter with a
-gain of one over the region's density (`AzerothDensity`, `OutlandDensity`, `NorthrendDensity`, at least 0.05), here and
-in the fitted stock fog of see-through models, so a region thinned to 0.15 keeps the glow of its lamps.
+gain of the region's intensity (`AzerothLocalLights`, `OutlandLocalLights`, `NorthrendLocalLights`) over its density
+(`AzerothDensity`, `OutlandDensity`, `NorthrendDensity`, at least 0.05), here and in the fitted stock fog of see-through
+models, so a region thinned to 0.15 keeps the glow of its lamps. Outland and Northrend start at 3: their converted
+layers are far thinner than the old world's (Borean Tundra at night 0.00013/yd of ground fog against Tirisfal's 0.0045
+in a tester's log), and the tester needed three to four times the intensity there.
 
 The eight uploaded lights are chosen by a stabiliser rather than re-ranked from scratch each frame:
 
@@ -457,8 +460,8 @@ distance fog hides the far clip there. Other maps use the derived layers.
 
 Classic never had Outland (map 530), Northrend (map 571) or the Burning Crusade and Wrath dungeons, so the kit holds
 no fog for them. `tools/convert_client_lights.py` (ported from Raz0r1337/coa-vfog `st0ny-dev`) adds them to
-`fogdata.bin` from the 3.3.5 client's `Light`, `LightIntBand` and `LightFloatBand` tables (a `DBFilesClient` folder
-or zip):
+`fogdata.bin` from the 3.3.5 client's `Light`, `LightIntBand`, `LightFloatBand`, `LightParams` and `LightSkybox`
+tables (a `DBFilesClient` folder or zip):
 
 ```powershell
 python tools/convert_client_lights.py data/fogdata.bin <DBFilesClient folder or zip> data/fogdata.bin
@@ -483,6 +486,13 @@ distances (float band 0, 0.5–2, median 0.87 over Outland and Northrend). The g
 colours out when a test build used it on every map. Recipes shared by several lights are written once; the run is
 repeatable on its own output and leaves the Classic lights byte for byte. Run it again after `convert_classic_fog.py`,
 which keeps only the kit's light params. 445 lights on 47 maps come from 194 templates (2.3 MB in all).
+
+A layer carries flag 0x10 where the client draws its sky without sun and moon, and flag 0x20 where the sky is clear.
+With 0x10 the scene layers of that light and the distance fog scatter neither sun nor moon and no god rays are drawn
+(the share follows the blend weights of the lights in range). With 0x20 the distance fog is off and the scene layers
+fall off on sky pixels by `exp(−upward·falloff)` with `falloff = −ln(1−clear)/0.005`, so a fully clear sky has no fog
+on it a tenth of a degree above the horizon. The converter sets both from the `LightParams` skybox and the `LightSkybox`
+flags; fogdata.bin built before them carries neither flag and draws as it did.
 
 `OutlandDensity` and `NorthrendDensity` start at 0.15, as the fog read as too strong there in play, and
 `OutlandClassicFog=0` or `NorthrendClassicFog=0` brings back the derived layers with the client's glow.
@@ -1778,7 +1788,8 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `AzerothSkyColor`, `OutlandSkyColor`, `NorthrendSkyColor` | 0, 0, 0 | Share of the client's fog hue in the layers |
 | `ColorSpace` | 1 | 1 scatters and blends in linear light with a highlight roll-off; 0 uses gamma |
 | `SunScatter`, `Ambient`, `Exposure` | 1, 1, 1 | Light in the fog |
-| `MoonScatter` | 0.2 | Share of `SunScatter` the moon scatters at night, in Classic and derived layers |
+| `MoonScatter` | 0.2 | Moon light in the fog at night, on its own (`SunScatter` is the sun's), Classic and derived |
+| `AzerothLocalLights`, `OutlandLocalLights`, `NorthrendLocalLights` | 1, 3, 3 | Local light intensity per region |
 | `ClassicExposure` | 1 | Brightness of the Classic layers (1 = as authored) |
 | `ClassicPhase` | 0 | Classic sun and moon scattering: 0 peaks at 1 toward the light; 1 is energy-normalised |
 | `LocalLights`, `LocalLightIntensity` | 1, 1 | Scatter up to eight world point lights in view; intensity 0..8 |
