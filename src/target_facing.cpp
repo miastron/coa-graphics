@@ -59,7 +59,14 @@ float ChevronDistance(Point p)
     const Point notch = {0.0f, kChevronNotch};
     const Point right = {kChevronHalfWidth, kChevronBack};
     const Point left = {-kChevronHalfWidth, kChevronBack};
-    return std::max(TriangleDistance(p, tip, right, left), -TriangleDistance(p, notch, right, left));
+    const Point notchRight = {kChevronNotchHalfWidth, kChevronNotchBack};
+    const Point notchLeft = {-kChevronNotchHalfWidth, kChevronNotchBack};
+    return std::max(TriangleDistance(p, tip, right, left), -TriangleDistance(p, notch, notchRight, notchLeft));
+}
+
+float Smoothstep(float t)
+{
+    return t * t * (3.0f - 2.0f * t);
 }
 
 bool FillLevel(IDirect3DTexture9* texture, UINT level)
@@ -123,7 +130,15 @@ float ChevronCoverage(float u, float v, float texel)
 {
     const float radii = 2.0f * kTargetArrowBoxScale;
     const Point p = {(u - kTextureCentre) * radii, (kTextureCentre - v) * radii};
-    return std::clamp(kHalfCoverage - ChevronDistance(p) / (texel * radii), 0.0f, 1.0f);
+    const float ramp = kChevronEdgeTexels * texel * radii;
+    return Smoothstep(std::clamp(kHalfCoverage - ChevronDistance(p) / ramp, 0.0f, 1.0f));
+}
+
+float ChevronBrightness(float v)
+{
+    const float radius = (kTextureCentre - v) * 2.0f * kTargetArrowBoxScale;
+    const float along = std::clamp((radius - kChevronBack) / (kChevronTip - kChevronBack), 0.0f, 1.0f);
+    return 1.0f + (kChevronTipBrightness - 1.0f) * along;
 }
 
 void FillChevronLevel(uint32_t* texels, int size, size_t pitchBytes)
@@ -135,8 +150,10 @@ void FillChevronLevel(uint32_t* texels, int size, size_t pitchBytes)
         for (int x = 0; x < size; ++x)
         {
             const bool edge = x == 0 || y == 0 || x == size - 1 || y == size - 1;
-            const float coverage = edge ? 0.0f : ChevronCoverage((x + 0.5f) * texel, (y + 0.5f) * texel, texel);
-            const auto alpha = static_cast<uint32_t>(std::lround(coverage * kChevronOpacity * kByteMax));
+            const float v = (y + 0.5f) * texel;
+            const float coverage = edge ? 0.0f : ChevronCoverage((x + 0.5f) * texel, v, texel);
+            const float opacity = kChevronOpacity * ChevronBrightness(v);
+            const auto alpha = static_cast<uint32_t>(std::lround(coverage * opacity * kByteMax));
             row[x] = (alpha << kAlphaShift) | kWhiteTexel;
         }
     }

@@ -1029,11 +1029,13 @@ turned to the target's facing (`TargetArrow`).
   position minus the camera (the world transform is the batch matrix times a translation by `-camera`). With
   `C44Matrix::Rotation` and `RotationAroundZ` both `a0 = c, a1 = s, b0 = -s, b1 = c` (row vectors), a world direction
   `(cos f, sin f)` becomes `(sin f, -cos f)` after the spin and `(0, -1)` after `RotationAroundZ(-f)`: the top of the
-  texture. The arrow texture has the arrowhead at the top, from 1.0 to 1.22 circle radii out (notch at 1.08, half width
-  0.16).
+  texture. The arrow texture has the arrowhead at the top, from 0.93 to 1.15 circle radii out (notch apex at 1.01,
+  half width 0.16). The notch is cut by a triangle that reaches past the back edge (to 0.89, half width 0.24), so the
+  arrow is two arms meeting at the tip and has no bar along its back.
 - **The arrow texture.** The ring and colour are the client's; only the stage 0 texture changes. While the second
-  `Render2d` runs, the device wrapper holds stage 0 on a 128 × 128 A8R8G8B8 managed texture with a full mip chain
-  (white, alpha = antialiased coverage × 0.9, every level's edge texels clear) and clamps its addressing; a
+  `Render2d` runs, the device wrapper holds stage 0 on a 512 × 512 A8R8G8B8 managed texture with a full mip chain
+  (white, alpha = coverage × 0.9 × a brightness that falls from 1 at the back edge to 0.45 at the tip, so the arrow
+  glows where it meets the ring; coverage is smoothstepped across 5 texels at every edge, every level's edge texels clear) and clamps its addressing; a
   `SetTexture` or address-mode change the client makes on stage 0 meanwhile is kept and put back afterwards. Only
   standard `SetTexture` and `SetSamplerState` calls are involved, so no driver difference applies (DXVK not checked).
 

@@ -6,8 +6,8 @@ namespace target_arrow_checks
 {
 constexpr float kCircleRadius = 2.0f;
 constexpr float kCircleCentre[3] = {-8930.0f, 540.0f, 94.0f};
-constexpr float kChevronMiddle = 1.15f;
-constexpr float kOnTheRing = 0.95f;
+constexpr float kChevronMiddle = 1.08f;
+constexpr float kOnTheRing = 0.85f;
 constexpr float kQuarterTurn = 1.5707964f;
 constexpr float kHalfTurn = 3.1415927f;
 constexpr float kFacings[] = {0.0f, 0.7f, kQuarterTurn, 2.5f, kHalfTurn, 4.4f, 5.9f};
@@ -75,6 +75,25 @@ void CheckArrowPointsTheFacing()
           "facing, and nowhere behind, beside or inside the circle");
 }
 
+void CheckArrowIsOpenAtTheBack()
+{
+    bool open = true;
+    for (float facing : kFacings)
+        for (float radii = kChevronBack - 0.01f; radii <= kChevronBack + 0.03f; radii += 0.01f)
+            open &= CoverageAt(facing, facing, radii) == 0.0f;
+    Check(open, "the arrow has no bar along its back: its centre is clear from the back edge to the notch");
+}
+
+void CheckArrowFadesTowardsTheTip()
+{
+    const auto vAt = [](float radii) { return 0.5f - radii / (2.0f * kTargetArrowBoxScale); };
+    const float atBack = ChevronBrightness(vAt(kChevronBack));
+    const float middle = ChevronBrightness(vAt(kChevronMiddle));
+    const float atTip = ChevronBrightness(vAt(kChevronTip));
+    Check(std::fabs(atBack - 1.0f) < kMatrixTolerance && middle < atBack && atTip > 0.0f && atTip < middle,
+          "the arrow is brightest at its back, next to the ring, and fades towards the tip without vanishing");
+}
+
 void CheckArrowTextureBorder()
 {
     bool clear = true;
@@ -92,7 +111,7 @@ void CheckArrowTextureBorder()
     }
     const float share = covered / (kChevronTextureSize * kChevronTextureSize);
     std::printf("     arrow covers %.2f%% of its texture\n", share * 100.0f);
-    Check(clear && share > 0.002f && share < 0.03f,
+    Check(clear && share > 0.001f && share < 0.03f,
           "the arrow texture is clear along every edge of every level, so neither clamping nor wrapping repeats "
           "it, and the arrow is a small mark");
 }
@@ -121,6 +140,8 @@ void CheckTargetArrowGuards()
 void CheckTargetArrow()
 {
     CheckArrowPointsTheFacing();
+    CheckArrowIsOpenAtTheBack();
+    CheckArrowFadesTowardsTheTip();
     CheckArrowTextureBorder();
     CheckTargetArrowGuards();
 }
@@ -286,7 +307,7 @@ void CheckStageTextureSwap(IDirect3DDevice9* dev, IDirect3DTexture9* plain, IDir
     Check(begun && arrow && arrow != plain && addressDuring == D3DTADDRESS_CLAMP && kept && restored,
           "while the arrow draws, stage 0 holds the clamped arrow texture whatever the client sets, and afterwards "
           "the client's last texture and addressing are back");
-    Check(tipAlpha > 200 && behindAlpha == 0, "the arrow texture on the device has the arrow ahead and nothing behind");
+    Check(tipAlpha > 100 && behindAlpha == 0, "the arrow texture on the device has the arrow ahead and nothing behind");
 }
 
 void CheckTargetCircleThunk(IDirect3DDevice9* dev, IDirect3DTexture9* plain)

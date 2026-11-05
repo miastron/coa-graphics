@@ -8,12 +8,16 @@
 #include <cstdint>
 
 constexpr float kTargetArrowBoxScale = 1.35f;
-constexpr float kChevronTip = 1.22f;
-constexpr float kChevronNotch = 1.08f;
-constexpr float kChevronBack = 1.0f;
+constexpr float kChevronTip = 1.15f;
+constexpr float kChevronNotch = 1.01f;
+constexpr float kChevronBack = 0.93f;
 constexpr float kChevronHalfWidth = 0.16f;
+constexpr float kChevronNotchBack = 0.89f;
+constexpr float kChevronNotchHalfWidth = 0.24f;
 constexpr float kChevronOpacity = 0.9f;
-constexpr int kChevronTextureSize = 128;
+constexpr float kChevronEdgeTexels = 5.0f;
+constexpr float kChevronTipBrightness = 0.45f;
+constexpr int kChevronTextureSize = 512;
 constexpr int kAabbFloats = 6;
 constexpr int kMatrixFloats = 16;
 
@@ -46,6 +50,7 @@ using UnitRenderFacingFn = float(__thiscall*)(uintptr_t unit);
 void TargetArrowBox(const float circleBox[kAabbFloats], float out[kAabbFloats]);
 void TargetArrowRotation(float facing, float out[kMatrixFloats]);
 float ChevronCoverage(float u, float v, float texel);
+float ChevronBrightness(float v);
 void FillChevronLevel(uint32_t* texels, int size, size_t pitchBytes);
 
 class ChevronTexture
