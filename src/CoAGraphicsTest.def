@@ -87,6 +87,7 @@ EXPORTS
     vf_test_probe_depth_copy
     vf_test_display_format_for
     vf_test_load_nvapi
+    vf_test_log_path
     vf_test_water_ripple_stats
     vf_test_water_ripple_shading
     vf_test_water_contact_reads

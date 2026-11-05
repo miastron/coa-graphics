@@ -43,6 +43,7 @@
 
 #include <windows.h>
 #include <d3d9.h>
+#include <share.h>
 #include <wincodec.h>
 
 #include <algorithm>
@@ -152,6 +153,7 @@ extern "C" __declspec(dllimport) int __cdecl vf_test_refresh_scene_depth();
 extern "C" __declspec(dllimport) void __cdecl vf_test_take_frame_copies(FrameCopyCounts*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_probe_depth_copy(IDirect3D9*, DepthCopyProbe*);
 extern "C" __declspec(dllimport) const char* __cdecl vf_test_load_nvapi(LibraryLoader);
+extern "C" __declspec(dllimport) const char* __cdecl vf_test_log_path();
 extern "C" __declspec(dllimport) D3DFORMAT __cdecl vf_test_display_format_for(D3DFORMAT);
 extern "C" __declspec(dllimport) void __cdecl vf_test_water_ripple_stats(WaterRippleStats*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_water_ripple_shading(WaterRippleShading*);
@@ -2344,6 +2346,153 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "early_composite_look_checks.h"
 #include "multisampling_checks.h"
 #include "device_creation_checks.h"
+
+constexpr unsigned long kSecondClientProcessId = 4242;
+constexpr int kLastLogSlot = 8;
+
+std::string WrittenAndClosed(LogFile& log, const char* line)
+{
+    if (!log.file)
+        return std::string();
+    std::fputs(line, log.file);
+    std::fclose(log.file);
+    log.file = nullptr;
+    return line;
+}
+
+std::string WrittenAndKeptOpen(LogFile& log, const char* line)
+{
+    if (!log.file)
+        return std::string();
+    std::fputs(line, log.file);
+    std::fflush(log.file);
+    return line;
+}
+
+void CloseLogs(std::vector<LogFile>& logs)
+{
+    for (LogFile& log : logs)
+        if (log.file)
+            std::fclose(log.file);
+    logs.clear();
+}
+
+std::vector<std::wstring> LogFilesIn(const std::wstring& folder)
+{
+    std::vector<std::wstring> names;
+    WIN32_FIND_DATAW found = {};
+    const HANDLE search = FindFirstFileW((folder + L"\\*.log").c_str(), &found);
+    if (search == INVALID_HANDLE_VALUE)
+        return names;
+    do
+        names.push_back(found.cFileName);
+    while (FindNextFileW(search, &found));
+    FindClose(search);
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+std::wstring EmptyLogFolder(const std::wstring& outDir, const wchar_t* name)
+{
+    const std::wstring folder = FullPath(outDir + L"\\" + name);
+    CreateDirectoryW(folder.c_str(), nullptr);
+    for (const std::wstring& log : LogFilesIn(folder))
+        DeleteFileW((folder + L"\\" + log).c_str());
+    return folder;
+}
+
+std::wstring SlotLog(const std::wstring& folder, int slot)
+{
+    return folder + L"\\CoAGraphics-" + std::to_wstring(slot) + L".log";
+}
+
+void CheckSecondClientWritesTheSecondSlot(const std::wstring& outDir)
+{
+    const std::wstring folder = EmptyLogFolder(outDir, L"two-clients");
+    const std::wstring shared = folder + L"\\CoAGraphics.log";
+    const std::wstring own = SlotLog(folder, 2);
+    LogFile first = OpenLogFile(NarrowPath(shared));
+    LogFile second = OpenLogFile(NarrowPath(shared));
+    const std::string firstLine = WrittenAndClosed(first, "first client");
+    const std::string secondLine = WrittenAndClosed(second, "second client");
+    Check(first.path == NarrowPath(shared) && second.path == NarrowPath(own) && !firstLine.empty() &&
+              ReadText(shared) == firstLine && !secondLine.empty() && ReadText(own) == secondLine,
+          "a second client started from the same folder writes CoAGraphics-2.log and leaves the first client's "
+          "CoAGraphics.log intact");
+}
+
+void CheckHeldSlotIsSkippedUntouched(const std::wstring& outDir)
+{
+    const std::wstring folder = EmptyLogFolder(outDir, L"three-clients");
+    const std::string shared = NarrowPath(folder + L"\\CoAGraphics.log");
+    std::vector<LogFile> clients = {OpenLogFile(shared), OpenLogFile(shared)};
+    const std::string secondLine = WrittenAndKeptOpen(clients[1], "second client");
+    LogFile third = OpenLogFile(shared);
+    const std::string thirdLine = WrittenAndClosed(third, "third client");
+    CloseLogs(clients);
+    Check(!secondLine.empty() && ReadText(SlotLog(folder, 2)) == secondLine &&
+              third.path == NarrowPath(SlotLog(folder, 3)) && !thirdLine.empty() &&
+              ReadText(SlotLog(folder, 3)) == thirdLine,
+          "a third client skips the second client's held CoAGraphics-2.log without truncating it and writes "
+          "CoAGraphics-3.log");
+}
+
+void CheckFreedSlotIsReused(const std::wstring& outDir)
+{
+    const std::wstring folder = EmptyLogFolder(outDir, L"reused-slot");
+    const std::string shared = NarrowPath(folder + L"\\CoAGraphics.log");
+    std::vector<LogFile> running = {OpenLogFile(shared)};
+    LogFile exited = OpenLogFile(shared);
+    WrittenAndClosed(exited, "exited client");
+    LogFile next = OpenLogFile(shared);
+    const std::string nextLine = WrittenAndClosed(next, "next client");
+    CloseLogs(running);
+    const std::vector<std::wstring> expected = {L"CoAGraphics-2.log", L"CoAGraphics.log"};
+    Check(exited.path == NarrowPath(SlotLog(folder, 2)) && next.path == exited.path && !nextLine.empty() &&
+              ReadText(SlotLog(folder, 2)) == nextLine && LogFilesIn(folder) == expected,
+          "a client started after another has exited reuses and truncates its CoAGraphics-2.log, so no new log "
+          "file appears");
+}
+
+void CheckNoLogWhenEverySlotIsHeld(const std::wstring& outDir)
+{
+    const std::wstring folder = EmptyLogFolder(outDir, L"every-slot-held");
+    const std::string shared = NarrowPath(folder + L"\\CoAGraphics.log");
+    std::vector<LogFile> holders;
+    for (int client = 1; client <= kLastLogSlot; ++client)
+        holders.push_back(OpenLogFile(shared));
+    const bool everyHolderLogs =
+        std::all_of(holders.begin(), holders.end(), [](const LogFile& log) { return log.file != nullptr; });
+    LogFile ninth = OpenLogFile(shared);
+    const bool ninthLogs = ninth.file != nullptr;
+    WrittenAndClosed(ninth, "ninth client");
+    CloseLogs(holders);
+    const size_t files = LogFilesIn(folder).size();
+    std::printf("     %zu log files with CoAGraphics.log and every slot held\n", files);
+    Check(everyHolderLogs && !ninthLogs && files == static_cast<size_t>(kLastLogSlot),
+          "with CoAGraphics.log and CoAGraphics-2.log to CoAGraphics-8.log held, a ninth client writes no log and "
+          "adds no file");
+}
+
+void CheckHeldLogNoticeNamesTheSlotAndProcess()
+{
+    const std::string notice =
+        HeldLogNotice("C:\\WoW\\CoAGraphics.log", "C:\\WoW\\CoAGraphics-2.log", kSecondClientProcessId);
+    std::printf("     %s\n", notice.c_str());
+    Check(notice.find("C:\\WoW\\CoAGraphics.log") == 0 &&
+              notice.find("C:\\WoW\\CoAGraphics-2.log") != std::string::npos &&
+              notice.find("process " + std::to_string(kSecondClientProcessId)) != std::string::npos,
+          "the first line of a slot log names the held CoAGraphics.log, the slot file and the client's process id");
+}
+
+void CheckLogRefusesASecondWriter()
+{
+    FILE* second = _wfsopen(runtime_cost::FogLogBesideTheFogDll().c_str(), L"r+", _SH_DENYNO);
+    if (second)
+        std::fclose(second);
+    Check(!second, "the DLL's log cannot be opened for writing by a second client while the DLL writes it");
+}
+
 #include "texture_filtering_checks.h"
 #include "tree_wind_checks.h"
 #include "wind_model_checks.h"
@@ -3086,6 +3235,12 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     ULONG d3dRefs = h.d3d->Release();
     Check(devRefs == 0 && d3dRefs == 0, "wrapper reference counts reach zero");
     RUN_GROUP(multisampling_checks::CheckNvapiLoadsWithoutKb2533623());
+    RUN_GROUP(CheckSecondClientWritesTheSecondSlot(outDir));
+    RUN_GROUP(CheckHeldSlotIsSkippedUntouched(outDir));
+    RUN_GROUP(CheckFreedSlotIsReused(outDir));
+    RUN_GROUP(CheckNoLogWhenEverySlotIsHeld(outDir));
+    RUN_GROUP(CheckHeldLogNoticeNamesTheSlotAndProcess());
+    RUN_GROUP(CheckLogRefusesASecondWriter());
     RUN_GROUP(multisampling_checks::CheckMultisampling(realCreate, h.window, outDir, FullPath(iniPath)));
     RUN_GROUP(device_creation_checks::CheckDeviceCreation(realCreate, h.window));
     vf_test_set_config(&restored);

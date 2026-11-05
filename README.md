@@ -1660,7 +1660,11 @@ Scenes for looking at the output:
 
 Close the client, then copy `version.dll`, `CoAGraphics.dll`, `CoAGraphics.ini`, `fogdata.bin`, `waterdata.bin`,
 `WindProfile.cdbc` and `GroundEffectDoodadWind.cdbc` next to `Ascension.exe`. To uninstall, remove `version.dll` and `CoAGraphics.dll`; nothing else in the client is changed. The DLL
-writes `CoAGraphics.log` next to itself.
+writes `CoAGraphics.log` next to itself, and holds it open for writing, so a second client started from the same folder
+cannot truncate it. A client that finds it held writes the first free one of `CoAGraphics-2.log` to `CoAGraphics-8.log`
+instead, and its first line names that file and the client's process id. A slot held by a running client is left as it
+is; a free one is reused and overwritten, so the clients of one folder share at most eight log files. A ninth client
+running beside eight others writes no log. Other programs can still read the log while the client runs.
 
 ## Steam Deck and Linux (Proton)
 

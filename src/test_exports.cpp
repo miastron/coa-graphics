@@ -494,6 +494,11 @@ extern "C" const char* __cdecl vf_test_load_nvapi(LibraryLoader load)
     return LoadNvapiThrough(load);
 }
 
+extern "C" const char* __cdecl vf_test_log_path()
+{
+    return LogPath();
+}
+
 extern "C" D3DFORMAT __cdecl vf_test_display_format_for(D3DFORMAT backBufferFormat)
 {
     return DisplayFormatFor(backBufferFormat);
