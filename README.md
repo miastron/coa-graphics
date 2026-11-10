@@ -32,7 +32,8 @@ after it say how each works and what is checked.
 
 - **Spell lights** (`SpellLights`): glowing spell effects light the fog around them in their particles' colour.
 - **Lights on surfaces** (`SurfaceLights`, `SpellSurfaceLights`): the point and spell lights also light the ground,
-  walls and models around them, without shadows.
+  walls and models around them, without shadows of their own, and fill the shadows the game's shadow maps cast on
+  the ground.
 - **Lights follow their objects** (`LightsFollowObjects`): a lamp or fire the game stops drawing (beyond its fade
   distance, or hidden) takes its light with it.
 
@@ -89,9 +90,11 @@ after it say how each works and what is checked.
   their colour times their texture's mean colour, sharing the eight slots (`SpellLights`, `SpellLightIntensity`). Only
   `SpellLightIntensity` scales them: `LocalLightIntensity` and the region values are the lamps' alone, so a spell keeps
   its brightness, reach and glow when the lamps are turned down, and scatters with the region's density compensation
-  only.
+  only. A flying spell's light sits at its emitters, one frame's travel ahead, rather than at the centre of the trail
+  behind it, and the trail neither widens nor brightens it; a small glow shines at half the power of a large one.
 - **Lights on surfaces** (`SurfaceLights` for lamps, `SpellSurfaceLights` for spells): the eight lights also light the
-  opaque world around them, before the fog composite, from the depth buffer and without shadows.
+  opaque world around them, before the fog composite, from the depth buffer and without shadows of their own. Ground
+  the client's shadow maps shade (`WorldShadows`) takes the light of its unshaded albedo, so a light fills the shadow.
 - **Interior transitions**: the camera's native WMO blend reduces outdoor layers and sunlight, keeping the interior's
   own fog colour and range.
 - **Authored noise** (optional, off by default): drifting fog banks where the Classic layers carry the modern
@@ -322,6 +325,24 @@ The whole pass is scaled by how visible the lights are: the brightest uploaded l
 (linear luma of the ambient colour plus half the direct colour, at least 0.02) is the share a light adds to a surface right
 at it. Below 3% the pass and its scene copy are skipped, above 10% it runs at full strength, with a smoothstep between.
 That follows the client's own light colours, so a dark zone keeps it on at noon and a bright one turns it off sooner.
+
+The client's terrain shaders multiply the ground by `0.7 + 0.3·lit` where its shadow maps shade it (see Native world
+shadows), in display space. Dividing the scene by the unshadowed illuminant there gave an albedo 0.7^2.2 = 0.46 times
+too dark in linear light, so a shadow stayed as dark under a light as beside it: the light lay on top of the shadow
+(owner's screenshots, 2026-11-10). With `WorldShadows=1` the pass now reads the client's maps itself, with or without
+`LightShafts`: the character map with its border fade from 0.7 to 0.99, and with the environment maps the first of
+the near and middle maps that contains the point, else the far map with its fade from 0.9 to 0.99, each with the
+client's five taps (the centre and the offsets `(0.8, −1)`, `(0.2, −0.6)`, `(−0.6, −0.2)`, `(−1, −0.4)` texels), and
+the smaller of the character and environment results, as the terrain shaders do. The illuminant is multiplied by
+`(0.7 + 0.3·lit)^2.2`, so shaded ground takes the light its unshaded albedo would and the light fills the shadow.
+This applies to ground only: the weight rises from 0 to 1 as the normal's world Z goes from 0.5 to 0.8, since the
+terrain shaders are the only receivers whose shading is recorded here. Walls, plants and models in a shadow keep the
+old estimate, and so does a shadow baked into the terrain's alpha map, which no shadow map holds. The harness draws
+ground of one colour under an ambient of 175 and under an ambient of 250 with fake maps shading it: the light lifts
+both by 25 codes (12 for the brighter ambient without the maps), through the character map and each cascade. Not
+seen in game. The pass's shadow control is pixel register `c104`, so the fog's state block now records 105 registers.
+With 104, DXVK left the client's `c104` overwritten after the first lit frame (its state block restores exactly the
+registers recorded; the Radeon 780M's native driver restored it anyway), which the harness checks on that frame.
 
 So ground lit dimly at night takes a point light at nearly its full colour, while in daylight the same light adds to a much
 brighter scene and shows less. The sky, pixels beyond every light sphere, and pixels a light adds under 1/1024 to are
@@ -1437,6 +1458,20 @@ Engine notes behind the code:
   `0x6A2D01`). The shipped `ShadowMapSL.bls` pixel shader writes `max(lightViewZ/4000, 0)` to red. The shipped
   `Terrain2_pcf.bls` uses `texldl` with `(0.5*XY+0.5, Z, 0)` for hardware depth comparison; the native texture flags
   select linear minification and magnification with no mip filtering for that path (`0x875DC1`, `0x6A4944`).
+  The terrain pixel shaders (`Terrain1`, `Terrain2` and `Terrain3_ps_3_0.bls`, disassembled with `fxc /dumpbin`
+  from the copies in `tests/shaders`) end in `mad r, lit, 0.3, 0.7` and multiply the diffuse texture by it: shaded
+  ground is 0.7 of lit ground, and the specular term is multiplied by `lit`. `Terrain1` takes `lit` from the alpha
+  map's baked shadow alone. `Terrain2` (one map) takes the smaller of that and `1 + fade·(taps − 1)`, where `taps` is
+  the mean of five `tap ≥ z` comparisons at `0.5·XY + 0.5` and at the offsets in `c3`, `c5`, `c7` and `c9`, and
+  `fade` is `saturate(3.4138 − 3.4483·max(|x|, |y|))`. `Terrain3` (four maps) takes the smaller of the character
+  map's result and the first of the near and middle maps with `max(|x|, |y|) < 1`, else the far map faded by
+  `saturate(11 − 11.11·max(|x|, |y|))`. `CShadowCache::InitPcfOffsets` `0x8742E0` fills eight offsets at `0xD431D0`
+  from the shadow size `[0xD43150]`: `(0.8, −1)`, `(−0.2, −0.8)`, `(0.2, −0.6)`, `(1, −0.4)`, `(−0.6, −0.2)`,
+  `(0.6, 0.2)`, `(−1, −0.4)`, `(−0.4, −0.6)` texels (`ShadowCache.cpp:306-345` in wowdecomp), and
+  `CShadowCache::SetShadowMapTerrain` `0x874660` uploads them to pixel registers 3 to 10 (`0x8746A5`,
+  `6A 08 68 D0 31 D4 00 6A 03 6A 04`). The surface light pass repeats the five taps of `c3`, `c5`, `c7` and `c9` with
+  the texel of the character map it acquired; it reads none of these addresses. The WMO, detail doodad and model
+  shaders that `SetShadowMapGenericGlobal` and `SetShadowMapDetailDoodad` serve were not disassembled.
   Capture checks the image and relevant instruction bytes, the live formats and matrix values, and texture device
   ownership. It retains D3D references only for the fog draw, releases them on every exit, and falls back when the
   native maps are unavailable. These static contracts and offline tests do not establish in-game visual alignment.
@@ -1630,6 +1665,14 @@ Engine notes behind the code:
   `0x97EA60` in the image (a byte search). The hook replaces both calls with thunks that call the original, then read
   the emitter after its bounds were built, and installs only when every recorded byte above matches. Particles draw
   after the fog's light capture, so a frame's spell lights reach the fog on the next frame.
+  The emitter's transform `m_xform` is at `+0x184` (`CParticleEmitter2::UpdateXform` `0x97AC20` assigns it at
+  `0x97AC7E`, `8D 8E 84 01 00 00`), so its translation, the emitter's origin, is at `+0x1B4`. `CParticleEmitter2::Update`
+  `0x97EB10` copies that origin to `+0x1D0` before it takes the new transform (`0x97EB57`,
+  `8B 86 B4 01 00 00 89 86 D0 01 00 00`), so the two differ by the emitter's travel over its last update. The model
+  passes its bone matrix times the scene's inverse view as the transform (`M2Model.cpp:5797-5804` in wowdecomp), a
+  world-space matrix; with a frame of reference and without flag `0x200` the transform is relative to that frame
+  (`0x97AC51`), which the reading rejects by requiring the origin within 5 yd of the world bounds. A travel of more
+  than 10 yd (the first update, a teleport) counts as none.
 - Spell meshes and textures. The M2 draw `0x823130` dispatches on the element type through a jump table
   (`0x823A6C`–`0x823A81`); type 0 calls `CM2SceneRender::DrawBatch` `0x8203B0` at `0x823A83` (`E8 28 C9 FF FF`,
   ECX = ESI = the scene renderer), its only call in the image, and the batch draw returns with a bare `ret`
@@ -1978,12 +2021,12 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `LocalLightPhase` | 0.3 | Henyey–Greenstein g of every point light in the fog: how strongly its glow peaks toward the viewer, −0.9..0.9 (a calibration) |
 | `SpellLights`, `SpellLightIntensity` | 1, 1 | Spell effects light the fog (needs `LocalLights=1`); intensity 0..8, the only scale on spell lights |
 | `SurfaceLights` | 1 | The world's lamps also light surfaces, 0..2 (needs `LocalLights=1`); 0 = off |
-| `SpellSurfaceLights` | 1 | The spell lights also light surfaces, 0..2 (needs `LocalLights=1`); 0 = off |
+| `SpellSurfaceLights` | 0.5 | The spell lights also light surfaces, 0..2 (needs `LocalLights=1`); 0 = off |
 | `LightsFollowObjects` | 1 | A light in view whose object the client stopped drawing fades out with it |
 | `InteriorAware`, `InteriorDensity` | 1, 0.15 | Fade outdoor layers indoors, keeping this fraction of their density |
 | `InteriorFarFog` | 1.0 | Native distance-fog density kept indoors (0..1); lower values clear dungeon haze |
 | `LightShafts` | 1 | Terrain, buildings and trees block the sun or moon light in the fog |
-| `WorldShadows` | 1 | Use the client's world shadow maps when available (needs `LightShafts`) |
+| `WorldShadows` | 1 | Use the client's world shadow maps when available: for the shafts (needs `LightShafts`) and for the lights on surfaces to fill shadows on the ground |
 | `GodRays` | 0 | Shafts of light through gaps in trees, buildings and terrain in front of the sun, 0 = off |
 | `GlowCompensation` | 1 | Pre-compensate for the client's glow: the fog with `ColorSpace=1`, else only the god rays |
 | `ForeverGlow` | 0 | 1 gives the client's glow Forever's per-light amount where Classic lights cover the camera |
@@ -2116,15 +2159,32 @@ game, so by default colours still differ from Classic.
   model at the centre of its glows' bounds. A particle glow's colour is the mean of the emitter's colour track, weighted by
   its mean alpha and rendered particle count (full at 8 particles). A mesh batch's colour is its batch colour at the
   element's alpha, around its skin section's bounding sphere.
+- A flying spell's bounds hold its trail, so their centre lay half a trail behind the head, and the light, published a
+  frame after its particles were drawn, trailed further (owner's screenshot, 2026-11-10: the ground lit behind a missile).
+  Each particle glow now carries its emitter's origin and its travel over the client's last update, and the model's
+  light takes their strength-weighted means (a mesh batch gives its centre and no travel). Along the direction of
+  travel the light moves from the bounds' centre to the origin, no further than the front of the bounds, and one
+  travel ahead for the frame of delay. Across that direction it stays at the centre. This lead rises from none at
+  3 yd/s to full at 12 yd/s (a smoothstep; the speed is the travel over the time between two frames), so a bobbing
+  emitter does not throw the light about. The speeds, the 5 yd origin slack and the 10 yd travel limit are choices.
+- The light's extent is the half-diagonal of the bounds. For a travelling glow it shrinks, by the same lead, to the
+  bounds' reach ahead of the origin along the travel times √3 (at most the half-diagonal), so a 10 yd trail a yard
+  wide reaches 5.6 yd instead of 18. A trail diagonal to the world axes fills its bounding box, so there the head's
+  width is not known and only that reach ahead bounds the extent.
+- A light's power grows with its extent, from 0.5 for a point to 1 at 3 yd and beyond, since every spell with a few
+  emitters reached full strength before, whatever its size. The fog's glow along a ray grows with power times reach,
+  so a missile that lit the fog like an 18 yd lamp now adds about a fifth of that. The two numbers are choices.
 - Each colour is multiplied by its first texture's mean colour, scaled to a peak of 1 (weighted by texel alpha for the
   alpha-added blend). So a white track on a blue texture lights the fog blue.
 - The sphere reaches 3 yd plus three times the glows' half-diagonal, at most 20 yd. Textures in formats other than
   DXT1/3/5 and 16- and 32-bit RGB keep the track colour.
 - Alpha-blended glows, ribbons, model particles and spell effects stored outside `Spells\` do not glow.
-- Spell lights fade in and out over 0.15 s instead of a second, and compete for the eight slots with the world's lights by
-  the same priority. So a dim spell far away loses to a nearby torch.
-- The reading, the tint and the thunks are checked by the harness on fake client memory and a harness texture. The mesh
-  batch glows and tints are not yet seen in game.
+- Spell lights fade in over 0.05 s and out over 0.15 s instead of a second, and compete for the eight slots with the
+  world's lights by the same priority. So a dim spell far away loses to a nearby torch. A spell light keeps its slot
+  and weight while it moves up to 2 yd plus 150 yd/s between captures (40 yd/s for a world light), so a fast missile
+  is not taken for a new light each frame.
+- The reading, the tint and the thunks are checked by the harness on fake client memory and a harness texture, the lead
+  and the extent on made-up glows. The mesh batch glows and tints, the lead and the new power are not yet seen in game.
 
 **Water and ripples**
 

@@ -93,9 +93,9 @@
 
 namespace
 {
-constexpr UINT kPixelConstants = 104;
+constexpr UINT kPixelConstants = 105;
 constexpr UINT kSurfaceLightRegister = 100;
-constexpr UINT kSurfaceLightRegisters = 4;
+constexpr UINT kSurfaceLightRegisters = 5;
 constexpr DWORD kSceneBeforeLightsStage = 1;
 constexpr DWORD kLocalLightStage = 8;
 constexpr float kSurfaceDisplayGamma = 2.2f;
@@ -1212,6 +1212,11 @@ void Renderer::BindSunShadows(IDirect3DDevice9* dev, const FrameInputs& in, cons
     const Float4 light = {toShadowLightInView[0], toShadowLightInView[1], toShadowLightInView[2], 0.0f};
     dev->SetPixelShaderConstantF(kSunShadowRegister, control, 1);
     dev->SetPixelShaderConstantF(kSunShadowLightRegister, &light.x, 1);
+    BindWorldShadowMaps(dev, shadows);
+}
+
+void Renderer::BindWorldShadowMaps(IDirect3DDevice9* dev, const WorldShadowInputs& shadows)
+{
     dev->SetPixelShaderConstantF(kViewToShadowRegister, &shadows.viewToShadow[0][0], kViewToShadowRegisters);
     for (int i = 0; i < kWorldShadowMapCount; ++i)
         BindTexture(dev, kFirstWorldShadowStage + i, shadows.textures[i], shadows.hardwareComparison);
@@ -1598,11 +1603,14 @@ bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
     dev->SetRenderState(D3DRS_COLORWRITEENABLE,
                         D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE);
     dev->SetPixelShader(m_surfaceLights);
+    const WorldShadowInputs& clientShadows = *frame.clientShadows;
     Float4 constants[kSurfaceLightRegisters] = {
         {frame.strength, frame.reach, toTexture ? 1.0f : 0.0f, 0.0f},
         {},
         {},
         {frame.toLightInView[0], frame.toLightInView[1], frame.toLightInView[2], 0.0f},
+        {clientShadows.count > 0 ? 1.0f : 0.0f, clientShadows.count > 1 ? 1.0f : 0.0f,
+         clientShadows.hardwareComparison ? 1.0f : 0.0f, clientShadows.texelSize[0][0]},
     };
     float* const ambient = &constants[1].x;
     float* const direct = &constants[2].x;
@@ -1617,6 +1625,7 @@ bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
     BindTexture(dev, 0, depthTexture, false);
     BindTexture(dev, kSceneBeforeLightsStage, m_sceneCopy, false);
     BindTexture(dev, kLocalLightStage, m_localLightData, false);
+    BindWorldShadowMaps(dev, clientShadows);
     DrawFullscreenTriangle(dev);
     m_surfaceLightTimer.End();
     ++m_surfaceLightDraws;
@@ -1784,9 +1793,12 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     const SunShadowPlan shadowPlan = PlanSunShadows(clientShadowVector, in.toLight);
     const float* shadowToLight = shadowPlan.toLight;
 
-    if (cfg.lightShafts && cfg.worldShadows)
+    const bool lightsMayReachSurfaces = cfg.localLights && in.localLights.pointLightCount > 0 &&
+                                        (cfg.surfaceLights > 0.0f || cfg.spellSurfaceLights > 0.0f);
+    if (cfg.worldShadows && (cfg.lightShafts || lightsMayReachSurfaces))
         engine::AcquireWorldShadows(dev, m_worldShadows);
-    const WorldShadowInputs& shadows = m_worldShadows;
+    static const WorldShadowInputs noWorldShadows;
+    const WorldShadowInputs& shadows = cfg.lightShafts ? m_worldShadows : noWorldShadows;
     const bool terrainShadows = UpdateTerrainShadows(dev, in, shadowToLight, cfg);
     const int shadowMode = shadows.count | (shadows.hardwareComparison ? kHardwareShadowModeBit : 0);
 
@@ -1954,8 +1966,10 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
         surfaceLightStrength > 0.0f &&
         LightSurfaces(dev, depthTexture, target,
                       {vp, surfaceLightStrength, marchLightLimit, in.ambientColor, in.directColor,
-                       {toLightInView[0], toLightInView[1], toLightInView[2]}},
+                       {toLightInView[0], toLightInView[1], toLightInView[2]}, &m_worldShadows},
                       compositeBlendsInShader);
+    if (surfaceLightStrength > 0.0f)
+        BindWorldShadowMaps(dev, shadows);
     const bool sceneCopyReady =
         litSceneReady || (compositeBlendsInShader && CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite));
     IDirect3DTexture9* const raySceneTexture = litSceneReady ? m_litScene : (sceneCopyReady ? m_sceneCopy : nullptr);

@@ -458,6 +458,11 @@ extern "C" void __cdecl vf_test_override_client_shadow_vector(const float* vecto
     engine::OverrideClientShadowVector(vector);
 }
 
+extern "C" void __cdecl vf_test_override_world_shadows(const WorldShadowInputs* shadows)
+{
+    engine::OverrideWorldShadows(shadows);
+}
+
 extern "C" void __cdecl vf_test_force_depth_copy_method(int method)
 {
     ForceDepthCopyMethod(method);

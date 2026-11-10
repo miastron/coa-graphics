@@ -22,6 +22,19 @@ constexpr float kGlowTolerance = 1e-4f;
 constexpr float kFrontDepth = 10.0f;
 constexpr float kBehindDepth = -50.0f;
 constexpr double kSpellFadeCheckSeconds = 0.2;
+constexpr int kSpellFadeInFrames = 4;
+constexpr float kSpellJumpYards = 3.5f;
+constexpr int kSpellJumpFrames = 6;
+constexpr float kTrailLength = 10.0f;
+constexpr float kTrailHalfWidth = 0.5f;
+constexpr float kMissileStep = 0.5f;
+constexpr float kDriftStep = 0.02f;
+constexpr float kQuickFrameStep = 0.125f;
+constexpr float kQuickFrameSeconds = 1.0f / 240.0f;
+constexpr float kSlowFrameSeconds = 1.0f / 30.0f;
+constexpr float kEmitterOriginInBounds[3] = {12.0f, 22.0f, 31.0f};
+constexpr float kEmitterStep = 0.5f;
+constexpr float kOriginInAnotherFrame[3] = {1.0f, 2.0f, 3.0f};
 constexpr uintptr_t kThunkFrameArgument = 0x1111;
 constexpr uintptr_t kThunkBufferArgument = 0x2222;
 constexpr uintptr_t kThunkFirstArgument = 1;
@@ -147,6 +160,33 @@ void CheckSpellGlowReading()
     Check(Reads(tinted, blue) && GlowNear(blue.color[0], 0.0f) && GlowNear(blue.color[2], 1.0f),
           "an emitter with replacement colours glows in them instead of its track colours");
 
+    FakeSpellScene moving;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        FakeSpellScene::Put(moving.emitter, engine::kEmitterOrigin + axis * sizeof(float),
+                            kEmitterOriginInBounds[axis]);
+        FakeSpellScene::Put(moving.emitter, engine::kEmitterPreviousOrigin + axis * sizeof(float),
+                            kEmitterOriginInBounds[axis] - (axis == 0 ? kEmitterStep : 0.0f));
+    }
+    SpellGlow travelling;
+    const bool travels = Reads(moving, travelling);
+    FakeSpellScene::Put(moving.emitter, engine::kEmitterPreviousOrigin, 0.0f);
+    SpellGlow started;
+    const bool starts = Reads(moving, started);
+    for (int axis = 0; axis < 3; ++axis)
+        FakeSpellScene::Put(moving.emitter, engine::kEmitterOrigin + axis * sizeof(float),
+                            kOriginInAnotherFrame[axis]);
+    SpellGlow carried;
+    const bool carries = Reads(moving, carried);
+    Check(travels && travelling.originWeight == 1.0f && travelling.travelWeight == 1.0f &&
+              travelling.origin[0] == kEmitterOriginInBounds[0] && travelling.origin[2] == kEmitterOriginInBounds[2] &&
+              GlowNear(travelling.travel[0], kEmitterStep) && travelling.travel[1] == 0.0f && starts &&
+              started.originWeight == 1.0f && started.travelWeight == 0.0f && carries &&
+              carried.originWeight == 0.0f && glow.originWeight == 0.0f,
+          "a particle glow carries its emitter's origin and how far it moved since the last update; a jump of more "
+          "than 10 yd is no travel, and an origin more than 5 yd outside the bounds (an emitter in another frame "
+          "of reference) is left out");
+
     FakeSpellScene creature;
     creature.Name(kCreatureModelName);
     FakeSpellScene alphaBlended;
@@ -217,15 +257,17 @@ void CheckSpellLightCollector()
     lights.Publish();
     LocalPointLight light;
     const bool lit = lights.Light(0, 1.0f, light);
+    const float power = SpellLightPower(std::sqrt(5.0f));
     Check(beforePublish == 0 && lights.Count() == 1 && lit && GlowNear(light.position[0], 1.0f) &&
-              GlowNear(light.position[2], kFrontDepth) && GlowNear(light.color[0], 0.5f) &&
-              GlowNear(light.color[2], 0.5f) && light.nativeId == 1 && light.source == LocalLightSource::Spell,
+              GlowNear(light.position[2], kFrontDepth) && GlowNear(light.color[0], 0.5f * power) &&
+              GlowNear(light.color[2], 0.5f * power) && light.nativeId == 1 &&
+              light.source == LocalLightSource::Spell,
           "the emitters of one spell model become one light at the centre of their bounds, in their "
-          "strength-weighted colour, published at the next frame");
+          "strength-weighted colour at the power of their size, published at the next frame");
 
     LocalPointLight brighter;
     LocalPointLight off;
-    Check(lights.Light(0, 2.0f, brighter) && GlowNear(brighter.color[0], 1.0f) && !lights.Light(0, 0.0f, off),
+    Check(lights.Light(0, 2.0f, brighter) && GlowNear(brighter.color[0], power) && !lights.Light(0, 0.0f, off),
           "SpellLightIntensity scales the light, and 0 makes none");
 
     SpellLightCollector point;
@@ -238,11 +280,17 @@ void CheckSpellLightCollector()
     point.Light(1, 1.0f, wide);
     const float smallReach = engine::PointLightCutoff(pinpoint.color, pinpoint.attenuation);
     const float largeReach = engine::PointLightCutoff(wide.color, wide.attenuation);
-    std::printf("     spell light reach: point %.2f yd, 10 yd glow %.2f yd\n", smallReach, largeReach);
-    Check(std::fabs(smallReach - kSpellLightBaseReach) < 0.01f &&
-              std::fabs(largeReach - kSpellLightMaxReach) < 0.01f && GlowNear(wide.color[0], 1.0f),
-          "a full-strength spell light reaches 3 yd plus three times its glow's extent, at most 20 yd, and "
-          "strength beyond 1 does not brighten it");
+    const float dimmedBaseReach =
+        kSpellLightBaseReach *
+        std::sqrt((kSpellLightSmallestPower / kLocalPointLightContributionCutoff - 1.0f) /
+                  (1.0f / kLocalPointLightContributionCutoff - 1.0f));
+    std::printf("     spell light reach: point %.2f yd at %.2f, 10 yd glow %.2f yd at %.2f\n", smallReach,
+                pinpoint.color[0], largeReach, wide.color[0]);
+    Check(std::fabs(smallReach - dimmedBaseReach) < 0.01f && GlowNear(pinpoint.color[0], kSpellLightSmallestPower) &&
+              std::fabs(largeReach - kSpellLightMaxReach) < 0.01f && GlowNear(wide.color[0], 1.0f) &&
+              GlowNear(SpellLightPower(0.5f * kSpellGlowFullPowerExtent), 0.5f + 0.5f * kSpellLightSmallestPower),
+          "a spell light falls off over 3 yd plus three times its glow's extent, at most 20 yd; a point glow "
+          "shines at half power, a glow of 3 yd or more at full power, and strength beyond 1 does not brighten it");
 
     point.Publish();
     SpellLightCollector crowded;
@@ -251,6 +299,98 @@ void CheckSpellLightCollector()
     crowded.Publish();
     Check(point.Count() == 0 && crowded.Count() == kMaxSpellLightModels,
           "a frame without spell glows publishes none, and one frame gathers at most 32 spell models");
+}
+
+SpellGlow TrailBehind(uintptr_t model, float step)
+{
+    SpellGlow glow;
+    glow.model = model;
+    glow.boundsMax[0] = kTrailLength;
+    glow.boundsMin[1] = -kTrailHalfWidth;
+    glow.boundsMax[1] = kTrailHalfWidth;
+    glow.boundsMin[2] = kFrontDepth - kTrailHalfWidth;
+    glow.boundsMax[2] = kFrontDepth + kTrailHalfWidth;
+    glow.color[0] = 1.0f;
+    glow.strength = 1.0f;
+    glow.origin[0] = kTrailLength - kTrailHalfWidth;
+    glow.origin[2] = kFrontDepth;
+    glow.originWeight = 1.0f;
+    glow.travel[0] = step;
+    glow.travelWeight = 1.0f;
+    return glow;
+}
+
+float FalloffReach(const LocalPointLight& light)
+{
+    return std::sqrt((1.0f / kLocalPointLightContributionCutoff - 1.0f) / light.attenuation[2]);
+}
+
+LocalPointLight LightOf(const SpellGlow& glow, float frameSeconds = kSpellNominalFrameSeconds)
+{
+    SpellLightCollector lights;
+    lights.Add(glow);
+    lights.Publish(frameSeconds);
+    LocalPointLight light;
+    lights.Light(0, 1.0f, light);
+    return light;
+}
+
+void CheckSpellLightsLeadTheirTrail()
+{
+    const LocalPointLight missile = LightOf(TrailBehind(1, kMissileStep));
+    const LocalPointLight drifting = LightOf(TrailBehind(1, kDriftStep));
+    SpellGlow unanchored = TrailBehind(1, kMissileStep);
+    unanchored.originWeight = 0.0f;
+    const LocalPointLight centred = LightOf(unanchored);
+    const float trailCentre = 0.5f * kTrailLength;
+    const float headReach = kSpellLightBaseReach + kSpellLightReachPerExtent * kTrailHalfWidth * std::sqrt(3.0f);
+    std::printf("     10 yd trail: missile light at x %.2f reaching %.2f yd at %.2f, drifting at x %.2f reaching "
+                "%.2f yd at %.2f\n",
+                missile.position[0], FalloffReach(missile), missile.color[0], drifting.position[0],
+                FalloffReach(drifting), drifting.color[0]);
+    Check(GlowNear(missile.position[0], kTrailLength - kTrailHalfWidth + kMissileStep) &&
+              GlowNear(missile.position[1], 0.0f) && GlowNear(missile.position[2], kFrontDepth) &&
+              GlowNear(drifting.position[0], trailCentre) && GlowNear(centred.position[0], trailCentre),
+          "the light of a spell flying at 30 yd/s sits at its emitter, one frame's travel ahead, not at the centre "
+          "of the trail behind it; a drifting or unanchored glow keeps the centre of its bounds");
+    Check(std::fabs(FalloffReach(missile) - headReach) < 0.01f &&
+              FalloffReach(drifting) > 3.0f * FalloffReach(missile) && missile.color[0] < drifting.color[0],
+          "a flying spell's trail neither widens nor brightens its light: the reach and power follow the glow "
+          "around the emitter");
+
+    SpellGlow aside = TrailBehind(1, kMissileStep);
+    aside.origin[0] = 0.5f * kTrailLength;
+    aside.origin[1] = 2.0f * kTrailHalfWidth;
+    const LocalPointLight beside = LightOf(aside);
+    SpellGlow outrun = TrailBehind(1, kMissileStep);
+    outrun.origin[0] = kTrailLength + 3.0f;
+    const LocalPointLight ahead = LightOf(outrun);
+    Check(GlowNear(beside.position[0], trailCentre + kMissileStep) && GlowNear(beside.position[1], 0.0f) &&
+              GlowNear(ahead.position[0], kTrailLength + kMissileStep),
+          "the light moves only along the direction of travel, and no further than the front of the bounds plus "
+          "one frame");
+
+    const LocalPointLight quickFrame = LightOf(TrailBehind(1, kQuickFrameStep), kQuickFrameSeconds);
+    const LocalPointLight slowFrame = LightOf(TrailBehind(1, kQuickFrameStep), kSlowFrameSeconds);
+    std::printf("     0.125 yd of travel: light at x %.2f in a 1/240 s frame, x %.2f in a 1/30 s frame\n",
+                quickFrame.position[0], slowFrame.position[0]);
+    Check(GlowNear(quickFrame.position[0], kTrailLength - kTrailHalfWidth + kQuickFrameStep) &&
+              slowFrame.position[0] < trailCentre + 0.2f,
+          "the lead follows the speed, not the distance per frame: 0.125 yd leads fully in a 1/240 s frame and "
+          "hardly in a 1/30 s frame");
+
+    SpellLightCollector mixed;
+    SpellGlow still = TrailBehind(2, 0.0f);
+    still.travelWeight = 0.0f;
+    still.origin[0] = kTrailLength - 3.0f * kTrailHalfWidth;
+    mixed.Add(still);
+    mixed.Add(TrailBehind(2, kMissileStep));
+    mixed.Publish();
+    LocalPointLight merged;
+    mixed.Light(0, 1.0f, merged);
+    Check(GlowNear(merged.position[0], kTrailLength - 2.0f * kTrailHalfWidth + kMissileStep),
+          "the glows of one model share the strength-weighted mean of their origins, and a glow without travel "
+          "(a mesh batch) does not slow the lead");
 }
 
 void CheckSpellLightsJoinTheCapture()
@@ -297,6 +437,53 @@ void CheckSpellLightsJoinTheCapture()
                 spellWeight, worldWeight);
     Check(GlowNear(spellWeight, 1.0f) && worldWeight < 0.5f,
           "a spell light fades in within 0.15 s while a world light keeps its one-second fade");
+
+    LocalLightStabiliser quick;
+    seconds += 10.0;
+    StepFrame(quick, camera, seconds, empty);
+    float quickWeight = 0.0f;
+    for (int frame = 0; frame < kSpellFadeInFrames; ++frame)
+    {
+        seconds += kStabiliserFrameSeconds;
+        LocalLightInputs capture = CaptureInView({spell}, camera);
+        StepFrame(quick, camera, seconds, capture);
+        Uploads(capture, 11, &quickWeight);
+    }
+    float fadingWeight = 0.0f;
+    for (int frame = 0; frame < kSpellFadeInFrames; ++frame)
+    {
+        seconds += kStabiliserFrameSeconds;
+        LocalLightInputs capture = CaptureInView({}, camera);
+        StepFrame(quick, camera, seconds, capture);
+        Uploads(capture, 11, &fadingWeight);
+    }
+    std::printf("     spell light weight %.3f after %d frames, %.3f after %d frames without it\n", quickWeight,
+                kSpellFadeInFrames, fadingWeight, kSpellFadeInFrames);
+    Check(GlowNear(quickWeight, 1.0f) && fadingWeight > 0.0f && fadingWeight < 1.0f,
+          "a spell light is at full weight 0.05 s after it appears and still takes 0.15 s to fade out");
+
+    LocalLightStabiliser jumping;
+    seconds += 10.0;
+    StepFrame(jumping, camera, seconds, empty);
+    LocalPointLight missile = spell;
+    LocalPointLight lantern = world;
+    float missileWeight = 0.0f;
+    float lanternWeight = 0.0f;
+    for (int frame = 0; frame < kSpellJumpFrames; ++frame)
+    {
+        seconds += kStabiliserFrameSeconds;
+        missile.position[2] += kSpellJumpYards;
+        lantern.position[2] += kSpellJumpYards;
+        LocalLightInputs capture = CaptureInView({missile, lantern}, camera);
+        StepFrame(jumping, camera, seconds, capture);
+        Uploads(capture, 11, &missileWeight);
+        Uploads(capture, 10, &lanternWeight);
+    }
+    std::printf("     after %d jumps of %.1f yd: spell light weight %.3f, world light weight %.3f\n",
+                kSpellJumpFrames, kSpellJumpYards, missileWeight, lanternWeight);
+    Check(GlowNear(missileWeight, 1.0f) && lanternWeight < 0.1f,
+          "a spell light that moves 3.5 yd between captures stays one light at full weight, where a world light "
+          "would start a new fade each time");
 }
 
 void CheckSpellLightGuards()
@@ -503,7 +690,8 @@ void CheckTintedSpellLights()
     LocalPointLight blue;
     LocalPointLight kept;
     const bool lit = lights.Light(0, 1.0f, blue) && lights.Light(1, 1.0f, kept);
-    Check(lit && TintNear(blue.color, 0.0f, 0.25f, 1.0f) && TintNear(kept.color, 1.0f, 1.0f, 1.0f) &&
+    const float power = SpellLightPower(std::sqrt(2.0f));
+    Check(lit && TintNear(blue.color, 0.0f, 0.25f * power, power) && TintNear(kept.color, power, power, power) &&
               g_tintReads == 2,
           "a white glow takes its texture's tint, a texture without one keeps the track colour, and each texture is "
           "read once");
@@ -777,15 +965,17 @@ void CheckSpellLightsIgnoreTheLampSettings()
     spellSurfaces.surfaceLights = 0.0f;
     spellSurfaces.spellSurfaceLights = 0.75f;
     Check(LocalLightSurfaceStrength(spellSurfaces, spell) == 0.75f &&
-              LocalLightSurfaceStrength(spellSurfaces, lamp) == 0.0f && defaults.spellSurfaceLights == 1.0f,
+              LocalLightSurfaceStrength(spellSurfaces, lamp) == 0.0f && defaults.spellSurfaceLights == 0.5f &&
+              defaults.surfaceLights == 1.0f,
           "SpellSurfaceLights sets how strongly spell lights light surfaces and SurfaceLights how strongly lamps "
-          "do; both start at 1");
+          "do; spells start at 0.5 and lamps at 1");
 }
 
 void CheckSpellLights()
 {
     CheckSpellGlowReading();
     CheckSpellLightCollector();
+    CheckSpellLightsLeadTheirTrail();
     CheckSpellLightsIgnoreTheLampSettings();
     CheckSpellLightsJoinTheCapture();
     CheckSpellLightGuards();

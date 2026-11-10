@@ -119,6 +119,7 @@ bool g_snowFailed = false;
 DWORD g_snowLastStatus = 0;
 int g_trenchMapId = -1;
 LARGE_INTEGER g_trenchLastTick = {};
+LARGE_INTEGER g_spellLightLastTick = {};
 unsigned g_trenchStamps = 0;
 uintptr_t g_decalNormalBuildTarget = engine::kProjectedNormalBuild;
 uintptr_t g_decalColourBuildTarget = engine::kProjectedColourBuild;
@@ -407,10 +408,23 @@ void LeaveTransparentFogWorld()
     DisarmTransparentFog();
 }
 
+float SpellLightFrameSeconds()
+{
+    LARGE_INTEGER now;
+    LARGE_INTEGER frequency;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&frequency);
+    const float seconds = g_spellLightLastTick.QuadPart && frequency.QuadPart
+                              ? static_cast<float>(now.QuadPart - g_spellLightLastTick.QuadPart) / frequency.QuadPart
+                              : kSpellNominalFrameSeconds;
+    g_spellLightLastTick = now;
+    return seconds;
+}
+
 void PublishSpellLights()
 {
     const Config& cfg = GlobalConfig().Get();
-    GlobalSpellLights().Publish();
+    GlobalSpellLights().Publish(SpellLightFrameSeconds());
     const bool observed = g_spellLightHooksInstalled && cfg.enable && cfg.localLights && cfg.spellLights &&
                           cfg.spellLightIntensity > 0.0f;
     g_spellLightsObserved = observed ? 1 : 0;

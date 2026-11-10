@@ -19,9 +19,10 @@ double SquaredDistance(const LocalPointLight& a, const LocalPointLight& b)
     return distanceSquared;
 }
 
-double IdentityYards(float dt)
+double IdentityYards(const LocalPointLight& light, float dt)
 {
-    return kLocalLightIdentityYards + static_cast<double>(kLocalLightIdentitySpeed) * dt;
+    const float speed = light.source == LocalLightSource::Spell ? kSpellLightIdentitySpeed : kLocalLightIdentitySpeed;
+    return kLocalLightIdentityYards + static_cast<double>(speed) * dt;
 }
 
 double Smoothed(double previous, double current, float dt)
@@ -35,9 +36,14 @@ bool CentreInView(const LocalPointLight& light, const LocalLightCamera& camera)
     return PointLightMeetsView(light, camera, -light.cutoff);
 }
 
-float FadeSeconds(const LocalPointLight& light)
+float FadeOutSeconds(const LocalPointLight& light)
 {
     return light.source == LocalLightSource::Spell ? kSpellLightFadeSeconds : kLocalLightFadeSeconds;
+}
+
+float FadeInSeconds(const LocalPointLight& light)
+{
+    return light.source == LocalLightSource::Spell ? kSpellLightFadeInSeconds : kLocalLightFadeSeconds;
 }
 
 float EasedFade(float weight)
@@ -147,7 +153,7 @@ bool LocalLightStabiliser::TakesFreeSlotBefore(const Entry& entry, const Entry& 
 
 LocalLightStabiliser::Entry* LocalLightStabiliser::FindEntry(const LocalPointLight& light, float dt)
 {
-    const double identityYards = IdentityYards(dt);
+    const double identityYards = IdentityYards(light, dt);
     double nearestSquared = identityYards * identityYards;
     Entry* nearest = nullptr;
     for (uint32_t i = 0; i < m_count; ++i)
@@ -223,14 +229,14 @@ void LocalLightStabiliser::AdvanceWeights(float dt)
         Entry& entry = m_entries[i];
         if (!entry.slotted)
             continue;
-        const float step = dt / FadeSeconds(entry.light);
         if (entry.outOfView)
         {
             entry.weight = 0.0f;
             continue;
         }
         const bool shining = entry.present && !entry.evicted;
-        entry.weight = shining ? std::min(entry.weight + step, 1.0f) : std::max(entry.weight - step, 0.0f);
+        entry.weight = shining ? std::min(entry.weight + dt / FadeInSeconds(entry.light), 1.0f)
+                               : std::max(entry.weight - dt / FadeOutSeconds(entry.light), 0.0f);
     }
 }
 

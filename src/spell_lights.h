@@ -13,6 +13,15 @@ constexpr float kSpellLightBaseReach = 3.0f;
 constexpr float kSpellLightReachPerExtent = 3.0f;
 constexpr float kSpellLightMaxReach = 20.0f;
 constexpr float kSpellGlowMaxExtent = 50.0f;
+constexpr float kSpellGlowOriginSlack = 5.0f;
+constexpr float kSpellGlowMaxTravel = 10.0f;
+constexpr float kSpellLeadStartSpeed = 3.0f;
+constexpr float kSpellLeadFullSpeed = 12.0f;
+constexpr float kSpellNominalFrameSeconds = 1.0f / 60.0f;
+constexpr float kSpellShortestFrameSeconds = 1.0f / 1000.0f;
+constexpr float kSpellLongestFrameSeconds = 0.1f;
+constexpr float kSpellLightSmallestPower = 0.5f;
+constexpr float kSpellGlowFullPowerExtent = 3.0f;
 constexpr uint32_t kSpellTintCacheEntries = 256;
 
 namespace engine
@@ -71,6 +80,8 @@ constexpr uintptr_t kEmitterReplacementColors = 0xF4;
 constexpr uintptr_t kEmitterTexture = 0x128;
 constexpr uintptr_t kEmitterAlphaScale = 0x130;
 constexpr uintptr_t kEmitterFlags = 0x134;
+constexpr uintptr_t kEmitterOrigin = 0x1B4;
+constexpr uintptr_t kEmitterPreviousOrigin = 0x1D0;
 constexpr uintptr_t kEmitterWorldBounds = 0x218;
 constexpr uintptr_t kPartTrackValueCount = 0x08;
 constexpr uintptr_t kPartTrackValues = 0x0C;
@@ -94,7 +105,20 @@ struct SpellGlow
     float strength = 0.0f;
     uintptr_t texture = 0;
     bool textureAlphaWeighted = false;
+    float origin[3] = {};
+    float originWeight = 0.0f;
+    float travel[3] = {};
+    float travelWeight = 0.0f;
 };
+
+struct SpellGlowShape
+{
+    float position[3] = {};
+    float extent = 0.0f;
+};
+
+SpellGlowShape ShapeOfSpellGlow(const SpellGlow& merged, float frameSeconds);
+float SpellLightPower(float extent);
 
 using TextureTintReader = bool (*)(uintptr_t texture, bool alphaWeighted, float tint[3]);
 
@@ -103,7 +127,7 @@ class SpellLightCollector
 public:
     void UseTextureTints(TextureTintReader reader);
     void Add(const SpellGlow& glow);
-    void Publish();
+    void Publish(float frameSeconds = kSpellNominalFrameSeconds);
     void Clear();
     uint32_t Gathering() const { return m_gatheringCount; }
     uint32_t Count() const { return m_publishedCount; }
@@ -128,6 +152,7 @@ private:
     uint32_t m_gatheringCount = 0;
     SpellGlow m_published[kMaxSpellLightModels] = {};
     uint32_t m_publishedCount = 0;
+    float m_frameSeconds = kSpellNominalFrameSeconds;
 };
 
 namespace engine

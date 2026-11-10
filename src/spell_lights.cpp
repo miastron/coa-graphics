@@ -29,6 +29,9 @@ const ClientCodeGuard kSpellLightCode[] = {
     {"particle replacement colours", 0x00979652, 7, {0xD9, 0x84, 0x8E, 0xF4, 0x00, 0x00, 0x00}},
     {"particle alpha track", 0x00979F01, 6, {0x8B, 0x8E, 0xDC, 0x00, 0x00, 0x00}},
     {"particle alpha scale", 0x00979F0F, 6, {0xD8, 0x8E, 0x30, 0x01, 0x00, 0x00}},
+    {"emitter previous origin", 0x0097EB57, 12,
+     {0x8B, 0x86, 0xB4, 0x01, 0x00, 0x00, 0x89, 0x86, 0xD0, 0x01, 0x00, 0x00}},
+    {"emitter transform", 0x0097AC7E, 6, {0x8D, 0x8E, 0x84, 0x01, 0x00, 0x00}},
     {"fixed16 track values", 0x009794F7, 12,
      {0x83, 0x7F, 0x08, 0x01, 0x75, 0x17, 0x8B, 0x47, 0x0C, 0x0F, 0xBF, 0x08}},
     {"single particle draw element", 0x008214E7, 15,
@@ -124,6 +127,42 @@ bool ReadBounds(uintptr_t emitter, SpellGlow& glow)
     return true;
 }
 
+bool NearBounds(const float point[3], const SpellGlow& glow)
+{
+    for (int axis = 0; axis < 3; ++axis)
+        if (!(point[axis] >= glow.boundsMin[axis] - kSpellGlowOriginSlack &&
+              point[axis] <= glow.boundsMax[axis] + kSpellGlowOriginSlack))
+            return false;
+    return true;
+}
+
+bool ShortTravel(const float travel[3])
+{
+    const float squared = travel[0] * travel[0] + travel[1] * travel[1] + travel[2] * travel[2];
+    return squared <= kSpellGlowMaxTravel * kSpellGlowMaxTravel;
+}
+
+void ReadOriginAndTravel(uintptr_t emitter, SpellGlow& glow)
+{
+    float origin[3];
+    float previous[3];
+    ReadFloats(emitter + engine::kEmitterOrigin, origin, 3);
+    ReadFloats(emitter + engine::kEmitterPreviousOrigin, previous, 3);
+    if (!NearBounds(origin, glow))
+        return;
+    float travel[3];
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        glow.origin[axis] = origin[axis];
+        travel[axis] = origin[axis] - previous[axis];
+    }
+    glow.originWeight = 1.0f;
+    if (!ShortTravel(travel))
+        return;
+    std::memcpy(glow.travel, travel, sizeof(travel));
+    glow.travelWeight = 1.0f;
+}
+
 bool MeanTrackColor(uintptr_t emitter, float color[3])
 {
     const uintptr_t track = Read<uintptr_t>(emitter + engine::kEmitterColorTrack);
@@ -216,6 +255,7 @@ bool ReadSpellGlowUnsafe(uintptr_t emitter, uintptr_t element, uintptr_t worldSc
     glow.strength = MeanTrackAlpha(emitter) * UnitOrZero(Read<float>(emitter + engine::kEmitterAlphaScale)) * particles;
     if (!(glow.strength > 0.0f))
         return false;
+    ReadOriginAndTravel(emitter, glow);
     glow.texture = DeviceTexture(Read<uintptr_t>(emitter + engine::kEmitterTexture));
     glow.textureAlphaWeighted =
         Read<uint32_t>(emitter + engine::kEmitterMaterialBlend) == engine::kAdditiveParticleBlend;
@@ -280,7 +320,9 @@ bool MeshBounds(uintptr_t model, uintptr_t data, uintptr_t skin, uintptr_t world
             return false;
         glow.boundsMin[axis] = world[axis] - half;
         glow.boundsMax[axis] = world[axis] + half;
+        glow.origin[axis] = world[axis];
     }
+    glow.originWeight = 1.0f;
     return true;
 }
 
@@ -375,16 +417,105 @@ uintptr_t SingleElement(uintptr_t sceneRender)
     return Read<uintptr_t>(sceneRender + engine::kSceneRenderCurrentElement);
 }
 
-void Widen(SpellGlow& merged, const SpellGlow& glow)
+SpellGlow WeightedByStrength(const SpellGlow& glow)
+{
+    SpellGlow weighted = glow;
+    weighted.originWeight = glow.originWeight * glow.strength;
+    weighted.travelWeight = glow.travelWeight * glow.strength;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        weighted.color[axis] = glow.color[axis] * glow.strength;
+        weighted.origin[axis] = glow.origin[axis] * weighted.originWeight;
+        weighted.travel[axis] = glow.travel[axis] * weighted.travelWeight;
+    }
+    return weighted;
+}
+
+void Widen(SpellGlow& merged, const SpellGlow& weighted)
 {
     for (int axis = 0; axis < 3; ++axis)
     {
-        merged.boundsMin[axis] = std::min(merged.boundsMin[axis], glow.boundsMin[axis]);
-        merged.boundsMax[axis] = std::max(merged.boundsMax[axis], glow.boundsMax[axis]);
-        merged.color[axis] += glow.color[axis] * glow.strength;
+        merged.boundsMin[axis] = std::min(merged.boundsMin[axis], weighted.boundsMin[axis]);
+        merged.boundsMax[axis] = std::max(merged.boundsMax[axis], weighted.boundsMax[axis]);
+        merged.color[axis] += weighted.color[axis];
+        merged.origin[axis] += weighted.origin[axis];
+        merged.travel[axis] += weighted.travel[axis];
     }
-    merged.strength += glow.strength;
+    merged.strength += weighted.strength;
+    merged.originWeight += weighted.originWeight;
+    merged.travelWeight += weighted.travelWeight;
 }
+
+float LeadAtSpeed(float speed)
+{
+    const float t =
+        std::clamp((speed - kSpellLeadStartSpeed) / (kSpellLeadFullSpeed - kSpellLeadStartSpeed), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+struct GlowTravel
+{
+    float step[3] = {};
+    float direction[3] = {};
+    float lead = 0.0f;
+};
+
+GlowTravel TravelOf(const SpellGlow& merged, float frameSeconds)
+{
+    GlowTravel travel;
+    if (!(merged.originWeight > 0.0f) || !(merged.travelWeight > 0.0f))
+        return travel;
+    float squared = 0.0f;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        travel.step[axis] = merged.travel[axis] / merged.travelWeight;
+        squared += travel.step[axis] * travel.step[axis];
+    }
+    const float distance = std::sqrt(squared);
+    if (!(distance > 0.0f) || !std::isfinite(distance))
+        return travel;
+    for (int axis = 0; axis < 3; ++axis)
+        travel.direction[axis] = travel.step[axis] / distance;
+    travel.lead = LeadAtSpeed(distance / frameSeconds);
+    return travel;
+}
+}
+
+SpellGlowShape ShapeOfSpellGlow(const SpellGlow& merged, float frameSeconds)
+{
+    SpellGlowShape shape;
+    float half[3];
+    float extentSquared = 0.0f;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        half[axis] = 0.5f * (merged.boundsMax[axis] - merged.boundsMin[axis]);
+        shape.position[axis] = merged.boundsMin[axis] + half[axis];
+        extentSquared += half[axis] * half[axis];
+    }
+    shape.extent = std::sqrt(extentSquared);
+    const GlowTravel travel = TravelOf(merged, frameSeconds);
+    if (!(travel.lead > 0.0f))
+        return shape;
+    float originAhead = 0.0f;
+    float boundsAhead = 0.0f;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        const float origin = merged.origin[axis] / merged.originWeight;
+        originAhead += (origin - shape.position[axis]) * travel.direction[axis];
+        boundsAhead += std::fabs(travel.direction[axis]) * half[axis];
+    }
+    const float trailLag = std::clamp(originAhead, 0.0f, boundsAhead);
+    const float headExtent = std::min(shape.extent, (boundsAhead - trailLag) / kAxisShareOfRadius);
+    for (int axis = 0; axis < 3; ++axis)
+        shape.position[axis] += travel.lead * (travel.direction[axis] * trailLag + travel.step[axis]);
+    shape.extent += travel.lead * (headExtent - shape.extent);
+    return shape;
+}
+
+float SpellLightPower(float extent)
+{
+    const float size = std::clamp(extent / kSpellGlowFullPowerExtent, 0.0f, 1.0f);
+    return kSpellLightSmallestPower + (1.0f - kSpellLightSmallestPower) * size;
 }
 
 namespace engine
@@ -522,25 +653,26 @@ void SpellLightCollector::Add(const SpellGlow& observed)
 {
     SpellGlow glow = observed;
     Tint(glow);
+    const SpellGlow weighted = WeightedByStrength(glow);
     for (uint32_t i = 0; i < m_gatheringCount; ++i)
         if (m_gathering[i].model == glow.model)
         {
-            Widen(m_gathering[i], glow);
+            Widen(m_gathering[i], weighted);
             return;
         }
     if (m_gatheringCount == kMaxSpellLightModels)
         return;
-    SpellGlow& merged = m_gathering[m_gatheringCount++];
-    merged = glow;
-    for (int channel = 0; channel < 3; ++channel)
-        merged.color[channel] = glow.color[channel] * glow.strength;
+    m_gathering[m_gatheringCount++] = weighted;
 }
 
-void SpellLightCollector::Publish()
+void SpellLightCollector::Publish(float frameSeconds)
 {
     std::memcpy(m_published, m_gathering, sizeof(m_published));
     m_publishedCount = m_gatheringCount;
     m_gatheringCount = 0;
+    m_frameSeconds = std::isfinite(frameSeconds)
+                         ? std::clamp(frameSeconds, kSpellShortestFrameSeconds, kSpellLongestFrameSeconds)
+                         : kSpellNominalFrameSeconds;
 }
 
 void SpellLightCollector::Clear()
@@ -557,18 +689,14 @@ bool SpellLightCollector::Light(uint32_t index, float intensity, LocalPointLight
     if (!(glow.strength > 0.0f))
         return false;
     LocalPointLight light;
-    float extentSquared = 0.0f;
-    for (int axis = 0; axis < 3; ++axis)
-    {
-        const float half = 0.5f * (glow.boundsMax[axis] - glow.boundsMin[axis]);
-        light.position[axis] = glow.boundsMin[axis] + half;
-        extentSquared += half * half;
-    }
-    const float brightness = std::min(glow.strength, 1.0f) * intensity / glow.strength;
+    const SpellGlowShape shape = ShapeOfSpellGlow(glow, m_frameSeconds);
+    std::memcpy(light.position, shape.position, sizeof(light.position));
+    const float brightness =
+        std::min(glow.strength, 1.0f) * SpellLightPower(shape.extent) * intensity / glow.strength;
     for (int channel = 0; channel < 3; ++channel)
         light.color[channel] = glow.color[channel] * brightness;
     const float reach =
-        std::min(kSpellLightBaseReach + kSpellLightReachPerExtent * std::sqrt(extentSquared), kSpellLightMaxReach);
+        std::min(kSpellLightBaseReach + kSpellLightReachPerExtent * shape.extent, kSpellLightMaxReach);
     light.attenuation[0] = 1.0f;
     light.attenuation[1] = 0.0f;
     light.attenuation[2] = (1.0f / kLocalPointLightContributionCutoff - 1.0f) / (reach * reach);

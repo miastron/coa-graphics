@@ -5,6 +5,7 @@
 #include "client_ripple_sprites.h"
 #include "config.h"
 #include "engine.h"
+#include "engine_shadows.h"
 #include "fog_data.h"
 #include "fog_model.h"
 #include "forever_look.h"
@@ -150,6 +151,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_force_water_shading_varian
 extern "C" __declspec(dllimport) int __cdecl vf_test_water_shading_variant();
 extern "C" __declspec(dllimport) void __cdecl vf_test_force_depth_copy_method(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_override_client_shadow_vector(const float*);
+extern "C" __declspec(dllimport) void __cdecl vf_test_override_world_shadows(const WorldShadowInputs*);
 extern "C" __declspec(dllimport) int __cdecl vf_test_read_scene_depth(const DepthTexel*, int, float*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_multisampling(MultisamplingStatus*);
 extern "C" __declspec(dllimport) int __cdecl vf_test_refresh_scene_depth();
@@ -447,7 +449,7 @@ Rgb SampleRgb(const Image& img, int cx, int cy, int radius)
 }
 
 constexpr DWORD kFogPassTextureStages = 11;
-constexpr UINT kFogPassPixelConstants = 104;
+constexpr UINT kFogPassPixelConstants = 105;
 
 struct Sentinel
 {
@@ -3677,6 +3679,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(CheckRendererSwitchesLitShaders(h));
     RUN_GROUP(surface_light_checks::CheckLightsOnSurfaces(h));
     RUN_GROUP(surface_light_checks::CheckSpellLightsOnSurfaces(h));
+    RUN_GROUP(surface_light_checks::CheckLightsFillClientShadows(h));
     RUN_GROUP(surface_light_checks::CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(h));
     RUN_GROUP(surface_light_checks::CheckSurfaceLightsFadeOutInDaylight(h));
     RUN_GROUP(surface_light_checks::CheckGodRaysTakeTheirSceneFromTheCompositeCopy(h));

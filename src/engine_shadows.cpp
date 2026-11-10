@@ -160,6 +160,15 @@ bool TryAcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out)
 }
 
 const float* g_overriddenShadowVector = nullptr;
+const WorldShadowInputs* g_overriddenWorldShadows = nullptr;
+
+void TakeOverriddenWorldShadows(WorldShadowInputs& out)
+{
+    out = *g_overriddenWorldShadows;
+    for (IDirect3DTexture9* texture : out.textures)
+        if (texture)
+            texture->AddRef();
+}
 
 bool ReadClientShadowVectorUnsafe(float* out)
 {
@@ -185,6 +194,11 @@ namespace engine
 bool AcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out)
 {
     ReleaseWorldShadows(out);
+    if (Seam<const WorldShadowInputs*>(g_overriddenWorldShadows, nullptr))
+    {
+        TakeOverriddenWorldShadows(out);
+        return true;
+    }
     const bool acquired = TryAcquireWorldShadows(device, out);
     if (!acquired)
         ReleaseWorldShadows(out);
@@ -208,6 +222,11 @@ bool AcquireWorldShadows(IDirect3DDevice9* device, WorldShadowInputs& out)
 void OverrideClientShadowVector(const float* vector)
 {
     g_overriddenShadowVector = vector;
+}
+
+void OverrideWorldShadows(const WorldShadowInputs* shadows)
+{
+    g_overriddenWorldShadows = shadows;
 }
 #endif
 

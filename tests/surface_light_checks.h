@@ -20,6 +20,20 @@ constexpr uint32_t kBrightAmbient = 0xFFFFFFFF;
 constexpr uint32_t kFullDirectLight = 0xFFFFFFFF;
 constexpr float kFaintLight = 0.2f;
 constexpr uint32_t kNoDirectLight = 0xFF000000;
+constexpr UINT kShadowMapSize = 256;
+constexpr float kShadowCasterDepth = 0.5f;
+constexpr float kShadowedReceiverDepth = 0.75f;
+constexpr float kLitReceiverDepth = 0.25f;
+constexpr float kOffTheShadowMap = 5.0f;
+constexpr int kOneShadowMap = 1;
+constexpr int kNoShadowingMap = -1;
+constexpr int kCharacterMap = 0;
+constexpr int kNearMap = 1;
+constexpr int kMiddleMap = 2;
+constexpr int kFarMap = 3;
+constexpr uint32_t kOpenGroundAmbient = 0xFFAFAFAF;
+constexpr uint32_t kShadedGroundAmbient = 0xFFFAFAFA;
+constexpr int kShadowFillAtLeast = 4;
 
 struct LitFrame
 {
@@ -187,8 +201,9 @@ void CheckLightsOnSurfaces(Harness& h)
           "copying it again draws");
     Check(handed.colourCopies + 1 == kept.colourCopies,
           "handing the lit scene to the composite saves the composite's own full-viewport colour copy");
-    Check(full.statesKept, "the surface light pass restores render, sampler, texture, shader, constant, stream, "
-                           "viewport, scissor, render target and depth state");
+    Check(half.statesKept && full.statesKept,
+          "the surface light pass restores render, sampler, texture, shader, constant, stream, viewport, scissor, "
+          "render target and depth state, from its first frame on");
     vf_test_set_config(&saved);
 }
 
@@ -242,6 +257,127 @@ void CheckSpellLightsOnSurfaces(Harness& h)
               lampBesideNoSpellSurfaces.draws == 1 && lampLift >= kLitAtLeast,
           "SurfaceLights=0 keeps lamps off the surfaces and SpellSurfaceLights=0 keeps spells off them, each "
           "without touching the other");
+    vf_test_set_config(&saved);
+}
+
+IDirect3DTexture9* CreateClientShadowMap(IDirect3DDevice9* dev)
+{
+    IDirect3DTexture9* map = nullptr;
+    if (FAILED(dev->CreateTexture(kShadowMapSize, kShadowMapSize, 1, 0, D3DFMT_R32F, D3DPOOL_MANAGED, &map, nullptr)))
+        return nullptr;
+    D3DLOCKED_RECT locked = {};
+    if (FAILED(map->LockRect(0, &locked, nullptr, 0)))
+    {
+        map->Release();
+        return nullptr;
+    }
+    for (UINT y = 0; y < kShadowMapSize; ++y)
+    {
+        float* row = reinterpret_cast<float*>(static_cast<unsigned char*>(locked.pBits) + y * locked.Pitch);
+        std::fill_n(row, kShadowMapSize, kShadowCasterDepth);
+    }
+    map->UnlockRect(0);
+    return map;
+}
+
+WorldShadowInputs ClientShadows(IDirect3DTexture9* map, int count, int shadowingMap)
+{
+    WorldShadowInputs shadows;
+    shadows.count = count;
+    for (int i = 0; i < count; ++i)
+    {
+        shadows.textures[i] = map;
+        shadows.texelSize[i][0] = shadows.texelSize[i][1] = 1.0f / kShadowMapSize;
+        shadows.viewToShadow[i][3] = i < shadowingMap ? kOffTheShadowMap : 0.0f;
+        shadows.viewToShadow[i][11] = kLitReceiverDepth;
+    }
+    if (shadowingMap >= 0)
+    {
+        shadows.viewToShadow[shadowingMap][3] = 0.0f;
+        shadows.viewToShadow[shadowingMap][11] = kShadowedReceiverDepth;
+    }
+    return shadows;
+}
+
+LitFrame RenderUnderClientShadows(Harness& h, Scene& scene, const Config& config, const WorldShadowInputs& shadows,
+                                  uint32_t ambientColor)
+{
+    vf_test_override_world_shadows(&shadows);
+    const LitFrame frame = RenderLit(h, scene, config, kFullStrength, true, ambientColor, kNoDirectLight);
+    vf_test_override_world_shadows(nullptr);
+    return frame;
+}
+
+void CheckLightsFillClientShadows(Harness& h)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Scene scene;
+    SceneInputs(scene, SurfaceConfig(saved, kFullStrength));
+    UINT x = 0;
+    UINT y = 0;
+    IDirect3DTexture9* map = CreateClientShadowMap(h.dev);
+    if (!map || !GroundPixel(scene, kLightAhead, x, y))
+    {
+        Check(false, "the client shadow map fixture is created and the ground under the light is in view");
+        if (map)
+            map->Release();
+        return;
+    }
+    Config withoutShafts = saved;
+    withoutShafts.lightShafts = false;
+    withoutShafts.worldShadows = true;
+    Config withoutWorldShadows = withoutShafts;
+    withoutWorldShadows.worldShadows = false;
+    const LitFrame unlit = RenderLit(h, scene, withoutShafts, 0.0f, true, kOpenGroundAmbient, kNoDirectLight);
+    const LitFrame openGround =
+        RenderLit(h, scene, withoutShafts, kFullStrength, true, kOpenGroundAmbient, kNoDirectLight);
+    const LitFrame brighterSky =
+        RenderLit(h, scene, withoutShafts, kFullStrength, true, kShadedGroundAmbient, kNoDirectLight);
+    const LitFrame open = RenderUnderClientShadows(
+        h, scene, withoutShafts, ClientShadows(map, kOneShadowMap, kNoShadowingMap), kOpenGroundAmbient);
+    const LitFrame openCascades = RenderUnderClientShadows(
+        h, scene, withoutShafts, ClientShadows(map, kWorldShadowMapCount, kNoShadowingMap), kOpenGroundAmbient);
+    const LitFrame ignored = RenderUnderClientShadows(
+        h, scene, withoutWorldShadows, ClientShadows(map, kWorldShadowMapCount, kNearMap), kOpenGroundAmbient);
+    const int openLift = GreenLift(openGround.image, unlit.image, x, y);
+    const int brighterSkyLift = GreenLift(brighterSky.image, unlit.image, x, y);
+    std::printf("     ground of one colour under a light: green lift %d under an ambient of 175, %d under an ambient "
+                "of 250 that the client did not shade\n",
+                openLift, brighterSkyLift);
+    Check(openLift >= kLitAtLeast && brighterSkyLift < openLift - kShadowFillAtLeast,
+          "ground as bright under a brighter sky has a darker albedo and takes less of a light");
+    Check(image_quality_checks::SameImage(open.image, openGround.image) &&
+              image_quality_checks::SameImage(openCascades.image, openGround.image) &&
+              image_quality_checks::SameImage(ignored.image, openGround.image),
+          "ground the client's shadow maps leave lit takes a light exactly as without the maps, and WorldShadows=0 "
+          "leaves the maps unread");
+    struct ShadowedCase
+    {
+        const char* name;
+        int count;
+        int shadowingMap;
+    };
+    const ShadowedCase cases[] = {
+        {"the character map alone", kOneShadowMap, kCharacterMap},
+        {"the character map beside open cascades", kWorldShadowMapCount, kCharacterMap},
+        {"the near cascade", kWorldShadowMapCount, kNearMap},
+        {"the middle cascade", kWorldShadowMapCount, kMiddleMap},
+        {"the far cascade", kWorldShadowMapCount, kFarMap},
+    };
+    for (const ShadowedCase& shadowed : cases)
+    {
+        const LitFrame frame = RenderUnderClientShadows(
+            h, scene, withoutShafts, ClientShadows(map, shadowed.count, shadowed.shadowingMap), kShadedGroundAmbient);
+        const int lift = GreenLift(frame.image, unlit.image, x, y);
+        char label[240];
+        std::snprintf(label, sizeof(label),
+                      "ground under an ambient of 250 that the client shaded to 0.7 through %s takes the light of "
+                      "the same ground under an ambient of 175: green lift %d against %d",
+                      shadowed.name, lift, openLift);
+        Check(frame.draws == 1 && std::abs(lift - openLift) <= 1, label);
+    }
+    map->Release();
     vf_test_set_config(&saved);
 }
 
@@ -333,5 +469,8 @@ void CheckShippedSetting(const std::wstring& shippedIni)
     GetPrivateProfileStringW(L"CoAGraphics", L"SurfaceLights", L"", text, 16, shippedIni.c_str());
     Check(defaults.surfaceLights == 1.0f && std::wcscmp(text, L"1.0") == 0,
           "lights on surfaces are on at 1 by default and in the shipped INI");
+    GetPrivateProfileStringW(L"CoAGraphics", L"SpellSurfaceLights", L"", text, 16, shippedIni.c_str());
+    Check(defaults.spellSurfaceLights == 0.5f && std::wcscmp(text, L"0.5") == 0,
+          "spell lights on surfaces are on at 0.5 by default and in the shipped INI");
 }
 }

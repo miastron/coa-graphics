@@ -21,5 +21,6 @@ void ReleaseWorldShadows(WorldShadowInputs& in);
 void ReadClientShadowVector(float* out);
 #ifdef VF_TESTING
 void OverrideClientShadowVector(const float* vector);
+void OverrideWorldShadows(const WorldShadowInputs* shadows);
 #endif
 }

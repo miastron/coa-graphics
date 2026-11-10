@@ -294,7 +294,7 @@ bool DrawLight(Config& c)
                       "Glowing spell effects and shields light the fog around them, in their own colour");
     changed |= Slider(c, &Config::spellLightIntensity, "Spell light intensity", "%.2f",
                       "Brightness and reach of the spell lights. The local light intensity and the region sliders "
-                      "are for the world's lamps only");
+                      "are for the world's lamps only. A small glow shines at half the power of a large one");
     changed |= Slider(c, &Config::surfaceLights, "Lights on surfaces", "%.2f",
                       "The world's lamps also light the ground, walls and models around them, without shadows, "
                       "from the same eight lights as the fog (needs Local lights). Strongest at night, where the "
@@ -307,7 +307,8 @@ bool DrawLight(Config& c)
                       "so it shines through only where the light reaches");
     changed |= Toggle("World shadows", c.worldShadows,
                       "Use the client's shadow maps when available, so casters outside the view block the light too; "
-                      "needs Light shafts and the client's shadows");
+                      "needs Light shafts and the client's shadows. Lights on surfaces read them too, to fill the "
+                      "shadows on the ground");
     changed |= Slider(c, &Config::godRays, "God rays", "%.2f",
                       "Shafts of light through gaps in trees, buildings and terrain in front of the sun, 0 = off. An "
                       "open sky, its clouds included, gets none; the glow around the sun is Sun scatter's");

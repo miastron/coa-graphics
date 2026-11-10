@@ -6,12 +6,14 @@
 
 constexpr float kLocalLightFadeSeconds = 1.0f;
 constexpr float kSpellLightFadeSeconds = 0.15f;
+constexpr float kSpellLightFadeInSeconds = 0.05f;
 constexpr float kLocalLightPrioritySmoothingSeconds = 0.3f;
 constexpr double kLocalLightSwapMargin = 1.5;
 constexpr uint32_t kLocalLightSwapCaptures = 3;
 constexpr uint32_t kLocalLightHoldCaptures = 8;
 constexpr float kLocalLightIdentityYards = 2.0f;
 constexpr float kLocalLightIdentitySpeed = 40.0f;
+constexpr float kSpellLightIdentitySpeed = 150.0f;
 constexpr float kLocalLightViewExitYards = 5.0f;
 constexpr double kLocalLightResetSeconds = 1.0;
 constexpr double kLocalLightActivityLogSeconds = 60.0;

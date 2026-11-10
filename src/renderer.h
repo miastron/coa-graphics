@@ -110,6 +110,7 @@ private:
         uint32_t ambientColor;
         uint32_t directColor;
         float toLightInView[3];
+        const WorldShadowInputs* clientShadows;
     };
 
     template <typename Passes>
@@ -159,6 +160,7 @@ private:
     FogParams DrawableFog(IDirect3DDevice9* dev, const FogParams& fog);
     void BindSunShadows(IDirect3DDevice9* dev, const FrameInputs& in, const WorldShadowInputs& shadows,
                         const float* shadowToLight, const float* control);
+    void BindWorldShadowMaps(IDirect3DDevice9* dev, const WorldShadowInputs& shadows);
     bool UpdateTerrainShadows(IDirect3DDevice9* dev, const FrameInputs& in, const float* shadowToLight,
                               const Config& cfg);
     void BindTerrainShadows(IDirect3DDevice9* dev, bool active);
