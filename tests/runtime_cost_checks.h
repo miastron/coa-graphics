@@ -181,6 +181,18 @@ void CheckDepthProbeAndGpuTimeLog(Harness& h, Vec3 eye, Vec3 at)
     std::printf("     frame summary: fog gpu %.3f ms over %u frames, %u skipped\n", medianMs, frames, skipped);
     Check(rendered && timed && frames > 0 && medianMs > 0.0f,
           "the frame summary reports the fog's GPU time from timestamp queries");
+    const std::string summary = LogWrittenSince(logStart);
+    const size_t passLine = summary.rfind("  fog pass gpu ms (median): march ");
+    float marchMs = -1.0f;
+    const bool passesTimed =
+        passLine != std::string::npos &&
+        std::sscanf(summary.c_str() + passLine, "  fog pass gpu ms (median): march %f", &marchMs) == 1;
+    const std::string passText =
+        passesTimed ? summary.substr(passLine + 2, summary.find('\n', passLine) - passLine - 2) : "no fog pass line";
+    std::printf("     %s\n", passText.c_str());
+    Check(passesTimed && marchMs > 0.0f && marchMs <= medianMs + 0.01f &&
+              HasLine(summary, ", temporal ") && HasLine(summary, ", composite "),
+          "the frame summary times the march, temporal and composite passes inside the fog's GPU time");
 
     probe.dev->Release();
     DestroyWindow(probe.window);
@@ -465,5 +477,45 @@ void CheckGpuTimerReportsUnsupportedBeforeFirstSummary(IDirect3DDevice9* dev)
     DescribeGpuTime(fresh, dev, freshSummary, sizeof(freshSummary));
     Check(std::strcmp(freshSummary, "fog gpu no samples (0 skipped)") == 0 && !fresh.Unsupported(),
           "with timestamp queries the first frame summary reports that no fog gpu sample has finished yet");
+}
+
+void CheckPassGpuTimesListEachSupportedPass(IDirect3DDevice9* dev)
+{
+    ScriptedQueryCreation supported;
+    ScriptedQueryCreation unsupported;
+    unsupported.failure = D3DERR_NOTAVAILABLE;
+    GpuTimer march("march", supported.Creator());
+    GpuTimer temporal("temporal", unsupported.Creator());
+    GpuTimer composite("composite", supported.Creator());
+    GpuTimer* const timers[] = {&march, &temporal, &composite};
+    char empty[160] = {};
+    DescribeGpuTimes(dev, timers, std::size(timers), empty, sizeof(empty));
+    Check(std::strcmp(empty, "march -, composite -") == 0,
+          "the fog pass gpu line marks passes without samples and leaves out passes without timestamp queries");
+
+    for (int frame = 0; frame < 8; ++frame)
+        TimeEmptyFrame(march, dev);
+    char timed[160] = {};
+    float medianMs = -1.0f;
+    for (int attempt = 0; attempt < 200 && medianMs < 0.0f; ++attempt)
+    {
+        IDirect3DQuery9* idle = nullptr;
+        if (SUCCEEDED(dev->CreateQuery(D3DQUERYTYPE_EVENT, &idle)))
+        {
+            idle->Issue(D3DISSUE_END);
+            WaitForQuery(idle, nullptr, 0);
+            idle->Release();
+        }
+        TimeEmptyFrame(march, dev);
+        DescribeGpuTimes(dev, timers, 1, timed, sizeof(timed));
+        if (std::sscanf(timed, "march %f", &medianMs) != 1)
+            medianMs = -1.0f;
+    }
+    std::printf("     fog pass gpu line: %s\n", timed);
+    Check(medianMs >= 0.0f, "the fog pass gpu line reports a median for a timed pass once its queries finish");
+
+    char narrow[12] = {};
+    DescribeGpuTimes(dev, timers, std::size(timers), narrow, sizeof(narrow));
+    Check(std::strlen(narrow) < sizeof(narrow), "the fog pass gpu line stays inside a short buffer");
 }
 }

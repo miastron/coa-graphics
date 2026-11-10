@@ -73,3 +73,4 @@ private:
 };
 
 void DescribeGpuTime(GpuTimer& timer, IDirect3DDevice9* dev, char* text, size_t size);
+void DescribeGpuTimes(IDirect3DDevice9* dev, GpuTimer* const* timers, size_t count, char* text, size_t size);

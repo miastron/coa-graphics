@@ -2,6 +2,8 @@
 
 namespace local_light_gpu
 {
+constexpr float kUnitLocalLightFogGain = 1.0f;
+
 struct Light
 {
     double along = 0;
@@ -94,6 +96,7 @@ bool FillLights(IDirect3DTexture9* texture, const Light* lights, int count)
             values[i * 12 + 4 + channel] = static_cast<float>(light.colour[channel]);
             values[i * 12 + 8 + channel] = static_cast<float>(light.attenuation[channel]);
         }
+        values[i * 12 + 11] = kUnitLocalLightFogGain;
     }
     return SUCCEEDED(texture->UnlockRect(0));
 }
@@ -145,7 +148,6 @@ Result Draw(IDirect3DDevice9* device, const FogIntegrationResources& resources, 
     constants[53][0] = static_cast<float>(count);
     constants[53][1] = marchLightLimit;
     constants[53][2] = scattering.localLightPhase;
-    constants[53][3] = 1;
     if (FAILED(device->SetPixelShaderConstantF(0, &constants[0][0], 99)))
         return result;
     const float quad[4][4] = {{-0.5f, -0.5f, 0, 1}, {7.5f, -0.5f, 0, 1},

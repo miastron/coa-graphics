@@ -429,8 +429,9 @@ bool CandidateInputsValid(const LocalLightInputs& out, const LocalPointLight& li
 bool BoundCandidate(const LocalPointLight& light, const PointLightUpload& upload, LocalPointLight& candidate)
 {
     candidate = light;
-    engine::UploadedPointLightColor(candidate.color, upload, candidate.uploadedColor);
-    candidate.cutoff = engine::PointLightCutoff(candidate.uploadedColor, candidate.attenuation, upload.reach);
+    const PointLightUpload sourceUpload = engine::SourceUpload(upload, light.source);
+    engine::UploadedPointLightColor(candidate.color, sourceUpload, candidate.uploadedColor);
+    candidate.cutoff = engine::PointLightCutoff(candidate.uploadedColor, candidate.attenuation, sourceUpload.reach);
     return candidate.cutoff > 0.0f;
 }
 
@@ -465,6 +466,16 @@ bool PointLightMeetsView(const LocalPointLight& light, const LocalLightCamera& c
 
 namespace engine
 {
+PointLightUpload SourceUpload(const PointLightUpload& upload, LocalLightSource source)
+{
+    if (source != LocalLightSource::Spell)
+        return upload;
+    PointLightUpload spell = upload;
+    spell.intensity = 1.0f;
+    spell.reach = 1.0f;
+    return spell;
+}
+
 void UploadedPointLightColor(const float captured[3], const PointLightUpload& upload, float uploaded[3])
 {
     const float peak = PeakColor(captured);

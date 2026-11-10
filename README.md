@@ -31,8 +31,8 @@ after it say how each works and what is checked.
 **New lights**
 
 - **Spell lights** (`SpellLights`): glowing spell effects light the fog around them in their particles' colour.
-- **Lights on surfaces** (`SurfaceLights`): the point and spell lights also light the ground, walls and models around
-  them, without shadows.
+- **Lights on surfaces** (`SurfaceLights`, `SpellSurfaceLights`): the point and spell lights also light the ground,
+  walls and models around them, without shadows.
 - **Lights follow their objects** (`LightsFollowObjects`): a lamp or fire the game stops drawing (beyond its fade
   distance, or hidden) takes its light with it.
 
@@ -86,9 +86,12 @@ after it say how each works and what is checked.
   quadratic attenuation. Light/ray intersections keep small light volumes between march samples. All point lights share
   one phase (`LocalLightPhase`), and a light brighter than 1 keeps its intensity.
 - **Spell lights**: the additive particles and mesh batches (shields, auras) of each drawn spell model become one light in
-  their colour times their texture's mean colour, sharing the eight slots (`SpellLights`, `SpellLightIntensity`).
-- **Lights on surfaces** (`SurfaceLights`): the eight lights also light the opaque world around them, before the fog
-  composite, from the depth buffer and without shadows.
+  their colour times their texture's mean colour, sharing the eight slots (`SpellLights`, `SpellLightIntensity`). Only
+  `SpellLightIntensity` scales them: `LocalLightIntensity` and the region values are the lamps' alone, so a spell keeps
+  its brightness, reach and glow when the lamps are turned down, and scatters with the region's density compensation
+  only.
+- **Lights on surfaces** (`SurfaceLights` for lamps, `SpellSurfaceLights` for spells): the eight lights also light the
+  opaque world around them, before the fog composite, from the depth buffer and without shadows.
 - **Interior transitions**: the camera's native WMO blend reduces outdoor layers and sunlight, keeping the interior's
   own fog colour and range.
 - **Authored noise** (optional, off by default): drifting fog banks where the Classic layers carry the modern
@@ -140,9 +143,19 @@ Where no history applies (a newly exposed surface, the screen edge while turning
 returns the same 3×3 average of the current samples.
 
 **Upsampling.** The full-resolution composite upsamples the march through depth-checked taps. Ground seen at a grazing
-angle is interpolated from the current march where the taps lie on the pixel's plane, the march is linear across them,
-and no light's sphere meets the ray. Thin silhouettes that every tap misses are marched at full resolution. Under authored
-noise, the lit composite interpolates the filtered fog wherever the taps lie on the pixel's plane (lights and curvature
+angle is interpolated from the current march where the taps lie on the pixel's plane and the march is linear across
+them. Thin silhouettes that every tap misses are marched at full resolution. Where a local light's sphere meets the ray
+of a pixel on the taps' plane, the shadowed lit composites outside authored noise (`LightShafts=1`) no longer march it
+again: they interpolate the taps with each tap's own light glow taken out and add the pixel's own glow back. The glow
+along a ray is a quadrature of the march's light scattering over the light's chord, clipped to the ray, in four pieces
+graded toward the point nearest the light (two Gauss points each), at the lit fog density at that point, dimmed by the
+ray's mean extinction from its march opacity. The estimate's error largely cancels between the pixel and its taps. In
+the harness, for a light over grazing ground at half resolution, the worst error between the tap rows is 1% of the
+brightest full-resolution march without distance falloff and 1.5% with a quadratic falloff, against 18% and 39% for
+plain interpolation. A Raven Hill minute in Duskwood (clear weather, eight lights 4–15 yd away) took 6.0–9.3 ms in the
+composite before the change (median GPU time per minute, 1920×1200, Radeon 780M under DXVK). The unshadowed lit
+composite keeps the full-resolution march there: its march is cheap enough that the glow estimate cost more in the
+harness (`derived-lamps8-shafts0` at quality 1 went from 2.78 to 3.43 ms). Under authored noise, the lit composite interpolates the filtered fog wherever the taps lie on the pixel's plane (lights and curvature
 aside), and marches only the rest through the noise (see Authored noise).
 
 **Light shafts.** With `LightShafts=1` the march and composite use shadowed variants, which compile in the sun shadow
@@ -288,14 +301,16 @@ the fog's temporal history stays as the early composite left it, since that pass
 targets.
 
 **Lights on surfaces.** The client lights the ground and buildings only with the sun or moon and its ambient colour; its
-point lights reach models alone. With `SurfaceLights` above 0 and a light uploaded, one full-resolution pass after the march
+point lights reach models alone. With a light uploaded whose strength (`SurfaceLights` for a lamp, `SpellSurfaceLights` for a spell) is above 0, one full-resolution pass after the march
 and before any scene copy or the composite copies the world viewport and redraws the pixels a light reaches. It rebuilds
 each pixel's view position from the depth copy. Its normal is the cross product of the smaller of the two depth differences
 to its horizontal and vertical neighbours, so silhouettes do not bend it. Each light adds
-`colour · falloff · fade · facing`, where the falloff is the march's `1/max(a0 + a1·d + a2·d², 1)`, `fade` is its sphere-edge
+`colour · strength · falloff · fade · facing`, where the falloff is the march's `1/max(a0 + a1·d + a2·d², 1)`, `fade` is its sphere-edge
 fade, and `facing` is wrapped by 0.25. The light falls on an albedo estimated from the scene in linear light (display gamma
 2.2), divided by the client's own illuminant there: ambient plus direct colour times the facing to the sun or moon (at least
-0.02, with the albedo at most 0.5). The pixel becomes `scene + albedo·light·SurfaceLights`.
+0.02, with the albedo at most 0.5). The pixel becomes `scene + albedo·light`. Each light's strength rides in the `w` of its colour texel and its fog gain
+(the region's lamp intensity over the region's density for a lamp, the density compensation alone for a spell) in the `w`
+of its attenuation texel, so the march, the surface pass and the transparent fog fit weigh lamps and spells apart.
 
 A pixel whose estimated albedo in any channel exceeds 1 is brighter than ambient plus sun could make any surface, so the
 client lit it with its own point lights or it glows (a torch, a banner next to a lamp, a character beside a fire). Its
@@ -654,7 +669,16 @@ silhouettes), sample the noise in that march as the lit noisy march does. To sta
 ps_3_0 they leave out the density variation (`NoiseAmount`), which a noisy layer takes only at weight `1 − alpha`, so a
 silhouette marched again in a layer without noise lacks the variation's patches, at most `±NoiseAmount` of its density;
 the shadowed one also traces the sun's shadow at every march step and does not stop past the layers, as the shadowed
-lit noisy march does (about 1700 instruction slots against 1680 for the shadowed composite). On grazing water the rows
+lit noisy march does (about 1700 instruction slots against 1680 for the shadowed composite). A shadow held over two to
+four steps needs one temporary register more than ps_3_0 has (`X4505` at every stride above one, in the composite and
+the march alike; recomputing the ray's world direction and the light density scales inside the loop left the compiled
+code unchanged). So these storm shaders trace the sun's shadow with six screen-space taps instead of twelve, which keeps
+their depth reads per march near the strided shaders' (24 × 6 against 8 × 12 at mid quality). The march's taps shift
+with its per-frame jitter, so a thin occluder that falls between two taps in one frame is caught in others. In-game,
+before the change, a Duskwood storm composite took 6.1–6.2 ms against 2.0–2.1 ms for a clear Kalimdor scene (median GPU
+time per minute, 1920×1200, Radeon 780M under DXVK). In the harness's `--scene performance` under DXVK,
+`classic-storm-lamps8` fell from 5.33 to 5.06 ms at mid quality and from 6.94 to 6.18 ms at high quality. The storm march
+passes the wall, world shadow map and terrain shadow checks of the shadowed march at every quality. On grazing water the rows
 between the low-resolution taps match no tap. Where the lit composite marched them again at the mean, they showed as
 bright horizontal lines one low-resolution texel apart (inferred from the code and a tester's screenshot of grazing
 water in rain; not yet confirmed in game). So under noise it interpolates the filtered fog of the taps on the pixel's
@@ -1952,8 +1976,9 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `ClassicPhase` | 0 | Classic sun and moon scattering: 0 peaks at 1 toward the light; 1 is energy-normalised |
 | `LocalLights`, `LocalLightIntensity` | 1, 1 | Scatter up to eight world point lights in view; intensity 0..8 |
 | `LocalLightPhase` | 0.3 | Henyey–Greenstein g of every point light in the fog: how strongly its glow peaks toward the viewer, −0.9..0.9 (a calibration) |
-| `SpellLights`, `SpellLightIntensity` | 1, 1 | Spell effects light the fog (needs `LocalLights=1`); intensity 0..8 |
-| `SurfaceLights` | 1 | The point and spell lights also light surfaces, 0..2 (needs `LocalLights=1`); 0 = off |
+| `SpellLights`, `SpellLightIntensity` | 1, 1 | Spell effects light the fog (needs `LocalLights=1`); intensity 0..8, the only scale on spell lights |
+| `SurfaceLights` | 1 | The world's lamps also light surfaces, 0..2 (needs `LocalLights=1`); 0 = off |
+| `SpellSurfaceLights` | 1 | The spell lights also light surfaces, 0..2 (needs `LocalLights=1`); 0 = off |
 | `LightsFollowObjects` | 1 | A light in view whose object the client stopped drawing fades out with it |
 | `InteriorAware`, `InteriorDensity` | 1, 0.15 | Fade outdoor layers indoors, keeping this fraction of their density |
 | `InteriorFarFog` | 1.0 | Native distance-fog density kept indoors (0..1); lower values clear dungeon haze |

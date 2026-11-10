@@ -3,6 +3,7 @@
 #include "ps_shadowed_march_high.h"
 #include "ps_shadowed_march_low.h"
 #include "ps_shadowed_march_mid.h"
+#include "storm_march_shaders.h"
 
 namespace sun_shadow_checks
 {
@@ -112,7 +113,7 @@ float DrawFixture(IDirect3DDevice9* device, const FogIntegrationResources& resou
 }
 
 void CheckSunBlockedBehindWall(IDirect3DDevice9* device, const FogIntegrationResources& resources, int quality,
-                               IDirect3DTexture9* depth)
+                               const char* family, IDirect3DTexture9* depth)
 {
     for (int foreground = 0; foreground < 2; ++foreground)
         for (int shafts = 0; shafts < 2; ++shafts)
@@ -125,9 +126,9 @@ void CheckSunBlockedBehindWall(IDirect3DDevice9* device, const FogIntegrationRes
             const float expected = WallRadiance(shafts ? kLayerEmissive : kLayerEmissive + kLayerDiffuse);
             char label[200];
             std::snprintf(label, sizeof(label),
-                          "shadowed march quality %d: fog in front of a wall with the sun behind it, foreground "
+                          "%s quality %d: fog in front of a wall with the sun behind it, foreground "
                           "silhouette %d, LightShafts %d keeps %s (error %.3f)",
-                          quality, foreground, shafts, shafts ? "only its ambient light" : "its sunlight",
+                          family, quality, foreground, shafts, shafts ? "only its ambient light" : "its sunlight",
                           std::fabs(actual - expected));
             Check(SUCCEEDED(draw) && std::fabs(actual - expected) <= 2.0f / 255, label);
         }
@@ -194,7 +195,7 @@ void BindWorldShadowMap(IDirect3DDevice9* device, IDirect3DTexture9* map)
 }
 
 void CheckWorldShadowMaps(IDirect3DDevice9* device, const FogIntegrationResources& resources, int quality,
-                          IDirect3DTexture9* depth)
+                          const char* family, IDirect3DTexture9* depth)
 {
     IDirect3DTexture9* map = nullptr;
     const bool ready = FillViewDepth(depth, true, false) && CreateWorldShadowMap(device, &map);
@@ -224,8 +225,8 @@ void CheckWorldShadowMaps(IDirect3DDevice9* device, const FogIntegrationResource
         const float actual = DrawFixture(device, resources, constants, draw);
         const float expected = sample.visibility * (1.0f - std::exp(-1.0f));
         char label[200];
-        std::snprintf(label, sizeof(label), "world shadow maps quality %d: %s (error %.3f)", quality, sample.name,
-                      std::fabs(actual - expected));
+        std::snprintf(label, sizeof(label), "%s quality %d, world shadow maps: %s (error %.3f)", family, quality,
+                      sample.name, std::fabs(actual - expected));
         Check(SUCCEEDED(draw) && std::fabs(actual - expected) <= 2.0f / 255, label);
     }
     for (DWORD stage = kFirstWorldShadowStage; stage < kFirstWorldShadowStage + kWorldShadowMaps; ++stage)
@@ -273,7 +274,7 @@ const TerrainShadowCase kTerrainShadowCases[] = {
 };
 
 void CheckTerrainShadows(IDirect3DDevice9* device, const FogIntegrationResources& resources, int quality,
-                         IDirect3DTexture9* depth)
+                         const char* family, IDirect3DTexture9* depth)
 {
     IDirect3DTexture9* map = nullptr;
     const bool ready = FillViewDepth(depth, true, false) &&
@@ -307,8 +308,8 @@ void CheckTerrainShadows(IDirect3DDevice9* device, const FogIntegrationResources
         const float actual = filled ? DrawFixture(device, resources, constants, draw) : -1.0f;
         const float expected = sample.visibility * (1.0f - std::exp(-1.0f));
         char label[200];
-        std::snprintf(label, sizeof(label), "terrain shadows quality %d: %s (error %.3f)", quality, sample.name,
-                      std::fabs(actual - expected));
+        std::snprintf(label, sizeof(label), "%s quality %d, terrain shadows: %s (error %.3f)", family, quality,
+                      sample.name, std::fabs(actual - expected));
         Check(SUCCEEDED(draw) && std::fabs(actual - expected) <= 2.0f / 255, label);
     }
     device->SetTexture(kTerrainShadowStage, nullptr);
@@ -316,7 +317,7 @@ void CheckTerrainShadows(IDirect3DDevice9* device, const FogIntegrationResources
 }
 
 void CheckShadowedMarch(IDirect3DDevice9* device, const FogIntegrationResources& resources, int quality,
-                        IDirect3DPixelShader9* shader)
+                        const char* family, IDirect3DPixelShader9* shader)
 {
     IDirect3DTexture9* depth = nullptr;
     const bool ready = SUCCEEDED(device->CreateTexture(kDepthSize, kDepthSize, 1, 0, D3DFMT_R32F, D3DPOOL_MANAGED,
@@ -326,10 +327,24 @@ void CheckShadowedMarch(IDirect3DDevice9* device, const FogIntegrationResources&
         return;
     device->SetPixelShader(shader);
     device->SetTexture(0, depth);
-    CheckSunBlockedBehindWall(device, resources, quality, depth);
-    CheckWorldShadowMaps(device, resources, quality, depth);
-    CheckTerrainShadows(device, resources, quality, depth);
+    CheckSunBlockedBehindWall(device, resources, quality, family, depth);
+    CheckWorldShadowMaps(device, resources, quality, family, depth);
+    CheckTerrainShadows(device, resources, quality, family, depth);
     device->SetTexture(0, resources.depth);
     depth->Release();
+}
+
+void CheckStormShadowedMarch(IDirect3DDevice9* device, const FogIntegrationResources& resources, int quality)
+{
+    const BYTE* const storm[] = {g_ps_shadowed_lit_noisy_march_low, g_ps_shadowed_lit_noisy_march_mid,
+                                 g_ps_shadowed_lit_noisy_march_high};
+    IDirect3DPixelShader9* shader = nullptr;
+    const bool ready = SUCCEEDED(
+        device->CreatePixelShader(reinterpret_cast<const DWORD*>(storm[quality - 1]), &shader));
+    Check(ready, "storm shadowed march shader created");
+    if (!ready)
+        return;
+    CheckShadowedMarch(device, resources, quality, "storm shadowed march (six trace taps)", shader);
+    shader->Release();
 }
 }

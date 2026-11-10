@@ -16,11 +16,6 @@ float LocalLightPhaseG()
     return cLocalLightControl.z;
 }
 
-float LocalLightGain()
-{
-    return cLocalLightControl.w;
-}
-
 float4 LocalLightParameter(int index)
 {
     float texel = (index + 0.5) / 32.0;
@@ -32,7 +27,17 @@ float3 LocalLightColour(int light)
     return LocalLightParameter(light * 3 + 1).rgb;
 }
 
+float LocalLightSurfaceStrength(int light)
+{
+    return LocalLightParameter(light * 3 + 1).w;
+}
+
 float3 LocalLightAttenuation(int light)
 {
     return LocalLightParameter(light * 3 + 2).xyz;
+}
+
+float3 LocalLightFogColour(int light)
+{
+    return LocalLightColour(light) * LocalLightParameter(light * 3 + 2).w;
 }

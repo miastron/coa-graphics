@@ -287,3 +287,27 @@ void DescribeGpuTime(GpuTimer& timer, IDirect3DDevice9* dev, char* text, size_t 
     else
         std::snprintf(text, size, "%s gpu no samples (%u skipped)", timer.Subject(), interval.skipped);
 }
+
+void DescribeGpuTimes(IDirect3DDevice9* dev, GpuTimer* const* timers, size_t count, char* text, size_t size)
+{
+    if (size == 0)
+        return;
+    text[0] = 0;
+    size_t used = 0;
+    for (size_t i = 0; i < count && used + 1 < size; ++i)
+    {
+        GpuTimer& timer = *timers[i];
+        timer.Prepare(dev);
+        const GpuTime interval = timer.TakeInterval();
+        if (timer.Unsupported())
+            continue;
+        const char* const separator = used ? ", " : "";
+        const int written = interval.frames > 0
+                                ? std::snprintf(text + used, size - used, "%s%s %.2f", separator, timer.Subject(),
+                                                interval.medianMs)
+                                : std::snprintf(text + used, size - used, "%s%s -", separator, timer.Subject());
+        if (written < 0)
+            break;
+        used = std::min(used + static_cast<size_t>(written), size - 1);
+    }
+}

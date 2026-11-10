@@ -71,7 +71,7 @@ bool StepMeetsLocalLights(ChordCoverage coverage, float stepEnd)
 
 float LayerLightDensityScale(FogLayer layer, float skyMask, float upward)
 {
-    return layer.density * LocalLightGain() * SkyDensityScale(layer, skyMask, upward);
+    return layer.density * SkyDensityScale(layer, skyMask, upward);
 }
 
 float4 LayerLightDensityScales(float skyMask, float upward)
@@ -211,7 +211,7 @@ float3 WholeStepLightScattering(ChordCoverage coverage, float4 stepLayers, float
         [branch] if (ChordCoversStep(light.chord, step))
         {
             float3 attenuation = LocalLightAttenuation(index);
-            scattering += LocalLightColour(index) *
+            scattering += LocalLightFogColour(index) *
                           (LightSampleScattering(light, attenuation, ray.viewDirection, first, density) +
                            LightSampleScattering(light, attenuation, ray.viewDirection, second, density));
         }
@@ -243,7 +243,7 @@ float3 LocalLightScattering(ChordCoverage coverage, float4 densityScales, MarchR
                                                      layerBoundaryInStep, litLayers, densityScales, stepProfiles,
                                                      ray);
             [branch] if (amount != 0)
-                scattering += LocalLightColour(index) * amount;
+                scattering += LocalLightFogColour(index) * amount;
         }
     }
     float4 stepLayers = layersCoverStep ? litLayers : 0;

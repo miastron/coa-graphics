@@ -55,7 +55,8 @@ Config SurfaceConfig(const Config& saved, float strength, float godRays = 0.0f)
     return config;
 }
 
-FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1.0f)
+FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1.0f,
+                        LocalLightSource source = LocalLightSource::World)
 {
     CameraRelativeLookAt(scene.eye, scene.at, scene.view);
     EngineProjection(static_cast<float>(kViewWidth) / kViewHeight, scene.projection);
@@ -69,17 +70,18 @@ FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1
         light.color[channel] = kLightColour[channel] * lightScale;
     light.attenuation[0] = kLightConstantAttenuation;
     light.attenuation[2] = kLightQuadraticAttenuation;
+    light.source = source;
     engine::SelectLocalPointLight(input.localLights, light, input.camPos, LocalLightUpload(config, input.mapId));
     return input;
 }
 
 LitFrame RenderLit(Harness& h, Scene& scene, const Config& saved, float strength, bool withLight,
                    uint32_t ambientColor = 0, uint32_t directColor = 0, float lightScale = 1.0f,
-                   float godRays = 0.0f)
+                   float godRays = 0.0f, LocalLightSource source = LocalLightSource::World)
 {
     const Config config = SurfaceConfig(saved, strength, godRays);
     vf_test_set_config(&config);
-    FrameInputs input = SceneInputs(scene, config, lightScale);
+    FrameInputs input = SceneInputs(scene, config, lightScale, source);
     if (ambientColor)
         input.ambientColor = ambientColor;
     if (directColor)
@@ -187,6 +189,59 @@ void CheckLightsOnSurfaces(Harness& h)
           "handing the lit scene to the composite saves the composite's own full-viewport colour copy");
     Check(full.statesKept, "the surface light pass restores render, sampler, texture, shader, constant, stream, "
                            "viewport, scissor, render target and depth state");
+    vf_test_set_config(&saved);
+}
+
+LitFrame RenderSpellOrLamp(Harness& h, Scene& scene, const Config& saved, LocalLightSource source)
+{
+    return RenderLit(h, scene, saved, saved.surfaceLights, true, 0, 0, 1.0f, 0.0f, source);
+}
+
+void CheckSpellLightsOnSurfaces(Harness& h)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Scene scene;
+    SceneInputs(scene, SurfaceConfig(saved, kFullStrength));
+    UINT x = 0;
+    UINT y = 0;
+    if (!GroundPixel(scene, kLightAhead, x, y))
+    {
+        Check(false, "the ground under the light is in view");
+        return;
+    }
+    Config shipped = saved;
+    shipped.surfaceLights = kFullStrength;
+    shipped.spellSurfaceLights = kFullStrength;
+    shipped.localLightIntensity = 1.0f;
+    shipped.azerothLocalLights = 1.0f;
+    Config dimLamps = shipped;
+    dimLamps.surfaceLights = 0.0f;
+    dimLamps.localLightIntensity = 0.25f;
+    dimLamps.azerothLocalLights = 0.25f;
+    Config noSpellSurfaces = shipped;
+    noSpellSurfaces.spellSurfaceLights = 0.0f;
+    const LitFrame unlit = RenderLit(h, scene, saved, 0.0f, false);
+    const LitFrame spellShipped = RenderSpellOrLamp(h, scene, shipped, LocalLightSource::Spell);
+    const LitFrame spellBesideDimLamps = RenderSpellOrLamp(h, scene, dimLamps, LocalLightSource::Spell);
+    const LitFrame lampWithoutSurfaces = RenderSpellOrLamp(h, scene, dimLamps, LocalLightSource::World);
+    const LitFrame spellWithoutSurfaces = RenderSpellOrLamp(h, scene, noSpellSurfaces, LocalLightSource::Spell);
+    const LitFrame lampBesideNoSpellSurfaces = RenderSpellOrLamp(h, scene, noSpellSurfaces, LocalLightSource::World);
+    const int spellLift = GreenLift(spellShipped.image, unlit.image, x, y);
+    const int dimLampsSpellLift = GreenLift(spellBesideDimLamps.image, unlit.image, x, y);
+    const int lampLift = GreenLift(lampBesideNoSpellSurfaces.image, unlit.image, x, y);
+    std::printf("     ground under a spell light: green lift %d as shipped, %d with the lamps' surface light off and "
+                "their intensity at 0.25; surface passes with SurfaceLights=0 for a lamp %u, with "
+                "SpellSurfaceLights=0 for a spell %u; a lamp's lift with SpellSurfaceLights=0 %d\n",
+                spellLift, dimLampsSpellLift, lampWithoutSurfaces.draws, spellWithoutSurfaces.draws, lampLift);
+    Check(spellShipped.draws == 1 && spellBesideDimLamps.draws == 1 && spellLift >= kLitAtLeast &&
+              image_quality_checks::SameImage(spellShipped.image, spellBesideDimLamps.image),
+          "a spell light lights the ground with SpellSurfaceLights exactly as before when SurfaceLights, "
+          "LocalLightIntensity and the region's lamp intensity are turned down");
+    Check(lampWithoutSurfaces.draws == 0 && spellWithoutSurfaces.draws == 0 &&
+              lampBesideNoSpellSurfaces.draws == 1 && lampLift >= kLitAtLeast,
+          "SurfaceLights=0 keeps lamps off the surfaces and SpellSurfaceLights=0 keeps spells off them, each "
+          "without touching the other");
     vf_test_set_config(&saved);
 }
 

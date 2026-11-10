@@ -94,6 +94,7 @@ const FloatSetting kFloatSettings[] = {
     {"LocalLightPhase", &Config::localLightPhase, -0.9f, 0.9f},
     {"SpellLightIntensity", &Config::spellLightIntensity, 0.0f, 8.0f},
     {"SurfaceLights", &Config::surfaceLights, 0.0f, 2.0f},
+    {"SpellSurfaceLights", &Config::spellSurfaceLights, 0.0f, 2.0f},
     {"InteriorDensity", &Config::interiorDensity, 0.0f, 1.0f},
     {"InteriorFarFog", &Config::interiorFarFog, 0.0f, 1.0f},
     {"NoiseAmount", &Config::noiseAmount, 0.0f, 1.0f},

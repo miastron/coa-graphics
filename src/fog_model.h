@@ -74,6 +74,7 @@ struct FogParams
     float referenceZ;
     float farLimit;
     float localLightGain = 1.0f;
+    float spellLightGain = 1.0f;
     bool linear;
     bool authored;
 };
@@ -95,6 +96,8 @@ MapRegion RegionOfMap(int mapId);
 bool UsesFogData(const Config& cfg, int mapId);
 Config ConfigForMap(const Config& cfg, int mapId);
 PointLightUpload LocalLightUpload(const Config& cfg, int mapId);
+float LocalLightFogGain(const FogParams& fog, const LocalPointLight& light);
+float LocalLightSurfaceStrength(const Config& cfg, const LocalPointLight& light);
 
 constexpr float kLevelRayLogDistances[] = {50.0f, 150.0f, 400.0f};
 

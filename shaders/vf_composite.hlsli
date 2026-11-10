@@ -25,6 +25,8 @@ static const float kWholeBilinearWeight = 0.999;
 static const float kMaxDisplayedMarchCurvature = 2.0 / 255;
 static const float kDisplayLevels = 255;
 static const float kDitherRoundingGuard = 0.001;
+static const float kInnerGlowPieceFraction = 0.3;
+static const bool kCorrectsGlowBetweenTaps = kMarchesLocalLights && kTracesSunShadows && !kSamplesAuthoredNoise;
 
 float Exposure()
 {
@@ -209,11 +211,96 @@ bool LitCompositeUnderNoise()
     return kMarchesLocalLights && AnyLayerNoise();
 }
 
-bool LightOnRayNeedsFullResolution(float2 pixel, float viewZ)
+bool LightMeetsRayOutsideNoise(float2 pixel, float viewZ)
 {
     [branch] if (!kMarchesLocalLights || LitCompositeUnderNoise())
         return false;
     return RayMeetsLocalLight(pixel, viewZ);
+}
+
+float LitDensityNearLight(float distanceAlongRay, float height)
+{
+    float density = 0;
+    [unroll] for (int j = 0; j < kFogLayers; j++)
+    {
+        FogLayer layer = LoadConstantFogLayer(j);
+        bool lit = layer.density > 0 && distanceAlongRay >= layer.start && distanceAlongRay < layer.limit &&
+                   (LocalLightReachLimit() <= 0 || distanceAlongRay < LocalLightReachLimit());
+        density += lit ? layer.density * DistanceCurve(layer, distanceAlongRay) * HeightProfile(layer, height) : 0;
+    }
+    return density;
+}
+
+float GaussGlowOverInterval(LocalLight light, float3 attenuation, float3 viewDirection, float2 interval,
+                            float density, float extinctionPerYard)
+{
+    float scattering = 0;
+    [unroll] for (int sample = 0; sample < 2; ++sample)
+    {
+        float along = lerp(interval.x, interval.y, QuadratureFraction(sample));
+        scattering += LightSampleScattering(light, attenuation, viewDirection, along, density) *
+                      exp(-extinctionPerYard * along);
+    }
+    return 0.5 * scattering * (interval.y - interval.x);
+}
+
+float GlowAroundNearestPoint(LocalLight light, float3 attenuation, float3 viewDirection, float2 chord, float nearest,
+                             float density, float extinctionPerYard)
+{
+    float2 inner = lerp(nearest, chord, kInnerGlowPieceFraction);
+    return GaussGlowOverInterval(light, attenuation, viewDirection, float2(chord.x, inner.x), density,
+                                 extinctionPerYard) +
+           GaussGlowOverInterval(light, attenuation, viewDirection, float2(inner.x, nearest), density,
+                                 extinctionPerYard) +
+           GaussGlowOverInterval(light, attenuation, viewDirection, float2(nearest, inner.y), density,
+                                 extinctionPerYard) +
+           GaussGlowOverInterval(light, attenuation, viewDirection, float2(inner.y, chord.y), density,
+                                 extinctionPerYard);
+}
+
+float3 LightGlowAlongRay(float2 pixel, float viewZ, float transmittance)
+{
+    float3 viewRay = ViewRayAtUnitDepth(pixel);
+    float distancePerViewZ = length(viewRay);
+    float3 viewDirection = viewRay / distancePerViewZ;
+    float rayLength = min(viewZ * distancePerViewZ, MaxFogDistance());
+    float heightPerYard = ViewToWorldDirection(viewDirection).z;
+    float extinctionPerYard = -log(max(transmittance, kOpaqueTransmittanceFloor)) / max(rayLength, 1e-3);
+    float3 glow = 0;
+    [loop] for (int index = 0; index < LocalLightCount(); ++index)
+    {
+        LocalLight light = LoadLocalLight(index, viewDirection);
+        float2 chord = float2(max(light.chord.x, 0), min(light.chord.y, rayLength));
+        [branch] if (chord.y > chord.x)
+        {
+            float nearest = clamp(light.projected, chord.x, chord.y);
+            float density = LitDensityNearLight(nearest, CameraPositionWorld().z + heightPerYard * nearest);
+            glow += LocalLightFogColour(index) * GlowAroundNearestPoint(light, LocalLightAttenuation(index),
+                                                                        viewDirection, chord, nearest, density,
+                                                                        extinctionPerYard);
+        }
+    }
+    return glow;
+}
+
+float4 GlowCorrectedTaps(float2 pixel, float viewZ, BilinearTaps taps)
+{
+    float3 glow = LightGlowAlongRay(pixel, viewZ, 1 - taps.currentMarch.a);
+    [loop] for (int j = 0; j < 4; j++)
+    {
+        float2 tapOffset = float2(frac(j * 0.5) * 2, floor(j * 0.5));
+        float2 bilinearWeight = lerp(1 - taps.fraction, taps.fraction, tapOffset);
+        float weight = bilinearWeight.x * bilinearWeight.y;
+        [branch] if (weight > 0)
+        {
+            float2 tapTexel = clamp(taps.baseTexel + tapOffset, 0, LowResSize() - 1);
+            float2 tapPixel = LowResTexelToFullPixel(tapTexel);
+            float tapViewZ = LinearDepth(SampleDepth(sDepth, tapPixel));
+            float tapOpacity = tex2Dlod(sCurrentMarch, float4(LowResTexelToUv(tapTexel), 0, 0)).a;
+            glow -= weight * LightGlowAlongRay(tapPixel, tapViewZ, 1 - tapOpacity);
+        }
+    }
+    return float4(max(taps.currentMarch.rgb + glow, 0), taps.currentMarch.a);
 }
 
 float4 FilteredFogBetweenTaps(BilinearTaps taps)
@@ -231,13 +318,19 @@ float4 FilteredFogBetweenTaps(BilinearTaps taps)
 
 float4 FogWithoutMatchingTap(float2 pixel, float depth, float viewZ)
 {
-    [branch] if (!LightOnRayNeedsFullResolution(pixel, viewZ))
+    bool lightOnRay = LightMeetsRayOutsideNoise(pixel, viewZ);
+    [branch] if (!lightOnRay || kCorrectsGlowBetweenTaps)
     {
         BilinearTaps taps = GatherBilinearTaps(pixel, depth, viewZ);
         [branch] if (LitCompositeUnderNoise())
         {
             [branch] if (PixelOnTapPlane(taps, viewZ))
                 return FilteredFogBetweenTaps(taps);
+        }
+        else [branch] if (kCorrectsGlowBetweenTaps && lightOnRay)
+        {
+            [branch] if (PixelOnTapPlane(taps, viewZ))
+                return GlowCorrectedTaps(pixel, viewZ, taps);
         }
         else
         {

@@ -305,7 +305,10 @@ void CheckFogIntegration(IDirect3DDevice9* device)
         CheckHorizonShadowIntegration(device, resources, quality + 1, false, variants[variant]);
         CheckHorizonShadowIntegration(device, resources, quality + 1, true, variants[variant]);
         if (variant == kShadowedVariant)
-            sun_shadow_checks::CheckShadowedMarch(device, resources, quality + 1, shader);
+        {
+            sun_shadow_checks::CheckShadowedMarch(device, resources, quality + 1, "shadowed march", shader);
+            sun_shadow_checks::CheckStormShadowedMarch(device, resources, quality + 1);
+        }
         shader->Release();
     }
     device->SetRenderTarget(0, resources.previousTarget);

@@ -72,7 +72,8 @@ float3 PointLightOnSurface(int index, float3 position, float3 normal)
     float lightDistance = distanceSquared * inverseDistance;
     float falloff = rcp(max(attenuation.x + attenuation.y * lightDistance + attenuation.z * distanceSquared, 1));
     float boundaryFade = saturate((positionRadius.w - lightDistance) * kFadeSharpness / max(positionRadius.w, 1e-3));
-    return LocalLightColour(index) * falloff * boundaryFade * Facing(normal, toLight * inverseDistance);
+    float3 colour = LocalLightColour(index) * LocalLightSurfaceStrength(index);
+    return colour * falloff * boundaryFade * Facing(normal, toLight * inverseDistance);
 }
 
 float3 EstimatedAlbedo(float3 sceneLinear, float3 normal)

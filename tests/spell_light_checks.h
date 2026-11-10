@@ -732,10 +732,61 @@ void CheckTextureTintOnTheDevice(IDirect3DDevice9* dev)
           "is refused");
 }
 
+LocalPointLight UploadedLight(const LocalPointLight& light, const Config& cfg)
+{
+    LocalLightInputs inputs;
+    const float cameraPosition[3] = {};
+    engine::SelectLocalPointLight(inputs, light, cameraPosition, LocalLightUpload(cfg, kEasternKingdoms));
+    return inputs.pointLightCount ? inputs.pointLights[0] : LocalPointLight{};
+}
+
+bool SameUpload(const LocalPointLight& a, const LocalPointLight& b)
+{
+    return a.cutoff > 0.0f && a.cutoff == b.cutoff && a.uploadedColor[0] == b.uploadedColor[0] &&
+           a.uploadedColor[1] == b.uploadedColor[1] && a.uploadedColor[2] == b.uploadedColor[2];
+}
+
+void CheckSpellLightsIgnoreTheLampSettings()
+{
+    SpellLightCollector lights;
+    lights.Add(GlowAt(4, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f));
+    lights.Publish();
+    LocalPointLight spell;
+    lights.Light(0, 1.0f, spell);
+    LocalPointLight lamp = spell;
+    lamp.source = LocalLightSource::World;
+    const Config defaults;
+    Config dimmedLamps;
+    dimmedLamps.localLightIntensity = 0.25f;
+    dimmedLamps.azerothLocalLights = 0.25f;
+    const LocalPointLight spellAsShipped = UploadedLight(spell, defaults);
+    const LocalPointLight spellBesideDimLamps = UploadedLight(spell, dimmedLamps);
+    const LocalPointLight lampAsShipped = UploadedLight(lamp, defaults);
+    const LocalPointLight dimLamp = UploadedLight(lamp, dimmedLamps);
+    std::printf("     with LocalLightIntensity and AzerothLocalLights at 0.25: spell red %.3f reach %.2f yd (%.3f, "
+                "%.2f yd as shipped), lamp red %.3f reach %.2f yd (%.3f, %.2f yd)\n",
+                spellBesideDimLamps.uploadedColor[0], spellBesideDimLamps.cutoff, spellAsShipped.uploadedColor[0],
+                spellAsShipped.cutoff, dimLamp.uploadedColor[0], dimLamp.cutoff, lampAsShipped.uploadedColor[0],
+                lampAsShipped.cutoff);
+    Check(SameUpload(spellAsShipped, spellBesideDimLamps) &&
+              dimLamp.uploadedColor[0] < lampAsShipped.uploadedColor[0] && dimLamp.cutoff < lampAsShipped.cutoff,
+          "LocalLightIntensity and the region's lamp intensity dim and shorten the world's lamps, not the spell "
+          "lights, which SpellLightIntensity alone scales");
+
+    Config spellSurfaces;
+    spellSurfaces.surfaceLights = 0.0f;
+    spellSurfaces.spellSurfaceLights = 0.75f;
+    Check(LocalLightSurfaceStrength(spellSurfaces, spell) == 0.75f &&
+              LocalLightSurfaceStrength(spellSurfaces, lamp) == 0.0f && defaults.spellSurfaceLights == 1.0f,
+          "SpellSurfaceLights sets how strongly spell lights light surfaces and SurfaceLights how strongly lamps "
+          "do; both start at 1");
+}
+
 void CheckSpellLights()
 {
     CheckSpellGlowReading();
     CheckSpellLightCollector();
+    CheckSpellLightsIgnoreTheLampSettings();
     CheckSpellLightsJoinTheCapture();
     CheckSpellLightGuards();
     CheckParticleRenderThunks();

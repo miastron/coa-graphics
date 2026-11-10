@@ -1707,6 +1707,7 @@ void CheckLocalLightsGlowByRegion()
     const Vec3 toLight = {0.607f, 0.607f, 0.513f};
     const float evening = 0.7279f;
     bool followsRegion = true;
+    bool spellsKeepTheirGain = true;
     for (float density : {0.15f, 0.5f, 1.0f, 2.0f})
     {
         Config cfg;
@@ -1722,6 +1723,11 @@ void CheckLocalLightsGlowByRegion()
             const FrameInputs frame = ContinentFrame(region.map, eye, evening, toLight, false);
             const FogParams fog = BuildFogParams(frame, ConfigForMap(cfg, region.map), nullptr);
             followsRegion = followsRegion && Near(fog.localLightGain * density, region.intensity);
+            LocalPointLight lamp;
+            LocalPointLight spell;
+            spell.source = LocalLightSource::Spell;
+            spellsKeepTheirGain = spellsKeepTheirGain && Near(LocalLightFogGain(fog, lamp), fog.localLightGain) &&
+                                  Near(LocalLightFogGain(fog, spell) * density, 1.0f);
         }
     }
     const Config defaults;
@@ -1736,6 +1742,9 @@ void CheckLocalLightsGlowByRegion()
           "the local lights scatter with their region's intensity over the region's density, so the density "
           "sliders leave the lamps' glow alone; Outland and Northrend start at 8, as upstream's testers needed about "
           "eight times the old world's intensity there, and Azeroth stays as before by default");
+    Check(spellsKeepTheirGain,
+          "spell lights scatter over the region's density alone, whatever its lamp intensity, while the lamps "
+          "keep the region's gain");
 }
 
 void CheckOutlandSkyColourTintsTheConvertedFog(const FogData& data)
@@ -2757,6 +2766,7 @@ void CheckSettingsWindowKeepsItsSize(Harness& h, const PanelRect& expected, cons
 #include "silhouette_quality_checks.h"
 #include "authored_noise_checks.h"
 #include "grazing_upsample_checks.h"
+#include "glow_upsample_checks.h"
 #include "god_ray_quality_checks.h"
 #include "god_ray_blur_checks.h"
 #include "temporal_quality_checks.h"
@@ -3254,6 +3264,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(local_light_gpu::CheckLocalLightIntegration(h.dev));
     RUN_GROUP(silhouette_quality::CheckSilhouettes(h.dev));
     RUN_GROUP(grazing_upsample::CheckGrazingGroundUpsample(h.dev));
+    RUN_GROUP(glow_upsample::CheckGlowBetweenGrazingTaps(h.dev));
     RUN_GROUP(god_ray_quality::CheckGodRays(h.dev));
     RUN_GROUP(god_ray_blur_checks::CheckGodRayBlur(h.dev));
     RUN_GROUP(CheckTemporalQuality(h.dev));
@@ -3665,6 +3676,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(terrain_shadow_checks::CheckShadowMapUpdates(h.dev));
     RUN_GROUP(CheckRendererSwitchesLitShaders(h));
     RUN_GROUP(surface_light_checks::CheckLightsOnSurfaces(h));
+    RUN_GROUP(surface_light_checks::CheckSpellLightsOnSurfaces(h));
     RUN_GROUP(surface_light_checks::CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(h));
     RUN_GROUP(surface_light_checks::CheckSurfaceLightsFadeOutInDaylight(h));
     RUN_GROUP(surface_light_checks::CheckGodRaysTakeTheirSceneFromTheCompositeCopy(h));
@@ -3675,6 +3687,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(runtime_cost::CheckDepthProbeAndGpuTimeLog(h, eye, at));
     RUN_GROUP(runtime_cost::CheckGpuTimerRetriesTransientCreationFailures(h.dev));
     RUN_GROUP(runtime_cost::CheckGpuTimerReportsUnsupportedBeforeFirstSummary(h.dev));
+    RUN_GROUP(runtime_cost::CheckPassGpuTimesListEachSupportedPass(h.dev));
 
     vf_test_set_config(&restored);
     h.ReleaseEngineObjects();

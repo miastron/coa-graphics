@@ -548,6 +548,8 @@ void Renderer::ReleaseDefaultPool()
     SafeRelease(m_probeReadback);
     SafeRelease(m_probeCopied);
     m_gpuTimer.Release();
+    for (GpuTimer* timer : PassTimers())
+        timer->Release();
     m_lateGodRays = {};
     SafeRelease(m_state);
     SafeRelease(m_localLightData);
@@ -1316,6 +1318,14 @@ void Renderer::LogFrameSummary(IDirect3DDevice9* dev, long long now, const Frame
                 "maxdist %.0f%s%s",
                 m_frame, vp.X, vp.Y, vp.Width, vp.Height, depthDesc.Width, depthDesc.Height, vp.MinZ, vp.MaxZ,
                 projectionNear, projectionFar, in.farClip, fog.maxDistance, gpuTime[0] ? ", " : "", gpuTime);
+    char passTimes[160] = {};
+    if (LogEnabled(LogLevel::Info))
+    {
+        const auto timers = PassTimers();
+        DescribeGpuTimes(dev, timers.data(), timers.size(), passTimes, sizeof(passTimes));
+    }
+    if (passTimes[0])
+        VF_LOG_INFO("  fog pass gpu ms (median): %s", passTimes);
     VF_LOG_INFO("  camera (%.2f %.2f %.2f) inverse-view origin (%.2f %.2f %.2f) target (%.2f %.2f %.2f) focus "
                 "(%.2f %.2f %.2f)",
                 in.camPos[0], in.camPos[1], in.camPos[2], viewToWorld[12], viewToWorld[13], viewToWorld[14],
@@ -1539,6 +1549,14 @@ float LinearLuma(uint32_t packed)
            kLumaBlue * std::pow(rgb[2], kSurfaceDisplayGamma);
 }
 
+float StrongestSurfaceLight(const Float4* lightData, uint32_t count)
+{
+    float strongest = 0.0f;
+    for (uint32_t i = 0; i < count; ++i)
+        strongest = std::max(strongest, lightData[i * 3 + 1].w);
+    return strongest;
+}
+
 float SurfaceLightVisibility(const Float4* lightData, uint32_t count, uint32_t ambient, uint32_t direct)
 {
     float brightest = 0.0f;
@@ -1558,8 +1576,13 @@ float SurfaceLightVisibility(const Float4* lightData, uint32_t count, uint32_t a
 bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
                              const SurfaceLightFrame& frame, bool intoLitScene)
 {
+    if (LogEnabled(LogLevel::Info))
+        m_surfaceLightTimer.Begin(dev);
     if (!CopyWorldViewport(dev, target, frame.viewport, ColourCopySite::SurfaceLights))
+    {
+        m_surfaceLightTimer.Cancel();
         return false;
+    }
     IDirect3DSurface9* litSurface = nullptr;
     const bool toTexture = intoLitScene && !Seam(g_surfaceLightsKeptInTarget, false) && EnsureLitScene(dev) &&
                            SUCCEEDED(m_litScene->GetSurfaceLevel(0, &litSurface));
@@ -1595,6 +1618,7 @@ bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
     BindTexture(dev, kSceneBeforeLightsStage, m_sceneCopy, false);
     BindTexture(dev, kLocalLightStage, m_localLightData, false);
     DrawFullscreenTriangle(dev);
+    m_surfaceLightTimer.End();
     ++m_surfaceLightDraws;
     return toTexture;
 }
@@ -1857,8 +1881,10 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
         float position[3];
         TransformDirection(relative, in.cameraRelativeView, position);
         localConstants[i * 3] = {position[0], position[1], position[2], light.cutoff};
-        localConstants[i * 3 + 1] = {light.uploadedColor[0], light.uploadedColor[1], light.uploadedColor[2], 0.0f};
-        localConstants[i * 3 + 2] = {light.attenuation[0], light.attenuation[1], light.attenuation[2], 0.0f};
+        localConstants[i * 3 + 1] = {light.uploadedColor[0], light.uploadedColor[1], light.uploadedColor[2],
+                                     LocalLightSurfaceStrength(cfg, light)};
+        localConstants[i * 3 + 2] = {light.attenuation[0], light.attenuation[1], light.attenuation[2],
+                                     LocalLightFogGain(fog, light)};
     }
     if (pointLightCount > 0)
     {
@@ -1887,8 +1913,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
         marchLightLimit = std::max(marchLightLimit, std::nextafter(limit, std::numeric_limits<float>::infinity()));
     }
     LogUploadedLocalLights(in, cfg, pointLightCount);
-    const Float4 localControl = {static_cast<float>(pointLightCount), marchLightLimit, cfg.localLightPhase,
-                                 fog.localLightGain};
+    const Float4 localControl = {static_cast<float>(pointLightCount), marchLightLimit, cfg.localLightPhase, 0.0f};
     const bool marchesLocalLights = pointLightCount > 0;
     const bool tracesSunShadows = cfg.lightShafts;
     m_drawnMarch = MarchShaders(tracesSunShadows, marchesLocalLights, samplesNoise)[std::clamp(cfg.quality, 1, 3) - 1];
@@ -1905,19 +1930,26 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
                               static_cast<float>(std::fmod(TickSeconds(now) * cfg.noiseWindSpeed, windPeriod)), 0.0f};
     dev->SetPixelShaderConstantF(78, &variation.x, 1);
     BindTexture(dev, 0, depthTexture, false);
+    const bool timesPasses = LogEnabled(LogLevel::Info);
+    if (timesPasses)
+        m_marchTimer.Begin(dev);
     DrawFullscreenTriangle(dev);
+    m_marchTimer.End();
 
     m_adaptiveLightingHistory = pointLightCount > 0 || m_prevLocalLightCount > 0 || shadows.count > 0 ||
                                 cfg.noiseAmount > 0.0f || samplesNoise;
     const bool temporalFiltering = cfg.temporal > 0.0f;
+    if (timesPasses && temporalFiltering)
+        m_temporalTimer.Begin(dev);
     IDirect3DTexture9* const fogResult =
         temporalFiltering ? FilterWithHistory(dev, depthTexture, reproj, historyValid, cfg.temporal) : m_marchTarget;
+    m_temporalTimer.End();
 
     const bool compositeBlendsInShader = fog.linear || raysNow;
     const float surfaceLightStrength =
-        pointLightCount > 0 ? cfg.surfaceLights * SurfaceLightVisibility(localConstants, pointLightCount,
-                                                                         in.ambientColor, in.directColor)
-                            : 0.0f;
+        StrongestSurfaceLight(localConstants, pointLightCount) > 0.0f
+            ? SurfaceLightVisibility(localConstants, pointLightCount, in.ambientColor, in.directColor)
+            : 0.0f;
     const bool litSceneReady =
         surfaceLightStrength > 0.0f &&
         LightSurfaces(dev, depthTexture, target,
@@ -1981,10 +2013,13 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     BindTexture(dev, 2, m_rays[kShaftRays], true);
     BindTexture(dev, 3, sceneBlend ? (litSceneReady ? m_litScene : m_sceneCopy) : nullptr, false);
     BindTexture(dev, 4, m_marchTarget, false);
+    if (timesPasses)
+        m_compositeTimer.Begin(dev);
     if (splitSamples)
         DrawCompositeBySampleDepth(dev, depth.bound, vp, compositeChoice, sceneBlend);
     else
         DrawFullscreenTriangle(dev);
+    m_compositeTimer.End();
     if (raysDrawnAfterWorld)
     {
         m_lateGodRays = godRays;

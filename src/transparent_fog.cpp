@@ -149,7 +149,7 @@ struct FitPointLights
     const LocalPointLight* lights = nullptr;
     uint32_t count = 0;
     float phase = 0.0f;
-    float gain = 1.0f;
+    float gains[kMaxLocalPointLights] = {};
     float relative[kMaxLocalPointLights][3] = {};
 };
 
@@ -219,10 +219,12 @@ FitPointLights UploadedPointLights(const FogParams& fog, const FrameInputs& in, 
     points.lights = in.localLights.pointLights;
     points.count = std::min({light.uploadedPointLights, in.localLights.pointLightCount, kMaxLocalPointLights});
     points.phase = light.pointLightPhase;
-    points.gain = fog.localLightGain;
     for (uint32_t i = 0; i < points.count; ++i)
+    {
+        points.gains[i] = LocalLightFogGain(fog, points.lights[i]);
         for (int axis = 0; axis < 3; ++axis)
             points.relative[i][axis] = points.lights[i].position[axis] - in.camPos[axis];
+    }
     return points;
 }
 
@@ -316,8 +318,7 @@ void AccumulatePointLightPiece(const StepLayers& stepLayers, const RayPointLight
 {
     const float length = to - from;
     const float middle = from + 0.5f * length;
-    const float weightedDensity =
-        kQuadratureWeight * length * PortionDensity(stepLayers, middle) * lit.points->gain;
+    const float weightedDensity = kQuadratureWeight * length * PortionDensity(stepLayers, middle);
     if (weightedDensity <= 0.0f)
         return;
     for (int i = 0; i < lit.chordCount; ++i)
@@ -329,8 +330,9 @@ void AccumulatePointLightPiece(const StepLayers& stepLayers, const RayPointLight
         for (int sample = 0; sample < kQuadratureSamples; ++sample)
             scattering += PointLightScattering(lit, light, from + length * QuadratureFraction(sample));
         const float* colour = lit.points->lights[light].uploadedColor;
+        const float gainedScattering = weightedDensity * lit.points->gains[light] * scattering;
         for (int c = 0; c < 3; ++c)
-            radiance[c] += colour[c] * weightedDensity * scattering;
+            radiance[c] += colour[c] * gainedScattering;
     }
 }
 

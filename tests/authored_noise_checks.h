@@ -6,8 +6,8 @@
 #include "ps_noisy_march_high.h"
 #include "ps_noisy_march_low.h"
 #include "ps_noisy_march_mid.h"
-#include "ps_shadowed_composite_mid.h"
-#include "ps_shadowed_lit_noisy_march_mid.h"
+#include "shadowed_composite_shaders.h"
+#include "storm_march_shaders.h"
 #include "ps_shadowed_noisy_composite_mid.h"
 #include "ps_shadowed_noisy_march_mid.h"
 

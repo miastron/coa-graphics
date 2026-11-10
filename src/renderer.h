@@ -15,6 +15,8 @@
 
 #include <d3d9.h>
 
+#include <array>
+
 #ifdef VF_TESTING
 void ForceFogParams(const FogParams* fog);
 void KeepSurfaceLightsInTheTarget(bool keep);
@@ -209,7 +211,16 @@ private:
     IDirect3DSurface9* m_probeReadback = nullptr;
     IDirect3DQuery9* m_probeCopied = nullptr;
     PendingDepthProbe m_pendingProbe;
+    std::array<GpuTimer*, 4> PassTimers()
+    {
+        return {&m_marchTimer, &m_temporalTimer, &m_surfaceLightTimer, &m_compositeTimer};
+    }
+
     GpuTimer m_gpuTimer{"fog"};
+    GpuTimer m_marchTimer{"march"};
+    GpuTimer m_temporalTimer{"temporal"};
+    GpuTimer m_surfaceLightTimer{"surface lights"};
+    GpuTimer m_compositeTimer{"composite"};
     WorldShadowInputs m_worldShadows;
     StockFogFit m_stockFogFit;
     GodRayFrame m_lateGodRays;

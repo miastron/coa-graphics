@@ -483,8 +483,9 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
     p.referenceZ = ReferenceZ(in);
     p.farLimit = std::clamp(in.fogEnd, 100.0f, in.farClip);
     const MapRegion region = RegionOfMap(in.mapId);
-    p.localLightGain =
-        RegionLocalLights(cfg, region) / std::max(RegionDensity(cfg, region), kMinRegionDensityForLocalLights);
+    const float densityForLocalLights = std::max(RegionDensity(cfg, region), kMinRegionDensityForLocalLights);
+    p.localLightGain = RegionLocalLights(cfg, region) / densityForLocalLights;
+    p.spellLightGain = 1.0f / densityForLocalLights;
 
     float fogDistance = in.zoneFogDistance > 50.0f && in.zoneFogDistance < 20000.0f ? in.zoneFogDistance : in.fogEnd;
     fogDistance = std::clamp(fogDistance, 50.0f, 5000.0f);
@@ -556,6 +557,16 @@ PointLightUpload LocalLightUpload(const Config& cfg, int mapId)
     return {ScattersInLinearLight(cfg) && cfg.decodeLightColours, cfg.localLightIntensity,
             cfg.spellLights ? cfg.spellLightIntensity : 0.0f, cfg.lightsFollowObjects,
             RegionLocalLights(cfg, RegionOfMap(mapId))};
+}
+
+float LocalLightFogGain(const FogParams& fog, const LocalPointLight& light)
+{
+    return light.source == LocalLightSource::Spell ? fog.spellLightGain : fog.localLightGain;
+}
+
+float LocalLightSurfaceStrength(const Config& cfg, const LocalPointLight& light)
+{
+    return light.source == LocalLightSource::Spell ? cfg.spellSurfaceLights : cfg.surfaceLights;
 }
 
 namespace
