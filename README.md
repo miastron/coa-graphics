@@ -1903,10 +1903,14 @@ Scenes for looking at the output:
   lamps behind the camera, where no light reaches a pixel (`behind`), `SurfaceLights=0` and `SpellSurfaceLights=0`
   (`surfaces0`), four synthetic client shadow cascades that leave every pixel lit (`maps4`) and blades of grass
   across the street (`thicket`: 0.15 yd wide, 1 yd tall, every 1.2 yd), whose depth edges the composite marches at
-  full resolution. On the 780M under DXVK at `Quality=2`: the surface pass 0.58 ms with the lamps behind and 0.75 ms
-  under the flood lights; the lit march 0.47 ms dearer than the unlit one where no light reaches; the composite with
-  the lamps 1.7 ms on the street and 3.1 ms in the thicket, with the flood lights 2.1 ms and 5.9 ms. In game at
-  1920×1200 the owner's log showed a composite of 6.4–6.75 ms in grass.
+  full resolution. On the 780M under DXVK at `Quality=2`, in the Windows power mode Balanced (Performance gave the
+  street rows within 10% of it): the surface pass 0.6 ms with the lamps behind and 0.75–0.8 ms under the flood
+  lights; the lit march 0.4–0.5 ms dearer than the unlit one where no light reaches; the composite with the lamps
+  1.7 ms on the street and 3.1–3.3 ms in the thicket, with the flood lights 2.1 ms and 5.9–6.4 ms. In game at
+  1920×1200, standing in one place at night, the owner's log showed a composite of 9.1 ms with the grass at its
+  defaults and 5.6 ms with `GrassDensity=1` and the client's ground clutter down, the march unchanged at 4.8 ms; with
+  nothing changed the march and the composite then moved by 30% between minutes, and the surface pass stayed at
+  1.3–1.4 ms with the client's shadows on or off.
 - `vfog_harness --scene water-performance --water-data data/waterdata.bin` times the water pass on the basin scene (1280×688
   world viewport) with the shipped settings and with one setting changed at a time, and prints `case,median_ms` of the
   water pass's own GPU time over 90 frames.
