@@ -25,6 +25,7 @@ static const float kMaxEstimatedAlbedo = 0.5;
 static const float kWhitestSurface = 1.0;
 static const float kAlreadyLitSurface = 2.0;
 static const float kShadowedGroundShare = 0.7;
+static const float kLightThatUndoesShadow = 0.1;
 static const float kSteepestGround = 0.5;
 static const float kFlatGround = 0.8;
 static const float2 kCharacterMapFade = float2(-3.4482758, 3.41379309);
@@ -190,13 +191,40 @@ float3 PointLightOnSurface(int index, float3 position, float3 normal)
     return colour * falloff * boundaryFade * Facing(normal, toLight * inverseDistance);
 }
 
-float3 EstimatedAlbedo(float3 sceneLinear, float3 normal, float clientShadowShade, float ground)
+float Brightest(float3 colour)
+{
+    return max(colour.r, max(colour.g, colour.b));
+}
+
+float3 SkyLight(float3 normal, float clientShadowShade)
 {
     float3 illuminant = cSurfaceAmbient.rgb + cSurfaceDirect.rgb * saturate(dot(normal, cSurfaceToLight.xyz));
-    float3 albedo = sceneLinear / (max(illuminant, kDarkestIlluminant) * clientShadowShade);
-    float brightest = max(albedo.r, max(albedo.g, albedo.b));
-    float explainedByTheSky = 1 - smoothstep(kWhitestSurface, kAlreadyLitSurface, brightest);
+    return max(illuminant, kDarkestIlluminant) * clientShadowShade;
+}
+
+float3 EstimatedAlbedo(float3 sceneLinear, float3 skyLight, float ground)
+{
+    float3 albedo = sceneLinear / skyLight;
+    float explainedByTheSky = 1 - smoothstep(kWhitestSurface, kAlreadyLitSurface, Brightest(albedo));
     return min(albedo, kMaxEstimatedAlbedo) * lerp(explainedByTheSky, 1, ground);
+}
+
+float LightAlreadyShown(float3 sceneLinear, float3 skyLight)
+{
+    return saturate(Brightest(max(skyLight, sceneLinear / kMaxEstimatedAlbedo)));
+}
+
+float3 ShadowLiftedScene(float3 sceneLinear, float3 skyLight, float clientShadowShade, float3 light)
+{
+    float3 litBySky = min(sceneLinear, kMaxEstimatedAlbedo * skyLight);
+    float3 litByTheClientsLamp = sceneLinear - litBySky;
+    float lightHere = 1 - exp(-Brightest(light) / kLightThatUndoesShadow);
+    return sceneLinear + litByTheClientsLamp * (rcp(clientShadowShade) - 1) * lightHere;
+}
+
+float3 SoftlyAddedLight(float lightAlreadyShown, float3 light)
+{
+    return (1 - lightAlreadyShown) * (1 - exp(-light));
 }
 
 float4 Unlit(float4 scene)
@@ -220,11 +248,15 @@ float4 main(float2 pixelIndex : VPOS) : COLOR0
     float3 light = 0;
     [loop] for (int index = 0; index < LocalLightCount(); ++index)
         light += PointLightOnSurface(index, position, normal);
-    if (max(light.r, max(light.g, light.b)) < kFaintestLight)
+    if (Brightest(light) < kFaintestLight)
         return Unlit(scene);
     float3 sceneLinear = pow(max(scene.rgb, kSmallestScene), kDisplayGamma);
     float ground = Ground(normal);
-    float3 albedo = EstimatedAlbedo(sceneLinear, normal, ClientShadowShade(position, ground), ground);
-    float3 lit = sceneLinear + albedo * light * SurfaceLightStrength();
+    float clientShadowShade = ClientShadowShade(position, ground);
+    float3 skyLight = SkyLight(normal, clientShadowShade);
+    float3 surfaceLight = light * SurfaceLightStrength();
+    float3 added = SoftlyAddedLight(LightAlreadyShown(sceneLinear, skyLight), surfaceLight);
+    float3 lit = ShadowLiftedScene(sceneLinear, skyLight, clientShadowShade, surfaceLight) +
+                 EstimatedAlbedo(sceneLinear, skyLight, ground) * added;
     return float4(pow(saturate(lit), 1 / kDisplayGamma), 1);
 }

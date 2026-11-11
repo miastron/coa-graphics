@@ -15,6 +15,10 @@ constexpr float kBeyondReach = 5.0f;
 constexpr float kHalfStrength = 0.5f;
 constexpr float kFullStrength = 1.0f;
 constexpr int kLitAtLeast = 8;
+constexpr float kClientShadowShare = 0.7f;
+constexpr float kShareTolerance = 0.03f;
+constexpr float kShadowLeftUnderALamp = 0.9f;
+constexpr int kLitUnderASkyAtLeast = 4;
 constexpr uint32_t kDarkAmbient = 0xFF060606;
 constexpr uint32_t kBrightAmbient = 0xFFFFFFFF;
 constexpr uint32_t kFullDirectLight = 0xFFFFFFFF;
@@ -42,6 +46,21 @@ constexpr Vec3 kWallLow = {26, -3, 0};
 constexpr Vec3 kWallHigh = {28, 3, 8};
 constexpr Vec3 kWallPoint = {26, 0, 3};
 constexpr DWORD kWallColour = 0xFF6E5A48;
+constexpr int kTwoLights = 2;
+constexpr float kStrongLight = 4.0f;
+constexpr float kLargestShareOfTwiceTheLight = 0.85f;
+constexpr float kBesideTheLight = 2.5f;
+constexpr float kLitPatchThickness = 0.05f;
+constexpr Vec3 kLitPatchLow = {kLightAhead - 1.5f, 1, 0};
+constexpr Vec3 kLitPatchHigh = {kLightAhead + 1.5f, 4, kLitPatchThickness};
+constexpr Vec3 kLitPatchPoint = {kLightAhead, kBesideTheLight, kLitPatchThickness};
+constexpr Vec3 kDarkGroundPoint = {kLightAhead, -kBesideTheLight, 0};
+constexpr DWORD kLitPatchColour = 0xFF8C7A48;
+constexpr float kLargestShareOnLitGround = 0.85f;
+constexpr float kOverpoweringLight = 16.0f;
+constexpr float kBrightestAssumedAlbedo = 0.5f;
+constexpr float kLinearLightTolerance = 0.02f;
+constexpr D3DVIEWPORT9 kPictureView = {0, 0, 3 * kViewWidth, 3 * kViewHeight, 0.0f, 1.0f};
 
 struct LitFrame
 {
@@ -62,6 +81,7 @@ struct Scene
     Vec3 eye = Add(kGameLikeWorldOffset, {0, 0, kEyeHeight});
     Vec3 at = Add(kGameLikeWorldOffset, {kLookAhead, 0, 0});
     float lightAhead = kLightAhead;
+    int lights = 1;
     float view[16] = {};
     float projection[16] = {};
 };
@@ -96,7 +116,8 @@ FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1
     light.attenuation[0] = kLightConstantAttenuation;
     light.attenuation[2] = kLightQuadraticAttenuation;
     light.source = source;
-    engine::SelectLocalPointLight(input.localLights, light, input.camPos, LocalLightUpload(config, input.mapId));
+    for (int i = 0; i < scene.lights; ++i)
+        engine::SelectLocalPointLight(input.localLights, light, input.camPos, LocalLightUpload(config, input.mapId));
     return input;
 }
 
@@ -405,6 +426,79 @@ void CheckLightsFillClientShadows(Harness& h)
     vf_test_set_config(&saved);
 }
 
+void ShadeTheGround(std::vector<SceneVertex>& vertices, float share)
+{
+    constexpr size_t kGroundVertices = 6;
+    for (size_t i = 0; i < kGroundVertices; ++i)
+    {
+        DWORD shaded = 0xFF000000;
+        for (int shift = 0; shift <= 16; shift += 8)
+            shaded |= static_cast<DWORD>(((vertices[i].color >> shift) & 0xFF) * share) << shift;
+        vertices[i].color = shaded;
+    }
+}
+
+float ShareOfTheOpenGround(const LitFrame& shaded, const LitFrame& open, UINT x, UINT y)
+{
+    return static_cast<float>(shaded.image.At(x, y)[1]) / open.image.At(x, y)[1];
+}
+
+void CheckLampLightUndoesTheClientsShadowOnGround(Harness& h)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Scene scene;
+    const FrameInputs probe = SceneInputs(scene, SurfaceConfig(saved, kFullStrength));
+    const float reach = probe.localLights.pointLightCount ? probe.localLights.pointLights[0].cutoff : 0.0f;
+    UINT x = 0;
+    UINT y = 0;
+    UINT farX = 0;
+    UINT farY = 0;
+    IDirect3DTexture9* map = CreateClientShadowMap(h.dev);
+    if (!map || !GroundPixel(scene, kLightAhead, x, y) ||
+        !GroundPixel(scene, kLightAhead + reach + kBeyondReach, farX, farY))
+    {
+        Check(false, "the client shadow map fixture is created and the ground under and beyond the light is in view");
+        if (map)
+            map->Release();
+        return;
+    }
+    Config withoutShafts = saved;
+    withoutShafts.lightShafts = false;
+    withoutShafts.worldShadows = true;
+    const WorldShadowInputs open = ClientShadows(map, kWorldShadowMapCount, kNoShadowingMap);
+    const WorldShadowInputs shadowed = ClientShadows(map, kWorldShadowMapCount, kNearMap);
+    const std::vector<SceneVertex> openGround = h.scene;
+    const auto renderAtNight = [&](const WorldShadowInputs& shadows, float strength) {
+        Config config = withoutShafts;
+        config.surfaceLights = strength;
+        vf_test_override_world_shadows(&shadows);
+        const LitFrame frame = RenderLit(h, scene, config, strength, true, kDarkAmbient, kNoDirectLight);
+        vf_test_override_world_shadows(nullptr);
+        return frame;
+    };
+    const LitFrame openOff = renderAtNight(open, 0.0f);
+    const LitFrame openLit = renderAtNight(open, kFullStrength);
+    ShadeTheGround(h.scene, kClientShadowShare);
+    const LitFrame shadowedOff = renderAtNight(shadowed, 0.0f);
+    const LitFrame shadowedLit = renderAtNight(shadowed, kFullStrength);
+    h.scene = openGround;
+    map->Release();
+    const float without = ShareOfTheOpenGround(shadowedOff, openOff, x, y);
+    const float under = ShareOfTheOpenGround(shadowedLit, openLit, x, y);
+    const float beyondWithout = ShareOfTheOpenGround(shadowedOff, openOff, farX, farY);
+    const float beyond = ShareOfTheOpenGround(shadowedLit, openLit, farX, farY);
+    std::printf("     ground the client shaded to %.2f of the open ground, green against the open ground: %.2f "
+                "without the light and %.2f under it; beyond its reach %.2f and %.2f\n",
+                kClientShadowShare, without, under, beyondWithout, beyond);
+    Check(shadowedLit.draws == 1 && std::abs(without - kClientShadowShare) < kShareTolerance &&
+              std::abs(beyondWithout - beyond) < kShareTolerance && under > kShadowLeftUnderALamp,
+          "ground the client's shadow map shades, lit at night by a lamp over the client's own light, is left "
+          "closer to the open ground's brightness than it is beside the lamp, and ground the light does not reach "
+          "keeps its shadow");
+    vf_test_set_config(&saved);
+}
+
 void CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(Harness& h)
 {
     Config saved;
@@ -440,13 +534,131 @@ void CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(Harness& h)
     std::printf("     green lift where the lighting explains the brightness and where the surface is far brighter "
                 "than that: ground under the light %d and %d, a wall beside it %d and %d\n",
                 plausibleLift, darkLift, plausibleWallLift, darkWallLift);
-    Check(plausible.draws == 1 && dark.draws == 1 && plausibleWallLift >= kLitAtLeast && darkWallLift == 0,
+    Check(plausible.draws == 1 && dark.draws == 1 && plausibleWallLift >= kLitUnderASkyAtLeast && darkWallLift == 0,
           "a wall far brighter than the sky's ambient and sun light can explain, because the client lit it "
           "already or it glows, gets no second light from SurfaceLights, while the same wall under a plausible "
           "ambient does");
     Check(plausibleLift >= kLitAtLeast && darkLift >= kLitAtLeast,
           "ground far brighter than the sky can explain, as under a lamp the client lights the ground with "
           "itself at night, still takes the light, so no dark patch is left where the light is strongest");
+    vf_test_set_config(&saved);
+}
+
+struct NightFrames
+{
+    LitFrame unlit;
+    LitFrame lit;
+};
+
+LitFrame RenderSettledAtNight(Harness& h, Scene& scene, const Config& saved, float strength, float lightScale)
+{
+    RenderLit(h, scene, saved, strength, true, kDarkAmbient, kNoDirectLight, lightScale);
+    return RenderLit(h, scene, saved, strength, true, kDarkAmbient, kNoDirectLight, lightScale);
+}
+
+NightFrames RenderWithAndWithoutSurfaceLights(Harness& h, Scene& scene, const Config& saved, float lightScale)
+{
+    return {RenderSettledAtNight(h, scene, saved, 0.0f, lightScale),
+            RenderSettledAtNight(h, scene, saved, kFullStrength, lightScale)};
+}
+
+float LinearLight(unsigned char onDisplay)
+{
+    return std::pow(onDisplay / 255.0f, kDisplayGamma);
+}
+
+float LinearGreenLift(const NightFrames& frames, UINT x, UINT y)
+{
+    return LinearLight(frames.lit.image.At(x, y)[1]) - LinearLight(frames.unlit.image.At(x, y)[1]);
+}
+
+float BrightestLinearLift(const NightFrames& frames, UINT x, UINT y)
+{
+    const unsigned char* lit = frames.lit.image.At(x, y);
+    const unsigned char* unlit = frames.unlit.image.At(x, y);
+    float lift = 0.0f;
+    for (int channel = 0; channel < 3; ++channel)
+        lift = std::max(lift, LinearLight(lit[channel]) - LinearLight(unlit[channel]));
+    return lift;
+}
+
+float RoomUnderAFullyLitSurface(const Image& unlit, UINT x, UINT y)
+{
+    const unsigned char* pixel = unlit.At(x, y);
+    return kBrightestAssumedAlbedo - LinearLight(std::max({pixel[0], pixel[1], pixel[2]}));
+}
+
+void SaveWorldView(const std::wstring& outDir, const wchar_t* name, const LitFrame& frame, const D3DVIEWPORT9& world)
+{
+    Image view;
+    view.w = world.Width;
+    view.h = world.Height;
+    view.bgra.resize(static_cast<size_t>(view.w) * view.h * 4);
+    for (UINT y = 0; y < view.h; ++y)
+        std::copy_n(frame.image.At(world.X, world.Y + y), static_cast<size_t>(view.w) * 4,
+                    view.bgra.data() + static_cast<size_t>(y) * view.w * 4);
+    SavePng(outDir + L"\\" + name, view.w, view.h, view.bgra);
+}
+
+void CheckLightsAddToTheSceneSoftly(Harness& h, const std::wstring& outDir)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Scene scene;
+    scene.world = kPictureView;
+    SceneInputs(scene, SurfaceConfig(saved, kFullStrength));
+    UINT darkX = 0;
+    UINT darkY = 0;
+    UINT patchX = 0;
+    UINT patchY = 0;
+    if (!ScenePixel(scene, kDarkGroundPoint, darkX, darkY) || !ScenePixel(scene, kLitPatchPoint, patchX, patchY))
+    {
+        Check(false, "the dark ground and the lit patch on either side of the light are in view");
+        return;
+    }
+    Scene twoLights;
+    twoLights.world = kPictureView;
+    twoLights.lights = kTwoLights;
+    const std::vector<SceneVertex> withoutThePatch = h.scene;
+    AddBox(h.scene, kLitPatchLow, kLitPatchHigh, kLitPatchColour);
+    const NightFrames lamp = RenderWithAndWithoutSurfaceLights(h, scene, saved, 1.0f);
+    const NightFrames strong = RenderWithAndWithoutSurfaceLights(h, scene, saved, kStrongLight);
+    const NightFrames twoStrong = RenderWithAndWithoutSurfaceLights(h, twoLights, saved, kStrongLight);
+    const NightFrames overpowering = RenderWithAndWithoutSurfaceLights(h, scene, saved, kOverpoweringLight);
+    h.scene = withoutThePatch;
+    SaveWorldView(outDir, L"surface-lights-night-off.png", lamp.unlit, scene.world);
+    SaveWorldView(outDir, L"surface-lights-night-lamp.png", lamp.lit, scene.world);
+    SaveWorldView(outDir, L"surface-lights-night-strong.png", strong.lit, scene.world);
+    SaveWorldView(outDir, L"surface-lights-night-two-strong.png", twoStrong.lit, scene.world);
+    SaveWorldView(outDir, L"surface-lights-night-overpowering.png", overpowering.lit, scene.world);
+    const float oneLift = LinearGreenLift(strong, darkX, darkY);
+    const float twoLift = LinearGreenLift(twoStrong, darkX, darkY);
+    const float groundLift = LinearGreenLift(lamp, darkX, darkY);
+    const float patchLift = LinearGreenLift(lamp, patchX, patchY);
+    const float overpoweredGround = BrightestLinearLift(overpowering, darkX, darkY);
+    const float overpoweredPatch = BrightestLinearLift(overpowering, patchX, patchY);
+    const float groundRoom = RoomUnderAFullyLitSurface(lamp.unlit.image, darkX, darkY);
+    const float patchRoom = RoomUnderAFullyLitSurface(lamp.unlit.image, patchX, patchY);
+    std::printf("     linear green lift of dark ground: %.4f under one light %.0f times a lamp, %.4f under two of "
+                "them at one place (%.2f times); under a lamp %.4f on dark ground and %.4f on ground the client "
+                "lit already, the same distance away (%.2f of the dark ground's); under a light %.0f times a lamp "
+                "the brightest channel lifts by %.3f on the dark ground and %.3f on the lit patch, where a fully "
+                "lit surface leaves room for %.3f and %.3f\n",
+                oneLift, kStrongLight, twoLift, oneLift > 0.0f ? twoLift / oneLift : 0.0f, groundLift, patchLift,
+                groundLift > 0.0f ? patchLift / groundLift : 0.0f, kOverpoweringLight, overpoweredGround,
+                overpoweredPatch, groundRoom, patchRoom);
+    Check(strong.lit.draws == 1 && twoStrong.lit.draws == 1 && oneLift > 0.0f && twoLift > oneLift &&
+              twoLift < kLargestShareOfTwiceTheLight * 2.0f * oneLift,
+          "two equal lights at one place light the ground more than one of them and clearly less than twice as "
+          "much");
+    Check(lamp.lit.draws == 1 && patchLift > 0.0f && patchLift < kLargestShareOnLitGround * groundLift,
+          "ground the client lit already takes less of a lamp than the darker ground beside it, so the two "
+          "lightings do not stack");
+    Check(overpowering.lit.draws == 1 && overpoweredGround > BrightestLinearLift(strong, darkX, darkY) &&
+              overpoweredGround <= groundRoom + kLinearLightTolerance &&
+              overpoweredPatch <= patchRoom + kLinearLightTolerance,
+          "a light many times too strong lifts the dark ground and the lit patch no further than a fully lit "
+          "surface of the brightest albedo the pass assumes, short of white");
     vf_test_set_config(&saved);
 }
 
@@ -518,7 +730,7 @@ void CheckSurfaceLightsAreDrawnOnlyWhereTheyReach(Harness& h)
                 handed.inArea.compositeCopies, handed.wholeView.surfaceLightCopies, handed.wholeView.compositeCopies);
     Check(handed.inArea.draws == 1 && kept.inArea.draws == 1 && handed.inArea.share > 0.0f &&
               handed.inArea.share < kLargestShareLitInPlace && kept.inArea.share == handed.inArea.share &&
-              handed.wholeView.share == 1.0f && lift >= kLitAtLeast,
+              handed.wholeView.share == 1.0f && lift >= kLitUnderASkyAtLeast,
           "a light whose sphere covers part of the view is drawn on surfaces inside the rectangle the sphere "
           "projects to, and still lights the ground under it");
     Check(image_quality_checks::SameImage(handed.inArea.image, handed.wholeView.image) &&

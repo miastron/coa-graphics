@@ -3760,7 +3760,9 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(surface_light_checks::CheckLightsOnSurfaces(h));
     RUN_GROUP(surface_light_checks::CheckSpellLightsOnSurfaces(h));
     RUN_GROUP(surface_light_checks::CheckLightsFillClientShadows(h));
+    RUN_GROUP(surface_light_checks::CheckLampLightUndoesTheClientsShadowOnGround(h));
     RUN_GROUP(surface_light_checks::CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(h));
+    RUN_GROUP(surface_light_checks::CheckLightsAddToTheSceneSoftly(h, outDir));
     RUN_GROUP(surface_light_checks::CheckSurfaceLightsFadeOutInDaylight(h));
     RUN_GROUP(surface_light_checks::CheckSurfaceLightsAreDrawnOnlyWhereTheyReach(h));
     RUN_GROUP(surface_light_checks::CheckGodRaysTakeTheirSceneFromTheCompositeCopy(h));

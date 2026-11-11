@@ -95,6 +95,8 @@ after it say how each works and what is checked.
 - **Lights on surfaces** (`SurfaceLights` for lamps, `SpellSurfaceLights` for spells): the eight lights also light the
   opaque world around them, before the fog composite, from the depth buffer and without shadows of their own. Ground
   the client's shadow maps shade (`WorldShadows`) takes the light of its unshaded albedo, so a light fills the shadow.
+  A light joins the client's own lighting by a soft sum: two lights add less than twice one, and a surface the client
+  lit already takes less, never past a fully lit surface.
 - **Interior transitions**: the camera's native WMO blend reduces outdoor layers and sunlight, keeping the interior's
   own fog colour and range.
 - **Authored noise** (optional, off by default): drifting fog banks where the Classic layers carry the modern
@@ -319,7 +321,9 @@ to its horizontal and vertical neighbours, so silhouettes do not bend it. Each l
 `colour · strength · falloff · fade · facing`, where the falloff is the march's `1/max(a0 + a1·d + a2·d², 1)`, `fade` is its sphere-edge
 fade, and `facing` is wrapped by 0.25. The light falls on an albedo estimated from the scene in linear light (display gamma
 2.2), divided by the client's own illuminant there: ambient plus direct colour times the facing to the sun or moon (at least
-0.02, with the albedo at most 0.5). The pixel becomes `scene + albedo·light`. Each light's strength rides in the `w` of its colour texel and its fog gain
+0.02, with the albedo at most 0.5). The pixel becomes `scene + albedo·added`, where `added` is the soft sum of the
+lights with the light the pixel already shows (below). Each light's strength rides in the `w` of its colour texel and
+its fog gain
 (the region's lamp intensity over the region's density for a lamp, the density compensation alone for a spell) in the `w`
 of its attenuation texel, so the march, the surface pass and the transparent fog fit weigh lamps and spells apart.
 
@@ -335,6 +339,23 @@ lost the whole light, while the ground around it took it: a dark patch under eve
 (owner's screenshots, 2026-11-11; by day the estimate stays below 1 and nothing showed). Ground now keeps the 0.5 cap
 there and takes the light on top of the client's patch; the depth normal is steady on ground, so it does not shift
 with the camera as it did on models. Glowing ground (lava) takes the light too.
+
+The lights join the client's lighting by a soft sum (owner's decision, 2026-11-11, after the ground under the lamps
+took the whole light on top of the client's patch): `added = (1 - shown)·(1 - exp(-light))`. `shown` is the light the
+pixel already shows, the brightest channel of the client's illuminant there or of `scene / 0.5`, whichever is larger,
+at most 1. A surface therefore never passes a fully lit one of its estimated albedo (0.5 in linear light at most, 186
+of 255 on display), two lights add less than twice one, and ground the client lit already takes less than the darker
+ground beside it. `shown` is one number for the three channels, so a light keeps its hue until `1 - exp(-light)`
+whitens one far above 1. A faint light on a dark surface adds what the plain sum added. The pass's visibility scale
+(below) multiplies `light`. Lumenveil's `PointLightGain` (`vf_composite.hlsl`), which the decision named, adds the lamp
+to the square root of the scene's light and squares the sum; below its cap at 1 that is the plain sum plus
+`2·√scene·lamp`, so with our light values it would have brightened the patch, and only its cap softens, which the
+Elwynn lamps do not reach. The owner chose the saturating sum over it. Harness (DXVK; a light 2 yd above ground of
+display green 107 under a night ambient, lifts in linear light): one light at 4 times a lamp lifts green by 0.155 and
+two of them by 0.241, 1.55 times (2.03 times before); under a lamp, ground of display red 140 takes 0.60 of the darker
+ground's lift (0.97 before); a light at 16 times a lamp lifts the brightest channel by 0.343 and 0.228 where a fully
+lit surface leaves room for 0.346 and 0.228 (0.849 and 0.773 before, white). The lamp's own lift on that ground fell
+from 0.073 to 0.051. Not seen in game.
 
 The whole pass is scaled by how visible the lights are: the brightest uploaded light colour divided by the daylight
 (linear luma of the ambient colour plus half the direct colour, at least 0.02) is the share a light adds to a surface right
@@ -377,6 +398,15 @@ both by 25 codes (12 for the brighter ambient without the maps), through the cha
 seen in game. The pass's shadow control is pixel register `c104`, so the fog's state block now records 105 registers.
 With 104, DXVK left the client's `c104` overwritten after the first lit frame (its state block restores exactly the
 registers recorded; the Radeon 780M's native driver restored it anyway), which the harness checks on that frame.
+
+The fill above lifts the light's own share; the shadow also darkens what the client lit already, because its terrain
+shader multiplies the whole ground colour, its own patch under a lamp included (owner's screenshot, 2026-11-11: a tree
+shadow stayed dark on cobbles directly under a lamp). Where a light reaches ground, the part of the scene the sky
+cannot explain (the scene minus `0.5 x` the shaded sky light, at least 0) is multiplied back by `1 / shade`, weighted by
+`1 - exp(-light / 0.1)`; the sky's own share keeps its shadow, so ground beyond the light's reach is untouched. Harness
+(DXVK; the ground drawn 0.7 darker, a near-cascade shadow, a night ambient): shaded ground reads 0.72 of the open ground
+without the light, 0.86 under it before this and 1.02 after; beyond the light's reach 0.75 both ways. Ground only, like
+the fill, and a shadow baked into the terrain's alpha map is still not seen. Not seen in game.
 
 So ground lit dimly at night takes a point light at nearly its full colour, while in daylight the same light adds to a much
 brighter scene and shows less. The sky, pixels beyond every light sphere, and pixels a light adds under 1/1024 to are
