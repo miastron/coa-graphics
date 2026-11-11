@@ -17,9 +17,9 @@ from the ports themselves.
   change, the README and `ctest -R "comments|format|evidence"` kept green. The message ends with "Ported from LuxVelum
   st0ny-dev <hash>".
 - Harness checks only; nothing here has been seen in game unless it says so.
-- Run the harness under DXVK (see `PLAN.md` 3.1 and the memory notes): the native Radeon 780M driver hangs in the
-  forced-RESZ multisampling checks, and the device-creation checks here force RESZ too. Baseline of the full DXVK run
-  after group 1: 1617 passes and 3 failures, all 4x multisampling checks.
+- Run the harness under DXVK (see the baseline in `PLAN.md` Phase 5 and the memory notes): the native Radeon 780M
+  driver hangs in the forced-RESZ multisampling checks, and the device-creation checks here force RESZ too. Baseline
+  of the full DXVK run after group 1: 1617 passes and 3 failures, all 4x multisampling checks.
 - `--filter` matches the call text of `RUN_GROUP(...)`; a broad substring pulls in unrelated groups, which then run out
   of order and can flake.
 - Verify client addresses against the 12340 image and wowdecomp before relying on them, and name them in `README.md`
