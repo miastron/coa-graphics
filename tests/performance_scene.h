@@ -15,6 +15,8 @@ constexpr float kFloodLightQuadraticAttenuation = 0.015f;
 constexpr float kLampHeight = 5.0f;
 constexpr float kLampColor[3] = {1.0f, 0.72f, 0.4f};
 constexpr float kLampPeakColor = std::max({kLampColor[0], kLampColor[1], kLampColor[2]});
+constexpr float kElwynnLampColor[3] = {1.5f, 0.825f, 0.3f};
+constexpr float kElwynnLampAttenuation[3] = {0.0f, 0.7f, 0.03f};
 constexpr int kErrorLogLevel = 0;
 constexpr float kFullStorm = 1.0f;
 constexpr int kShippedLogLevel = 1;
@@ -53,6 +55,8 @@ enum class PointLights
     Flood,
     Lamps,
     LampsBehind,
+    ElwynnLamps,
+    ElwynnLampsBehind,
 };
 
 struct BenchmarkCase
@@ -111,6 +115,9 @@ constexpr PassCase kPassCases[] = {
     {"classic-lamps8-behind", FogSource::Classic, PointLights::LampsBehind, kSurfacesLit, kNoMaps, Ground::Street},
     {"classic-lamps8-behind-maps4", FogSource::Classic, PointLights::LampsBehind, kSurfacesLit,
      kCascades, Ground::Street},
+    {"classic-elwynn8", FogSource::Classic, PointLights::ElwynnLamps, kSurfacesLit, kNoMaps, Ground::Street},
+    {"classic-elwynn8-behind", FogSource::Classic, PointLights::ElwynnLampsBehind, kSurfacesLit, kNoMaps,
+     Ground::Street},
     {"derived-none-thicket", FogSource::Derived, PointLights::None, kSurfacesLit, kNoMaps,
      Ground::Thicket},
     {"derived-flood8-thicket", FogSource::Derived, PointLights::Flood, kSurfacesLit, kNoMaps,
@@ -303,17 +310,22 @@ FrameInputs StreetInputs(const Street& street, FogSource fog, const float* proje
     return inputs;
 }
 
-bool AddPointLight(FrameInputs& inputs, Vec3 position, const float* color, float quadraticAttenuation)
+bool AddPointLight(FrameInputs& inputs, Vec3 position, const float* color, const float* attenuation)
 {
     LocalPointLight light = {};
     light.position[0] = position.x;
     light.position[1] = position.y;
     light.position[2] = position.z;
     std::memcpy(light.color, color, sizeof(light.color));
-    light.attenuation[0] = 1.0f;
-    light.attenuation[2] = quadraticAttenuation;
+    std::memcpy(light.attenuation, attenuation, sizeof(light.attenuation));
     const PointLightUpload upload = LocalLightUpload(Config{}, inputs.mapId);
     return engine::SelectLocalPointLight(inputs.localLights, light, inputs.camPos, upload);
+}
+
+bool AddPointLight(FrameInputs& inputs, Vec3 position, const float* color, float quadraticAttenuation)
+{
+    const float attenuation[3] = {1.0f, 0.0f, quadraticAttenuation};
+    return AddPointLight(inputs, position, color, attenuation);
 }
 
 bool AddFloodLights(FrameInputs& inputs, const Street& street)
@@ -333,16 +345,32 @@ float QuadraticAttenuationReaching(float reach)
     return (kLampPeakColor / kLocalPointLightContributionCutoff - 1.0f) / (reach * reach);
 }
 
-bool AddStreetLamps(FrameInputs& inputs, const Street& street, float alongTheView)
+Vec3 StreetLampPosition(const Street& street, const StreetLamp& lamp, float alongTheView)
 {
     const Vec3 forward = Norm(Sub(street.at, street.eye));
     const Vec3 right = Norm(Cross(forward, kWorldUp));
+    const Vec3 alongStreet =
+        Add(street.eye, Add(Scaled(forward, alongTheView * lamp.ahead), Scaled(right, lamp.side)));
+    return {alongStreet.x, alongStreet.y, street.ground.z + kLampHeight};
+}
+
+bool AddStreetLamps(FrameInputs& inputs, const Street& street, float alongTheView)
+{
     for (const StreetLamp& lamp : kStreetLamps)
     {
-        const Vec3 alongStreet =
-            Add(street.eye, Add(Scaled(forward, alongTheView * lamp.ahead), Scaled(right, lamp.side)));
-        const Vec3 position = {alongStreet.x, alongStreet.y, street.ground.z + kLampHeight};
+        const Vec3 position = StreetLampPosition(street, lamp, alongTheView);
         if (!AddPointLight(inputs, position, kLampColor, QuadraticAttenuationReaching(lamp.reach)))
+            return false;
+    }
+    return true;
+}
+
+bool AddElwynnLamps(FrameInputs& inputs, const Street& street, float alongTheView)
+{
+    for (const StreetLamp& lamp : kStreetLamps)
+    {
+        const Vec3 position = StreetLampPosition(street, lamp, alongTheView);
+        if (!AddPointLight(inputs, position, kElwynnLampColor, kElwynnLampAttenuation))
             return false;
     }
     return true;
@@ -356,6 +384,10 @@ bool AddPointLights(FrameInputs& inputs, PointLights lights, const Street& stree
         return AddStreetLamps(inputs, street, kAheadOfTheCamera);
     if (lights == PointLights::LampsBehind)
         return AddStreetLamps(inputs, street, kBehindTheCamera);
+    if (lights == PointLights::ElwynnLamps)
+        return AddElwynnLamps(inputs, street, kAheadOfTheCamera);
+    if (lights == PointLights::ElwynnLampsBehind)
+        return AddElwynnLamps(inputs, street, kBehindTheCamera);
     return true;
 }
 
@@ -480,7 +512,8 @@ bool MeasurePasses(Harness& h, const Config& config, const FrameInputs& inputs, 
 void PrintPassTimes(int quality, const char* name, uint32_t pointLights, const FogPassTimes& times)
 {
     std::printf("%d,%s,%u", quality, name, pointLights);
-    for (const GpuTime* time : {&times.fog, &times.march, &times.temporal, &times.surfaceLights, &times.composite})
+    for (const GpuTime* time :
+         {&times.fog, &times.march, &times.temporal, &times.sceneCopy, &times.surfaceLights, &times.composite})
     {
         if (time->frames > 0)
             std::printf(",%.3f", time->medianMs);
@@ -621,11 +654,13 @@ bool ShowUpsamplePaths(Harness& h, const std::wstring& outDir)
 bool MeasurePassCases(Harness& h, const Street& derivedStreet, const Street& harbourStreet, bool classic,
                       const float* projection, const D3DVIEWPORT9& viewport, IDirect3DTexture9* clientShadowMap)
 {
-    std::printf("fog passes at LogLevel %d, the timers the game logs; surface lights include their scene copy; "
-                "maps4 cases have four open client shadow cascades of %u px; thicket cases stand blades %.2f yd wide "
-                "and %.0f yd tall every %.1f yd across the street\n",
+    std::printf("fog passes at LogLevel %d, the timers the game logs; the scene copy is the composite's, surface "
+                "lights include the copy of their rectangle; maps4 cases have four open client shadow cascades "
+                "of %u px; thicket cases stand blades %.2f yd wide and %.0f yd tall every %.1f yd across the "
+                "street\n",
                 kShippedLogLevel, surface_light_checks::kShadowMapSize, kBladeWidth, kBladeHeight, kBladeSpacing);
-    std::printf("quality,case,point_lights,fog_ms,march_ms,temporal_ms,surface_lights_ms,composite_ms,samples\n");
+    std::printf("quality,case,point_lights,fog_ms,march_ms,temporal_ms,scene_copy_ms,surface_lights_ms,composite_ms,"
+                "samples\n");
     for (int quality = 1; quality <= 3; ++quality)
     {
         for (const PassCase& passCase : kPassCases)

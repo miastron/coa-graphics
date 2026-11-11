@@ -99,6 +99,7 @@ constexpr uintptr_t kWorldM2Scene = 0x00CD754C;
 
 PointLightUpload SourceUpload(const PointLightUpload& upload, LocalLightSource source);
 void UploadedPointLightColor(const float captured[3], const PointLightUpload& upload, float uploaded[3]);
+float DistanceWhereAttenuationReaches(const float attenuation[3], double denominator);
 float PointLightCutoff(const float color[3], const float attenuation[3], float reach = 1.0f);
 double LocalLightPriority(const LocalPointLight& light, const float cameraPosition[3]);
 bool SelectLocalPointLight(LocalLightInputs& out, const LocalPointLight& light, const float cameraPosition[3],

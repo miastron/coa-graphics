@@ -175,7 +175,8 @@ set(COA_MODULE_SOURCES
     src/grass_density.cpp src/grass_doodads.cpp src/grass_wind.cpp src/ini_section.cpp src/light_on_screen.cpp
     src/local_light_stabiliser.cpp src/log.cpp src/noise_volume.cpp
     src/snow_cover.cpp src/snow_decals.cpp src/snow_footprints.cpp src/snow_shaders.cpp src/snow_surface.cpp
-    src/snow_trenches.cpp src/spell_lights.cpp src/status_log.cpp src/target_facing.cpp src/terrain_shadows.cpp
+    src/snow_trenches.cpp src/spell_lights.cpp src/status_log.cpp src/surface_light_area.cpp src/target_facing.cpp
+    src/terrain_shadows.cpp
     src/texture_filtering.cpp src/texture_tint.cpp src/transparent_fog.cpp src/tree_wind.cpp src/water_contacts.cpp
     src/water_data.cpp src/water_fft.cpp src/water_ripples.cpp src/water_spectrum.cpp src/water_visibility.cpp
     src/wdbc.cpp src/wind_model.cpp)

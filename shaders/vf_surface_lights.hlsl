@@ -25,8 +25,8 @@ static const float kMaxEstimatedAlbedo = 0.5;
 static const float kWhitestSurface = 1.0;
 static const float kAlreadyLitSurface = 2.0;
 static const float kShadowedGroundShare = 0.7;
-static const float kSteepestShadowedGround = 0.5;
-static const float kFlatShadowedGround = 0.8;
+static const float kSteepestGround = 0.5;
+static const float kFlatGround = 0.8;
 static const float2 kCharacterMapFade = float2(-3.4482758, 3.41379309);
 static const float2 kFarMapFade = float2(-11.1111107, 11);
 static const int kCharacterShadowMap = 0;
@@ -50,6 +50,11 @@ float SurfaceLightReach()
 bool DrawsToSceneTexture()
 {
     return cSurfaceLight.z > 0.5;
+}
+
+bool KeepsUnlitPixels()
+{
+    return cSurfaceLight.w > 0.5;
 }
 
 bool CharacterShadowMapPresent()
@@ -130,14 +135,13 @@ float ClientShadowMapsLit(float3 viewPosition)
     return lit;
 }
 
-float ShadowedGround(float3 normal)
+float Ground(float3 normal)
 {
-    return smoothstep(kSteepestShadowedGround, kFlatShadowedGround, ViewToWorldDirection(normal).z);
+    return smoothstep(kSteepestGround, kFlatGround, ViewToWorldDirection(normal).z);
 }
 
-float ClientShadowShade(float3 viewPosition, float3 normal)
+float ClientShadowShade(float3 viewPosition, float ground)
 {
-    float ground = ShadowedGround(normal);
     [branch] if (ground <= 0 || !CharacterShadowMapPresent())
         return 1;
     float share = lerp(kShadowedGroundShare, 1, ClientShadowMapsLit(viewPosition));
@@ -186,18 +190,18 @@ float3 PointLightOnSurface(int index, float3 position, float3 normal)
     return colour * falloff * boundaryFade * Facing(normal, toLight * inverseDistance);
 }
 
-float3 EstimatedAlbedo(float3 sceneLinear, float3 normal, float clientShadowShade)
+float3 EstimatedAlbedo(float3 sceneLinear, float3 normal, float clientShadowShade, float ground)
 {
     float3 illuminant = cSurfaceAmbient.rgb + cSurfaceDirect.rgb * saturate(dot(normal, cSurfaceToLight.xyz));
     float3 albedo = sceneLinear / (max(illuminant, kDarkestIlluminant) * clientShadowShade);
     float brightest = max(albedo.r, max(albedo.g, albedo.b));
     float explainedByTheSky = 1 - smoothstep(kWhitestSurface, kAlreadyLitSurface, brightest);
-    return min(albedo, kMaxEstimatedAlbedo) * explainedByTheSky;
+    return min(albedo, kMaxEstimatedAlbedo) * lerp(explainedByTheSky, 1, ground);
 }
 
 float4 Unlit(float4 scene)
 {
-    clip(DrawsToSceneTexture() ? 1 : -1);
+    clip(KeepsUnlitPixels() ? 1 : -1);
     return scene;
 }
 
@@ -219,7 +223,8 @@ float4 main(float2 pixelIndex : VPOS) : COLOR0
     if (max(light.r, max(light.g, light.b)) < kFaintestLight)
         return Unlit(scene);
     float3 sceneLinear = pow(max(scene.rgb, kSmallestScene), kDisplayGamma);
-    float3 albedo = EstimatedAlbedo(sceneLinear, normal, ClientShadowShade(position, normal));
+    float ground = Ground(normal);
+    float3 albedo = EstimatedAlbedo(sceneLinear, normal, ClientShadowShade(position, ground), ground);
     float3 lit = sceneLinear + albedo * light * SurfaceLightStrength();
     return float4(pow(saturate(lit), 1 / kDisplayGamma), 1);
 }

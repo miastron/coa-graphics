@@ -18,6 +18,7 @@ struct FogPassTimes
     GpuTime fog;
     GpuTime march;
     GpuTime temporal;
+    GpuTime sceneCopy;
     GpuTime surfaceLights;
     GpuTime composite;
 };

@@ -412,6 +412,11 @@ extern "C" void __cdecl vf_test_keep_surface_lights_in_target(int keep)
     KeepSurfaceLightsInTheTarget(keep != 0);
 }
 
+extern "C" void __cdecl vf_test_light_surfaces_over_the_whole_view(int wholeView)
+{
+    LightSurfacesOverTheWholeView(wholeView != 0);
+}
+
 extern "C" void __cdecl vf_test_take_god_rays_from_target(int fromTarget)
 {
     TakeGodRaysFromTheTarget(fromTarget != 0);
@@ -616,6 +621,11 @@ extern "C" void __cdecl vf_test_image_world_done()
 extern "C" unsigned __cdecl vf_test_surface_light_draws()
 {
     return SurfaceLightDraws(LatestFogDevice());
+}
+
+extern "C" float __cdecl vf_test_drawn_surface_light_share()
+{
+    return DrawnSurfaceLightShare(LatestFogDevice());
 }
 
 extern "C" void __cdecl vf_test_composite_in_one_pass(int onePass)

@@ -34,6 +34,14 @@ constexpr int kFarMap = 3;
 constexpr uint32_t kOpenGroundAmbient = 0xFFAFAFAF;
 constexpr uint32_t kShadedGroundAmbient = 0xFFFAFAFA;
 constexpr int kShadowFillAtLeast = 4;
+constexpr float kSmallLight = 0.3f;
+constexpr uint32_t kDuskAmbient = 0xFF707070;
+constexpr float kLargestShareLitInPlace = 0.75f;
+constexpr float kLightBehind = -60.0f;
+constexpr Vec3 kWallLow = {26, -3, 0};
+constexpr Vec3 kWallHigh = {28, 3, 8};
+constexpr Vec3 kWallPoint = {26, 0, 3};
+constexpr DWORD kWallColour = 0xFF6E5A48;
 
 struct LitFrame
 {
@@ -43,7 +51,9 @@ struct LitFrame
     unsigned draws = 0;
     unsigned colourCopies = 0;
     unsigned surfaceLightCopies = 0;
+    unsigned compositeCopies = 0;
     unsigned godRayCopies = 0;
+    float share = 0.0f;
 };
 
 struct Scene
@@ -51,6 +61,7 @@ struct Scene
     D3DVIEWPORT9 world = {0, 0, kViewWidth, kViewHeight, 0.0f, 1.0f};
     Vec3 eye = Add(kGameLikeWorldOffset, {0, 0, kEyeHeight});
     Vec3 at = Add(kGameLikeWorldOffset, {kLookAhead, 0, 0});
+    float lightAhead = kLightAhead;
     float view[16] = {};
     float projection[16] = {};
 };
@@ -76,7 +87,7 @@ FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1
     EngineProjection(static_cast<float>(kViewWidth) / kViewHeight, scene.projection);
     FrameInputs input = MakeInputs(scene.view, scene.projection, scene.eye, scene.at, scene.world);
     LocalPointLight light;
-    const Vec3 position = Add(kGameLikeWorldOffset, {kLightAhead, 0, kLightHeight});
+    const Vec3 position = Add(kGameLikeWorldOffset, {scene.lightAhead, 0, kLightHeight});
     light.position[0] = position.x;
     light.position[1] = position.y;
     light.position[2] = position.z;
@@ -123,18 +134,19 @@ LitFrame RenderLit(Harness& h, Scene& scene, const Config& saved, float strength
     h.dev->EndScene();
     h.dev->Present(nullptr, nullptr, nullptr, nullptr);
     frame.draws = vf_test_surface_light_draws() - before;
+    frame.share = frame.draws ? vf_test_drawn_surface_light_share() : 0.0f;
     vf_test_take_frame_copies(&counts);
     for (unsigned copies : counts.colourCopies)
         frame.colourCopies += copies;
     frame.surfaceLightCopies = counts.colourCopies[static_cast<int>(ColourCopySite::SurfaceLights)];
+    frame.compositeCopies = counts.colourCopies[static_cast<int>(ColourCopySite::FogComposite)];
     frame.godRayCopies = counts.colourCopies[static_cast<int>(ColourCopySite::GodRaySource)];
     return frame;
 }
 
-bool GroundPixel(const Scene& scene, float ahead, UINT& x, UINT& y)
+bool ScenePixel(const Scene& scene, Vec3 point, UINT& x, UINT& y)
 {
-    const Vec3 ground = Add(kGameLikeWorldOffset, {ahead, 0, 0});
-    const Vec3 relative = Sub(ground, scene.eye);
+    const Vec3 relative = Sub(Add(kGameLikeWorldOffset, point), scene.eye);
     const float world[3] = {relative.x, relative.y, relative.z};
     float view[3];
     TransformDirection(world, scene.view, view);
@@ -152,9 +164,19 @@ bool GroundPixel(const Scene& scene, float ahead, UINT& x, UINT& y)
     return true;
 }
 
+bool GroundPixel(const Scene& scene, float ahead, UINT& x, UINT& y)
+{
+    return ScenePixel(scene, {ahead, 0, 0}, x, y);
+}
+
 int GreenLift(const Image& lit, const Image& unlit, UINT x, UINT y)
 {
     return static_cast<int>(lit.At(x, y)[1]) - static_cast<int>(unlit.At(x, y)[1]);
+}
+
+int RedLift(const Image& lit, const Image& unlit, UINT x, UINT y)
+{
+    return static_cast<int>(lit.At(x, y)[2]) - static_cast<int>(unlit.At(x, y)[2]);
 }
 
 void CheckLightsOnSurfaces(Harness& h)
@@ -195,12 +217,14 @@ void CheckLightsOnSurfaces(Harness& h)
     std::printf("     colour copies in the frame: %u with the lit scene handed to the composite, %u with the lights "
                 "written into the target\n",
                 handed.colourCopies, kept.colourCopies);
-    Check(handed.draws == 1 && kept.draws == 1 && handed.surfaceLightCopies == 1 && kept.surfaceLightCopies == 1 &&
+    Check(handed.draws == 1 && kept.draws == 1 && handed.compositeCopies == 1 && kept.compositeCopies == 1 &&
               image_quality_checks::SameImage(handed.image, kept.image),
           "the fog composite reading the lit scene texture draws exactly the frame that lighting the target and "
           "copying it again draws");
-    Check(handed.colourCopies + 1 == kept.colourCopies,
-          "handing the lit scene to the composite saves the composite's own full-viewport colour copy");
+    Check(handed.surfaceLightCopies == 0 && kept.surfaceLightCopies == 1 &&
+              handed.colourCopies + 1 == kept.colourCopies,
+          "lighting the composite's own scene copy over the whole view takes no colour copy beside the "
+          "composite's, where lighting the target takes a second one");
     Check(half.statesKept && full.statesKept,
           "the surface light pass restores render, sampler, texture, shader, constant, stream, viewport, scissor, "
           "render target and depth state, from its first frame on");
@@ -394,20 +418,35 @@ void CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(Harness& h)
         Check(false, "the ground under the light is in view");
         return;
     }
-    const LitFrame plausibleOff = RenderLit(h, scene, saved, 0.0f, true);
-    const LitFrame plausible = RenderLit(h, scene, saved, kFullStrength, true);
-    const LitFrame settled = RenderLit(h, scene, saved, kFullStrength, true);
+    UINT wallX = 0;
+    UINT wallY = 0;
+    if (!ScenePixel(scene, kWallPoint, wallX, wallY))
+    {
+        Check(false, "the wall beside the light is in view");
+        return;
+    }
+    const std::vector<SceneVertex> withoutTheWall = h.scene;
+    AddBox(h.scene, kWallLow, kWallHigh, kWallColour);
+    const LitFrame plausibleOff = RenderLit(h, scene, saved, 0.0f, true, kOpenGroundAmbient, kNoDirectLight);
+    const LitFrame plausible = RenderLit(h, scene, saved, kFullStrength, true, kOpenGroundAmbient, kNoDirectLight);
+    const LitFrame settled = RenderLit(h, scene, saved, kFullStrength, true, kOpenGroundAmbient, kNoDirectLight);
     const LitFrame darkOff = RenderLit(h, scene, saved, 0.0f, true, kDarkAmbient, kNoDirectLight);
     const LitFrame dark = RenderLit(h, scene, saved, kFullStrength, true, kDarkAmbient, kNoDirectLight);
+    h.scene = withoutTheWall;
     const int plausibleLift = GreenLift(settled.image, plausibleOff.image, x, y);
     const int darkLift = GreenLift(dark.image, darkOff.image, x, y);
-    std::printf("     ground under the light: green lift %d where the lighting explains its brightness, %d where it "
-                "is far brighter than that\n",
-                plausibleLift, darkLift);
-    Check(plausible.draws == 1 && dark.draws == 1 && plausibleLift >= kLitAtLeast && darkLift == 0,
-          "a surface far brighter than the sky's ambient and sun light can explain, because the client lit it "
-          "already or it glows, gets no second light from SurfaceLights, while the same ground under a plausible "
+    const int plausibleWallLift = GreenLift(settled.image, plausibleOff.image, wallX, wallY);
+    const int darkWallLift = GreenLift(dark.image, darkOff.image, wallX, wallY);
+    std::printf("     green lift where the lighting explains the brightness and where the surface is far brighter "
+                "than that: ground under the light %d and %d, a wall beside it %d and %d\n",
+                plausibleLift, darkLift, plausibleWallLift, darkWallLift);
+    Check(plausible.draws == 1 && dark.draws == 1 && plausibleWallLift >= kLitAtLeast && darkWallLift == 0,
+          "a wall far brighter than the sky's ambient and sun light can explain, because the client lit it "
+          "already or it glows, gets no second light from SurfaceLights, while the same wall under a plausible "
           "ambient does");
+    Check(plausibleLift >= kLitAtLeast && darkLift >= kLitAtLeast,
+          "ground far brighter than the sky can explain, as under a lamp the client lights the ground with "
+          "itself at night, still takes the light, so no dark patch is left where the light is strongest");
     vf_test_set_config(&saved);
 }
 
@@ -427,12 +466,87 @@ void CheckSurfaceLightsFadeOutInDaylight(Harness& h)
     std::printf("     surface passes: faint light in daylight %u, strong light in daylight %u, faint light at night "
                 "%u\n",
                 dayFaint.draws, dayStrong.draws, nightFaint.draws);
-    Check(dayFaint.draws == 0 && dayFaint.surfaceLightCopies == 0 && dayStrong.surfaceLightCopies == 1,
+    Check(dayFaint.draws == 0 && dayFaint.surfaceLightCopies == 0 &&
+              dayFaint.colourCopies == dayFaint.compositeCopies,
           "a light too faint against the daylight to change a surface by more than a few per cent costs no surface "
           "pass and no copy of the scene for it");
     Check(dayStrong.draws == 1 && nightFaint.draws == 1,
           "a strong light in daylight and the same faint light at night are still drawn on surfaces");
     RenderLit(h, scene, saved, kFullStrength, false);
+    vf_test_set_config(&saved);
+}
+
+struct AreaFrames
+{
+    LitFrame inArea;
+    LitFrame wholeView;
+};
+
+AreaFrames RenderInAreaAndOverTheWholeView(Harness& h, Scene& scene, const Config& saved, float lightScale)
+{
+    AreaFrames frames;
+    frames.inArea = RenderLit(h, scene, saved, kFullStrength, true, kDuskAmbient, kNoDirectLight, lightScale);
+    vf_test_light_surfaces_over_the_whole_view(1);
+    frames.wholeView = RenderLit(h, scene, saved, kFullStrength, true, kDuskAmbient, kNoDirectLight, lightScale);
+    vf_test_light_surfaces_over_the_whole_view(0);
+    return frames;
+}
+
+void CheckSurfaceLightsAreDrawnOnlyWhereTheyReach(Harness& h)
+{
+    Config saved;
+    vf_test_get_config(&saved);
+    Scene scene;
+    SceneInputs(scene, SurfaceConfig(saved, kFullStrength));
+    UINT x = 0;
+    UINT y = 0;
+    if (!GroundPixel(scene, kLightAhead, x, y))
+    {
+        Check(false, "the ground under the light is in view");
+        return;
+    }
+    const LitFrame unlit = RenderLit(h, scene, saved, 0.0f, true, kDuskAmbient, kNoDirectLight, kSmallLight);
+    const AreaFrames handed = RenderInAreaAndOverTheWholeView(h, scene, saved, kSmallLight);
+    vf_test_keep_surface_lights_in_target(1);
+    const AreaFrames kept = RenderInAreaAndOverTheWholeView(h, scene, saved, kSmallLight);
+    vf_test_keep_surface_lights_in_target(0);
+    const int lift = RedLift(handed.inArea.image, unlit.image, x, y);
+    std::printf("     a light whose sphere the camera stands outside: its rectangle is %.1f%% of the view (%.1f%% "
+                "with the lights kept in the target), red lift under it %d; colour copies for the lights and "
+                "for the composite %u and %u in the rectangle, %u and %u over the whole view\n",
+                100.0f * handed.inArea.share, 100.0f * kept.inArea.share, lift, handed.inArea.surfaceLightCopies,
+                handed.inArea.compositeCopies, handed.wholeView.surfaceLightCopies, handed.wholeView.compositeCopies);
+    Check(handed.inArea.draws == 1 && kept.inArea.draws == 1 && handed.inArea.share > 0.0f &&
+              handed.inArea.share < kLargestShareLitInPlace && kept.inArea.share == handed.inArea.share &&
+              handed.wholeView.share == 1.0f && lift >= kLitAtLeast,
+          "a light whose sphere covers part of the view is drawn on surfaces inside the rectangle the sphere "
+          "projects to, and still lights the ground under it");
+    Check(image_quality_checks::SameImage(handed.inArea.image, handed.wholeView.image) &&
+              image_quality_checks::SameImage(kept.inArea.image, kept.wholeView.image) &&
+              image_quality_checks::SameImage(handed.inArea.image, kept.inArea.image),
+          "lighting only the rectangle draws the frame of the whole-view pass pixel for pixel, into the "
+          "composite's scene copy and into the target");
+    Check(handed.inArea.surfaceLightCopies == 1 && handed.inArea.compositeCopies == 1 &&
+              handed.wholeView.surfaceLightCopies == 0 && handed.wholeView.compositeCopies == 1 &&
+              kept.inArea.surfaceLightCopies == 1,
+          "the rectangle is copied once for the lights beside the composite's own copy of the viewport");
+    Check(handed.inArea.statesKept && kept.inArea.statesKept,
+          "lighting a rectangle restores the client's state, in the composite's scene copy and in the target");
+    Scene behind;
+    behind.lightAhead = kLightBehind;
+    const LitFrame behindOff = RenderLit(h, behind, saved, 0.0f, true);
+    const LitFrame behindLit = RenderLit(h, behind, saved, kFullStrength, true);
+    vf_test_light_surfaces_over_the_whole_view(1);
+    const LitFrame behindOverTheWholeView = RenderLit(h, behind, saved, kFullStrength, true);
+    vf_test_light_surfaces_over_the_whole_view(0);
+    std::printf("     a light %.0f yd behind the camera: surface passes %u, %u when the whole view is lit "
+                "regardless\n",
+                -kLightBehind, behindLit.draws, behindOverTheWholeView.draws);
+    Check(behindLit.draws == 0 && behindLit.surfaceLightCopies == 0 && behindOverTheWholeView.draws == 1 &&
+              image_quality_checks::SameImage(behindLit.image, behindOverTheWholeView.image) &&
+              image_quality_checks::SameImage(behindLit.image, behindOff.image),
+          "a light whose sphere lies behind the camera costs no surface pass and no copy, and the frame is the "
+          "one the whole-view pass draws");
     vf_test_set_config(&saved);
 }
 

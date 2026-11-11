@@ -10,6 +10,7 @@
 #include "gpu_timing.h"
 #include "msaa_depth.h"
 #include "retry_gate.h"
+#include "surface_light_area.h"
 #include "terrain_shadows.h"
 #include "transparent_fog.h"
 
@@ -20,6 +21,7 @@
 #ifdef VF_TESTING
 void ForceFogParams(const FogParams* fog);
 void KeepSurfaceLightsInTheTarget(bool keep);
+void LightSurfacesOverTheWholeView(bool wholeView);
 void TakeGodRaysFromTheTarget(bool fromTarget);
 void RefuseRaySourceCopy(bool refused);
 #endif
@@ -71,6 +73,7 @@ public:
     IDirect3DPixelShader9* DrawnSplitComposite() const { return m_drawnSplitComposite; }
     float DrawnGlowCompensation() const { return m_drawnGlowCompensation; }
     unsigned SurfaceLightDraws() const { return m_surfaceLightDraws; }
+    const SurfaceLightArea& DrawnSurfaceLightArea() const { return m_drawnSurfaceLightArea; }
     unsigned CompositePasses() const { return m_compositePasses; }
 
 private:
@@ -108,6 +111,7 @@ private:
     struct SurfaceLightFrame
     {
         D3DVIEWPORT9 viewport;
+        SurfaceLightArea area;
         float strength;
         float reach;
         uint32_t ambientColor;
@@ -120,9 +124,34 @@ private:
     bool WithClientStateSaved(IDirect3DDevice9* dev, const SceneDepth& depth, Passes passes);
     bool DrawLateGodRays(IDirect3DDevice9* dev, const SceneDepth& depth);
     void PrepareFullscreenPasses(IDirect3DDevice9* dev);
-    bool LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
-                       const SurfaceLightFrame& frame, bool intoLitScene);
-    bool EnsureLitScene(IDirect3DDevice9* dev);
+    struct SurfaceLightDraw
+    {
+        IDirect3DSurface9* onto;
+        IDirect3DTexture9* sceneBeforeLights;
+        D3DVIEWPORT9 viewport;
+        RECT area;
+        bool ontoViewportTexture;
+        bool keepsUnlitPixels;
+    };
+
+    struct SurfaceLightCoverage
+    {
+        unsigned frames = 0;
+        unsigned lit = 0;
+        unsigned overTheWholeView = 0;
+        double share = 0.0;
+        double shareOfLightsApart = 0.0;
+    };
+
+    void DrawSurfaceLights(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, const SurfaceLightFrame& frame,
+                           const SurfaceLightDraw& draw);
+    void LightTheTarget(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
+                        const SurfaceLightFrame& frame);
+    IDirect3DTexture9* LightTheSceneCopy(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture,
+                                         const SurfaceLightFrame& frame);
+    void CountSurfaceLightCoverage(const SurfaceLightArea& area);
+    void LogSurfaceLightCoverage();
+    bool EnsureSceneBeside(IDirect3DDevice9* dev);
     bool CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
                              IDirect3DTexture9* sceneTexture);
     void DrawGodRayMask(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, const GodRayFrame& rays);
@@ -145,6 +174,9 @@ private:
     bool EnsureSceneCopy(IDirect3DDevice9* dev, IDirect3DSurface9* target, UINT w, UINT h);
     bool CopyWorldViewport(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
                            ColourCopySite site);
+    bool CopyWorldArea(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
+                       const RECT& inViewport, ColourCopySite site);
+    bool CopySceneForTheComposite(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp);
     bool Skip(const char* reason);
     bool NotReady(const char* reason);
     void LogLightChange(const FrameInputs& in, const AuthoredFog& fog, bool authored);
@@ -208,7 +240,7 @@ private:
     IDirect3DTexture9* m_rays[2] = {};
     IDirect3DTexture9* m_raysOpenWithoutTheCharacter[2] = {};
     IDirect3DTexture9* m_sceneCopy = nullptr;
-    IDirect3DTexture9* m_litScene = nullptr;
+    IDirect3DTexture9* m_sceneBeside = nullptr;
     IDirect3DTexture9* m_localLightData = nullptr;
     IDirect3DVolumeTexture9* m_densityNoise = nullptr;
     IDirect3DVolumeTexture9* m_authoredNoise = nullptr;
@@ -219,14 +251,15 @@ private:
     IDirect3DSurface9* m_probeReadback = nullptr;
     IDirect3DQuery9* m_probeCopied = nullptr;
     PendingDepthProbe m_pendingProbe;
-    std::array<GpuTimer*, 4> PassTimers()
+    std::array<GpuTimer*, 5> PassTimers()
     {
-        return {&m_marchTimer, &m_temporalTimer, &m_surfaceLightTimer, &m_compositeTimer};
+        return {&m_marchTimer, &m_temporalTimer, &m_sceneCopyTimer, &m_surfaceLightTimer, &m_compositeTimer};
     }
 
     GpuTimer m_gpuTimer{"fog"};
     GpuTimer m_marchTimer{"march"};
     GpuTimer m_temporalTimer{"temporal"};
+    GpuTimer m_sceneCopyTimer{"scene copy"};
     GpuTimer m_surfaceLightTimer{"surface lights"};
     GpuTimer m_compositeTimer{"composite"};
     WorldShadowInputs m_worldShadows;
@@ -263,6 +296,8 @@ private:
     long long m_prevTicks = 0;
     unsigned m_frame = 0;
     unsigned m_surfaceLightDraws = 0;
+    SurfaceLightArea m_drawnSurfaceLightArea;
+    SurfaceLightCoverage m_surfaceLightCoverage;
     unsigned m_logged = 0;
     long long m_summaryTicks = 0;
     long long m_probeTicks = 0;

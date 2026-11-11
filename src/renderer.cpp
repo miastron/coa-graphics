@@ -232,6 +232,13 @@ RECT ViewportRect(const D3DVIEWPORT9& vp)
             static_cast<LONG>(vp.Y + vp.Height)};
 }
 
+RECT InTarget(const RECT& inViewport, const D3DVIEWPORT9& vp)
+{
+    const LONG x = static_cast<LONG>(vp.X);
+    const LONG y = static_cast<LONG>(vp.Y);
+    return {inViewport.left + x, inViewport.top + y, inViewport.right + x, inViewport.bottom + y};
+}
+
 bool WorldViewFromCameraRelative(const FrameInputs& in, float* viewToWorld, float* worldToView)
 {
     if (!Invert4x4(in.cameraRelativeView, viewToWorld))
@@ -295,6 +302,7 @@ constexpr float kMinGodRayStrength = 0.005f;
 
 bool g_fogParamsForced = false;
 bool g_surfaceLightsKeptInTarget = false;
+bool g_surfacesLitOverTheWholeView = false;
 bool g_godRaysFromTarget = false;
 bool g_raySourceCopyRefused = false;
 unsigned g_failedResourceKinds = 0;
@@ -505,6 +513,11 @@ void KeepSurfaceLightsInTheTarget(bool keep)
     g_surfaceLightsKeptInTarget = keep;
 }
 
+void LightSurfacesOverTheWholeView(bool wholeView)
+{
+    g_surfacesLitOverTheWholeView = wholeView;
+}
+
 void TakeGodRaysFromTheTarget(bool fromTarget)
 {
     g_godRaysFromTarget = fromTarget;
@@ -543,7 +556,7 @@ void Renderer::ReleaseDefaultPool()
     SafeRelease(m_raysOpenWithoutTheCharacter[0]);
     SafeRelease(m_raysOpenWithoutTheCharacter[1]);
     SafeRelease(m_sceneCopy);
-    SafeRelease(m_litScene);
+    SafeRelease(m_sceneBeside);
     SafeRelease(m_unmatchedPixelStencil);
     m_unmatchedPixelStencilW = m_unmatchedPixelStencilH = 0;
     m_unmatchedPixelStencilFailed = false;
@@ -1098,7 +1111,7 @@ bool Renderer::EnsureSceneCopy(IDirect3DDevice9* dev, IDirect3DSurface9* target,
     if (m_sceneCopy && m_sceneCopyW == w && m_sceneCopyH == h)
         return true;
     SafeRelease(m_sceneCopy);
-    SafeRelease(m_litScene);
+    SafeRelease(m_sceneBeside);
     m_sceneCopyW = m_sceneCopyH = 0;
     if (m_sceneCopyFailed)
         return false;
@@ -1116,27 +1129,45 @@ bool Renderer::EnsureSceneCopy(IDirect3DDevice9* dev, IDirect3DSurface9* target,
     return true;
 }
 
-bool Renderer::EnsureLitScene(IDirect3DDevice9* dev)
+bool Renderer::EnsureSceneBeside(IDirect3DDevice9* dev)
 {
-    if (m_litScene)
+    if (m_sceneBeside)
         return true;
     D3DSURFACE_DESC desc = {};
     return m_sceneCopy && SUCCEEDED(m_sceneCopy->GetLevelDesc(0, &desc)) &&
-           CreateTarget(dev, m_sceneCopyW, m_sceneCopyH, desc.Format, &m_litScene);
+           CreateTarget(dev, m_sceneCopyW, m_sceneCopyH, desc.Format, &m_sceneBeside);
 }
 
 bool Renderer::CopyWorldViewport(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
                                  ColourCopySite site)
 {
+    return CopyWorldArea(dev, target, vp, WholeViewport(vp).inViewport, site);
+}
+
+bool Renderer::CopyWorldArea(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
+                             const RECT& inViewport, ColourCopySite site)
+{
     if (!EnsureSceneCopy(dev, target, vp.Width, vp.Height))
         return false;
-    const RECT world = ViewportRect(vp);
+    const RECT inTarget = InTarget(inViewport, vp);
     IDirect3DSurface9* sceneSurface = nullptr;
     const bool copied = SUCCEEDED(m_sceneCopy->GetSurfaceLevel(0, &sceneSurface)) &&
-                        SUCCEEDED(dev->StretchRect(target, &world, sceneSurface, nullptr, D3DTEXF_POINT));
+                        SUCCEEDED(dev->StretchRect(target, &inTarget, sceneSurface, &inViewport, D3DTEXF_POINT));
     SafeRelease(sceneSurface);
     if (copied)
         GlobalFrameCopies().CountColourCopy(site);
+    return copied;
+}
+
+bool Renderer::CopySceneForTheComposite(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp)
+{
+    if (LogEnabled(LogLevel::Info))
+        m_sceneCopyTimer.Begin(dev);
+    const bool copied = CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite);
+    if (copied)
+        m_sceneCopyTimer.End();
+    else
+        m_sceneCopyTimer.Cancel();
     return copied;
 }
 
@@ -1390,6 +1421,7 @@ void Renderer::LogFrameSummary(IDirect3DDevice9* dev, long long now, const Frame
     }
     if (passTimes[0])
         VF_LOG_INFO("  fog pass gpu ms (median): %s", passTimes);
+    LogSurfaceLightCoverage();
     VF_LOG_INFO("  camera (%.2f %.2f %.2f) inverse-view origin (%.2f %.2f %.2f) target (%.2f %.2f %.2f) focus "
                 "(%.2f %.2f %.2f)",
                 in.camPos[0], in.camPos[1], in.camPos[2], viewToWorld[12], viewToWorld[13], viewToWorld[14],
@@ -1483,6 +1515,7 @@ FogPassTimes Renderer::TakePassTimes()
     times.fog = m_gpuTimer.TakeInterval();
     times.march = m_marchTimer.TakeInterval();
     times.temporal = m_temporalTimer.TakeInterval();
+    times.sceneCopy = m_sceneCopyTimer.TakeInterval();
     times.surfaceLights = m_surfaceLightTimer.TakeInterval();
     times.composite = m_compositeTimer.TakeInterval();
     return times;
@@ -1615,6 +1648,7 @@ void Renderer::PrepareFullscreenPasses(IDirect3DDevice9* dev)
 namespace
 {
 constexpr float kInvisibleLightShare = 0.03f;
+constexpr float kLargestShareLitInPlace = 0.75f;
 constexpr float kFullLightShare = 0.1f;
 constexpr float kSunShareOfIlluminant = 0.5f;
 constexpr float kDarkestIlluminant = 0.02f;
@@ -1652,28 +1686,105 @@ float SurfaceLightVisibility(const Float4* lightData, uint32_t count, uint32_t a
     const float t = std::clamp((share - kInvisibleLightShare) / (kFullLightShare - kInvisibleLightShare), 0.0f, 1.0f);
     return t * t * (3.0f - 2.0f * t);
 }
+
+SurfaceLightArea AreaOfSurfaceLights(const Float4* lightData, uint32_t count, const float* glProjection,
+                                     const D3DVIEWPORT9& vp)
+{
+    if (Seam(g_surfacesLitOverTheWholeView, false))
+        return WholeViewport(vp);
+    SurfaceLight lights[kMaxLocalPointLights];
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        const Float4& position = lightData[i * 3];
+        const Float4& colour = lightData[i * 3 + 1];
+        const Float4& attenuation = lightData[i * 3 + 2];
+        lights[i] = {{position.x, position.y, position.z}, position.w, {colour.x, colour.y, colour.z}, colour.w,
+                     {attenuation.x, attenuation.y, attenuation.z}};
+    }
+    return ProjectSurfaceLights(lights, count, glProjection, vp);
+}
 }
 
-bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
-                             const SurfaceLightFrame& frame, bool intoLitScene)
+void Renderer::CountSurfaceLightCoverage(const SurfaceLightArea& area)
+{
+    ++m_surfaceLightCoverage.frames;
+    if (area.Empty())
+        return;
+    ++m_surfaceLightCoverage.lit;
+    if (area.share >= kLargestShareLitInPlace)
+        ++m_surfaceLightCoverage.overTheWholeView;
+    m_surfaceLightCoverage.share += area.share;
+    m_surfaceLightCoverage.shareOfLightsApart += area.shareOfLightsApart;
+}
+
+void Renderer::LogSurfaceLightCoverage()
+{
+    const SurfaceLightCoverage coverage = m_surfaceLightCoverage;
+    m_surfaceLightCoverage = {};
+    if (coverage.lit == 0)
+        return;
+    VF_LOG_INFO("  surface lights: %u of %u frames, their rectangle %.0f%% of the view on average (the lights' own "
+                "rectangles add up to %.0f%%), %u frames at %.0f%% or more",
+                coverage.lit, coverage.frames, 100.0 * coverage.share / coverage.lit,
+                100.0 * coverage.shareOfLightsApart / coverage.lit, coverage.overTheWholeView,
+                100.0 * kLargestShareLitInPlace);
+}
+
+void Renderer::LightTheTarget(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture, IDirect3DSurface9* target,
+                              const SurfaceLightFrame& frame)
 {
     if (LogEnabled(LogLevel::Info))
         m_surfaceLightTimer.Begin(dev);
-    if (!CopyWorldViewport(dev, target, frame.viewport, ColourCopySite::SurfaceLights))
+    if (!CopyWorldArea(dev, target, frame.viewport, frame.area.inViewport, ColourCopySite::SurfaceLights))
     {
         m_surfaceLightTimer.Cancel();
-        return false;
+        return;
     }
-    IDirect3DSurface9* litSurface = nullptr;
-    const bool toTexture = intoLitScene && !Seam(g_surfaceLightsKeptInTarget, false) && EnsureLitScene(dev) &&
-                           SUCCEEDED(m_litScene->GetSurfaceLevel(0, &litSurface));
-    const D3DVIEWPORT9 textureViewport = {0, 0, frame.viewport.Width, frame.viewport.Height, 0.0f, 1.0f};
-    const D3DVIEWPORT9& drawnViewport = toTexture ? textureViewport : frame.viewport;
-    const RECT world = ViewportRect(drawnViewport);
-    dev->SetRenderTarget(0, toTexture ? litSurface : target);
-    SafeRelease(litSurface);
-    dev->SetViewport(&drawnViewport);
-    dev->SetScissorRect(&world);
+    DrawSurfaceLights(dev, depthTexture, frame,
+                      {target, m_sceneCopy, frame.viewport, InTarget(frame.area.inViewport, frame.viewport), false,
+                       false});
+    m_surfaceLightTimer.End();
+}
+
+IDirect3DTexture9* Renderer::LightTheSceneCopy(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture,
+                                               const SurfaceLightFrame& frame)
+{
+    IDirect3DSurface9* scene = nullptr;
+    IDirect3DSurface9* beside = nullptr;
+    IDirect3DTexture9* litScene = m_sceneCopy;
+    if (SUCCEEDED(m_sceneCopy->GetSurfaceLevel(0, &scene)) && SUCCEEDED(m_sceneBeside->GetSurfaceLevel(0, &beside)))
+    {
+        const D3DVIEWPORT9 textureViewport = {0, 0, frame.viewport.Width, frame.viewport.Height, 0.0f, 1.0f};
+        const RECT& area = frame.area.inViewport;
+        if (LogEnabled(LogLevel::Info))
+            m_surfaceLightTimer.Begin(dev);
+        if (frame.area.share >= kLargestShareLitInPlace)
+        {
+            DrawSurfaceLights(dev, depthTexture, frame,
+                              {beside, m_sceneCopy, textureViewport, ViewportRect(textureViewport), true, true});
+            litScene = m_sceneBeside;
+            m_surfaceLightTimer.End();
+        }
+        else if (SUCCEEDED(dev->StretchRect(scene, &area, beside, &area, D3DTEXF_POINT)))
+        {
+            GlobalFrameCopies().CountColourCopy(ColourCopySite::SurfaceLights);
+            DrawSurfaceLights(dev, depthTexture, frame, {scene, m_sceneBeside, textureViewport, area, true, false});
+            m_surfaceLightTimer.End();
+        }
+        else
+            m_surfaceLightTimer.Cancel();
+    }
+    SafeRelease(scene);
+    SafeRelease(beside);
+    return litScene;
+}
+
+void Renderer::DrawSurfaceLights(IDirect3DDevice9* dev, IDirect3DTexture9* depthTexture,
+                                 const SurfaceLightFrame& frame, const SurfaceLightDraw& draw)
+{
+    dev->SetRenderTarget(0, draw.onto);
+    dev->SetViewport(&draw.viewport);
+    dev->SetScissorRect(&draw.area);
     dev->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
     dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     dev->SetRenderState(D3DRS_COLORWRITEENABLE,
@@ -1681,7 +1792,7 @@ bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
     dev->SetPixelShader(m_surfaceLights);
     const WorldShadowInputs& clientShadows = *frame.clientShadows;
     Float4 constants[kSurfaceLightRegisters] = {
-        {frame.strength, frame.reach, toTexture ? 1.0f : 0.0f, 0.0f},
+        {frame.strength, frame.reach, draw.ontoViewportTexture ? 1.0f : 0.0f, draw.keepsUnlitPixels ? 1.0f : 0.0f},
         {},
         {},
         {frame.toLightInView[0], frame.toLightInView[1], frame.toLightInView[2], 0.0f},
@@ -1699,13 +1810,12 @@ bool Renderer::LightSurfaces(IDirect3DDevice9* dev, IDirect3DTexture9* depthText
     }
     dev->SetPixelShaderConstantF(kSurfaceLightRegister, &constants[0].x, kSurfaceLightRegisters);
     BindTexture(dev, 0, depthTexture, false);
-    BindTexture(dev, kSceneBeforeLightsStage, m_sceneCopy, false);
+    BindTexture(dev, kSceneBeforeLightsStage, draw.sceneBeforeLights, false);
     BindTexture(dev, kLocalLightStage, m_localLightData, false);
     BindWorldShadowMaps(dev, clientShadows);
     DrawFullscreenTriangle(dev);
-    m_surfaceLightTimer.End();
     ++m_surfaceLightDraws;
-    return toTexture;
+    m_drawnSurfaceLightArea = frame.area;
 }
 
 bool Renderer::CopySceneForGodRays(IDirect3DDevice9* dev, IDirect3DSurface9* target, const D3DVIEWPORT9& vp,
@@ -2038,18 +2148,30 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
         StrongestSurfaceLight(localConstants, pointLightCount) > 0.0f
             ? SurfaceLightVisibility(localConstants, pointLightCount, in.ambientColor, in.directColor)
             : 0.0f;
-    const bool litSceneReady =
-        surfaceLightStrength > 0.0f &&
-        LightSurfaces(dev, depthTexture, target,
-                      {vp, surfaceLightStrength, marchLightLimit, in.ambientColor, in.directColor,
-                       {toLightInView[0], toLightInView[1], toLightInView[2]}, &m_worldShadows},
-                      compositeBlendsInShader);
-    if (surfaceLightStrength > 0.0f)
+    const SurfaceLightFrame surfaceLights = {
+        vp,
+        surfaceLightStrength > 0.0f ? AreaOfSurfaceLights(localConstants, pointLightCount, proj, vp)
+                                    : SurfaceLightArea(),
+        surfaceLightStrength,
+        marchLightLimit,
+        in.ambientColor,
+        in.directColor,
+        {toLightInView[0], toLightInView[1], toLightInView[2]},
+        &m_worldShadows};
+    const bool lightsReachSurfaces = !surfaceLights.area.Empty();
+    CountSurfaceLightCoverage(surfaceLights.area);
+    const bool lightsGoIntoTheSceneCopy = lightsReachSurfaces && compositeBlendsInShader &&
+                                          !Seam(g_surfaceLightsKeptInTarget, false) &&
+                                          EnsureSceneCopy(dev, target, vp.Width, vp.Height) && EnsureSceneBeside(dev);
+    if (lightsReachSurfaces && !lightsGoIntoTheSceneCopy)
+        LightTheTarget(dev, depthTexture, target, surfaceLights);
+    IDirect3DTexture9* blendScene = nullptr;
+    if (compositeBlendsInShader && CopySceneForTheComposite(dev, target, vp))
+        blendScene = lightsGoIntoTheSceneCopy ? LightTheSceneCopy(dev, depthTexture, surfaceLights) : m_sceneCopy;
+    if (lightsReachSurfaces)
         BindWorldShadowMaps(dev, shadows);
-    const bool sceneCopyReady =
-        litSceneReady || (compositeBlendsInShader && CopyWorldViewport(dev, target, vp, ColourCopySite::FogComposite));
-    IDirect3DTexture9* const raySceneTexture = litSceneReady ? m_litScene : (sceneCopyReady ? m_sceneCopy : nullptr);
-    const bool raysCopied = rays && CopySceneForGodRays(dev, target, vp, raySceneTexture);
+    const bool sceneCopyReady = blendScene != nullptr;
+    const bool raysCopied = rays && CopySceneForGodRays(dev, target, vp, blendScene);
     const bool raysDrawnNow = raysNow && raysCopied;
     const bool raysDrawnAfterWorld = raysAfterWorld && raysCopied;
     if (raysDrawnNow)
@@ -2101,7 +2223,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     BindTexture(dev, 0, depthTexture, false);
     BindTexture(dev, 1, fogResult, false);
     BindTexture(dev, 2, m_rays[kShaftRays], true);
-    BindTexture(dev, 3, sceneBlend ? (litSceneReady ? m_litScene : m_sceneCopy) : nullptr, false);
+    BindTexture(dev, 3, blendScene, false);
     BindTexture(dev, 4, m_marchTarget, false);
     if (timesPasses)
         m_compositeTimer.Begin(dev);

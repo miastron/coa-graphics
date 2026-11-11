@@ -484,16 +484,11 @@ void UploadedPointLightColor(const float captured[3], const PointLightUpload& up
                                            : std::max(captured[channel], 0.0f)) * upload.intensity;
 }
 
-float PointLightCutoff(const float color[3], const float attenuation[3], float reach)
+float DistanceWhereAttenuationReaches(const float attenuation[3], double denominator)
 {
-    if (!ValidVector(color, 0.0f, kMaxUploadedLightComponent) ||
-        !ValidVector(attenuation, 0.0f, kMaxAttenuationCoefficient) || !std::isfinite(reach) || reach < 0.0f)
+    if (!(denominator > std::max(static_cast<double>(attenuation[0]), 1.0)))
         return 0.0f;
-    const double peak = PeakColor(color) * reach;
-    const double target = peak / kLocalPointLightContributionCutoff;
-    if (peak <= 0.0 || target <= std::max(static_cast<double>(attenuation[0]), 1.0))
-        return 0.0f;
-    const double remaining = target - attenuation[0];
+    const double remaining = denominator - attenuation[0];
     double radius = kMaxLocalPointLightRadius;
     if (attenuation[2] > 0.0f)
     {
@@ -504,6 +499,17 @@ float PointLightCutoff(const float color[3], const float attenuation[3], float r
     else if (attenuation[1] > 0.0f)
         radius = remaining / attenuation[1];
     return static_cast<float>(std::min(radius, static_cast<double>(kMaxLocalPointLightRadius)));
+}
+
+float PointLightCutoff(const float color[3], const float attenuation[3], float reach)
+{
+    if (!ValidVector(color, 0.0f, kMaxUploadedLightComponent) ||
+        !ValidVector(attenuation, 0.0f, kMaxAttenuationCoefficient) || !std::isfinite(reach) || reach < 0.0f)
+        return 0.0f;
+    const double peak = PeakColor(color) * reach;
+    if (peak <= 0.0)
+        return 0.0f;
+    return DistanceWhereAttenuationReaches(attenuation, peak / kLocalPointLightContributionCutoff);
 }
 
 double LocalLightPriority(const LocalPointLight& light, const float cameraPosition[3])

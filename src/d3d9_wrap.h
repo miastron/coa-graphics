@@ -45,6 +45,7 @@ bool AdaptiveLightingHistory(FogDevice* device);
 bool FogHistoryValid(FogDevice* device);
 void ManagedNoiseTextures(FogDevice* device, const void** density, const void** authored);
 unsigned SurfaceLightDraws(FogDevice* device);
+float DrawnSurfaceLightShare(FogDevice* device);
 unsigned CompositePasses(FogDevice* device);
 void DrawnFogShaders(FogDevice* device, IDirect3DPixelShader9** march, IDirect3DPixelShader9** composite,
                      IDirect3DPixelShader9** splitComposite);

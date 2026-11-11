@@ -20,6 +20,7 @@
 #include "log.h"
 #include "msaa_depth.h"
 #include "spell_lights.h"
+#include "surface_light_area.h"
 #include "texture_filtering.h"
 #include "grass_density.h"
 #include "grass_doodads.h"
@@ -144,6 +145,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_refuse_fog_depth(int);
 extern "C" __declspec(dllimport) int __cdecl vf_test_fog_data_loaded();
 extern "C" __declspec(dllimport) void __cdecl vf_test_force_fog_params(const FogParams*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_keep_surface_lights_in_target(int);
+extern "C" __declspec(dllimport) void __cdecl vf_test_light_surfaces_over_the_whole_view(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_take_god_rays_from_target(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_fail_water_mask_uploads(int);
 extern "C" __declspec(dllimport) int __cdecl vf_test_water_masks_uploaded(int*);
@@ -179,6 +181,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_fail_image_pass(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_status(ImageQualityStatus*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_world_done();
 extern "C" __declspec(dllimport) unsigned __cdecl vf_test_surface_light_draws();
+extern "C" __declspec(dllimport) float __cdecl vf_test_drawn_surface_light_share();
 extern "C" __declspec(dllimport) void __cdecl vf_test_composite_in_one_pass(int);
 extern "C" __declspec(dllimport) unsigned __cdecl vf_test_composite_passes();
 extern "C" __declspec(dllimport) void __cdecl vf_test_take_fog_pass_times(FogPassTimes*);
@@ -2956,6 +2959,7 @@ void CheckLogRefusesASecondWriter()
 #include "grass_density_checks.h"
 #include "snow_checks.h"
 #include "image_quality_checks.h"
+#include "surface_light_area_checks.h"
 #include "surface_light_checks.h"
 #include "target_arrow_checks.h"
 
@@ -3194,6 +3198,8 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
         RUN_GROUP(camera_focus_checks::CheckTheFocusFollowsTheClientStores());
         RUN_GROUP(camera_focus_checks::CheckTheCharacterBoxFollowsTheFocus());
         RUN_GROUP(CheckLightProjectsOntoTheViewport());
+        RUN_GROUP(surface_light_area_checks::CheckLampSpheresProjectOntoTheView());
+        RUN_GROUP(surface_light_area_checks::CheckNoLitPointLiesOutsideTheArea());
         RUN_GROUP(client_game_clock_checks::CheckGameClock());
         RUN_GROUP(tree_wind_checks::CheckTreeWind());
         RUN_GROUP(wind_model_checks::CheckWindModel());
@@ -3299,6 +3305,8 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(camera_focus_checks::CheckTheFocusFollowsTheClientStores());
     RUN_GROUP(camera_focus_checks::CheckTheCharacterBoxFollowsTheFocus());
     RUN_GROUP(CheckLightProjectsOntoTheViewport());
+    RUN_GROUP(surface_light_area_checks::CheckLampSpheresProjectOntoTheView());
+    RUN_GROUP(surface_light_area_checks::CheckNoLitPointLiesOutsideTheArea());
     RUN_GROUP(client_game_clock_checks::CheckGameClock());
     RUN_GROUP(tree_wind_checks::CheckTreeWind());
     RUN_GROUP(wind_model_checks::CheckWindModel());
@@ -3754,6 +3762,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(surface_light_checks::CheckLightsFillClientShadows(h));
     RUN_GROUP(surface_light_checks::CheckSurfacesBrighterThanTheirLightingAreNotLitAgain(h));
     RUN_GROUP(surface_light_checks::CheckSurfaceLightsFadeOutInDaylight(h));
+    RUN_GROUP(surface_light_checks::CheckSurfaceLightsAreDrawnOnlyWhereTheyReach(h));
     RUN_GROUP(surface_light_checks::CheckGodRaysTakeTheirSceneFromTheCompositeCopy(h));
     RUN_GROUP(authored_noise::CheckRendererDrawsStormNoise(h));
     RUN_GROUP(authored_noise::CheckRendererDrawsLitStormNoise(h));

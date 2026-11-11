@@ -50,7 +50,8 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
   client constant copy), `grass_doodads` (per-doodad root and tip table), `grass_density` (extra plant copies by chunk distance), `wdbc` (WDBC table reader), `engine_lights` (point-light table walk, view-frustum test, ranked candidate pool),
   `local_light_stabiliser` (eight slots with hysteresis, fades and holds across captures), `client_code` (client code
   views and byte guards), `client_light_stay` (the in-memory lightstay byte), `fog_data` (Classic fog data),
-  `fog_model` (layer parameters), `renderer` (passes, lights on surfaces), `fullscreen_triangle` (the triangle every
+  `fog_model` (layer parameters), `renderer` (passes, lights on surfaces), `surface_light_area` (the rectangle of
+  the view the surface lights reach), `fullscreen_triangle` (the triangle every
   full-screen pass draws, its edges outside the viewport), `transparent_fog` (linear stock fog fitted to the
   volumetric fog for see-through models after the early composite), `overlay` (ImGui settings window: input chaining,
   drawing at `Present`), `settings_panel` (its widgets), `config`, `log`, `status_log`, `texture_filtering` (forced

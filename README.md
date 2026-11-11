@@ -307,9 +307,13 @@ omitted, and a failed low-resolution copy is logged once. When the late god ray 
 the fog's temporal history stays as the early composite left it, since that pass never writes the fog or history
 targets.
 
-**Lights on surfaces.** The client lights the ground and buildings only with the sun or moon and its ambient colour; its
-point lights reach models alone. With a light uploaded whose strength (`SurfaceLights` for a lamp, `SpellSurfaceLights` for a spell) is above 0, one full-resolution pass after the march
-and before any scene copy or the composite copies the world viewport and redraws the pixels a light reaches. It rebuilds
+**Lights on surfaces.** The client lights the ground and buildings with the sun or moon and its ambient colour; its
+point lights reach models, and of the ground only a patch a few yards wide under a lamp (owner's screenshot at night
+with `SurfaceLights=0`, 2026-11-11: a faint orange patch under each Elwynn lamp; whether the terrain's own lighting
+or a part of the lamp model draws it is not established, wowdecomp was searched for it only briefly). With a light
+uploaded whose strength (`SurfaceLights` for a lamp, `SpellSurfaceLights` for a spell) is above 0, one full-resolution
+pass after the march and before the composite redraws the pixels a light reaches, inside the rectangle of the view its
+lights can reach (see below). It rebuilds
 each pixel's view position from the depth copy. Its normal is the cross product of the smaller of the two depth differences
 to its horizontal and vertical neighbours, so silhouettes do not bend it. Each light adds
 `colour · strength · falloff · fade · facing`, where the falloff is the march's `1/max(a0 + a1·d + a2·d², 1)`, `fade` is its sphere-edge
@@ -325,10 +329,36 @@ albedo is faded to nothing between 1 and 2, so it is not lit a second time; befo
 there, and such models took the light on top of the client's own and shifted in brightness with the camera angle (the
 normal comes from the depth differences). Between 0.5 and 1 the cap stays.
 
+Ground is exempt from that fade, by the weight the shadow fill below uses (the normal's world Z from 0.5 to 0.8). At
+night the moon's red share is small, so the client's own patch under a lamp read as an albedo far above 2 in red and
+lost the whole light, while the ground around it took it: a dark patch under every lamp, the brighter cobbles first
+(owner's screenshots, 2026-11-11; by day the estimate stays below 1 and nothing showed). Ground now keeps the 0.5 cap
+there and takes the light on top of the client's patch; the depth normal is steady on ground, so it does not shift
+with the camera as it did on models. Glowing ground (lava) takes the light too.
+
 The whole pass is scaled by how visible the lights are: the brightest uploaded light colour divided by the daylight
 (linear luma of the ambient colour plus half the direct colour, at least 0.02) is the share a light adds to a surface right
 at it. Below 3% the pass and its scene copy are skipped, above 10% it runs at full strength, with a smoothstep between.
 That follows the client's own light colours, so a dark zone keeps it on at noon and a bright one turns it off sooner.
+
+The pass draws only where a light can change a pixel (`surface_light_area`). The shader leaves a pixel alone when
+the lights together add less than 1/1024, so a light reaches surfaces no farther than its sphere and no farther than
+where it alone, facing the surface, falls under 1/1024 divided by the number of lights on surfaces (with a 5%
+margin). Each such sphere projects to the rectangle between its tangents in view space, the whole view when it
+holds the camera, nothing when it lies behind it, and one rectangle around all of them is the area drawn. The image
+is the whole-view pass's pixel for pixel (harness check, and 200,000 sampled points per case find none that takes
+light outside the rectangle). With no rectangle the pass and its copy are skipped. Where the
+composite blends over the target (gamma, no god rays) the rectangle of the target is copied and the lit pixels are
+redrawn in the target. Where the composite reads a scene copy, that copy is the composite's own and is made first;
+a rectangle under 75% of the view is copied from it to a second texture and its lit pixels are redrawn in the scene
+copy, and at 75% or more the whole copy is redrawn into the second texture as before, which costs no second copy.
+Checked in DXVK (`D3D9DeviceEx::StretchRect`): a copy or a multisampled resolve of a sub-rectangle, and a copy
+between two render-target textures, take the fast path. The Elwynn lamps the owner's log lists at `LogLevel=2` all
+have the attenuation 0, 0.7, 0.03 and a sphere of 46.1 yd, so the rectangle is the whole view within 46 yd of a lamp
+and shrinks only for lamps farther off or behind the camera; a strength low enough shrinks it too (alone at 0.003
+such a lamp reaches 5.6 yd). The pass timers split the composite's copy off as `scene copy`, and a line
+`surface lights: N of M frames, their rectangle X% of the view on average (the lights' own rectangles add up to Y%),
+K frames at 75% or more` follows them: a `Y` far below `X` would mean several rectangles would pay.
 
 The client's terrain shaders multiply the ground by `0.7 + 0.3·lit` where its shadow maps shade it (see Native world
 shadows), in display space. Dividing the scene by the unshadowed illuminant there gave an albedo 0.7^2.2 = 0.46 times
@@ -1916,6 +1946,12 @@ Scenes for looking at the output:
   defaults and 5.6 ms with `GrassDensity=1` and the client's ground clutter down, the march unchanged at 4.8 ms; with
   nothing changed the march and the composite then moved by 30% between minutes, and the surface pass stayed at
   1.3–1.4 ms with the client's shadows on or off.
+  With the surface lights limited to their rectangle (DXVK, Balanced, `Quality=2`, same table; the composite's own copy
+  is now timed apart as `scene_copy_ms`, 0.19 ms): the surface pass 0.45 ms with the lamps ahead and 0.54 under the
+  flood lights, which with the copy is the 0.6 and 0.75 ms of before, so nothing is saved while the lights cover the
+  view; with the lamps behind the camera the pass is skipped and the scene copy is all that is left (0.19 ms against
+  0.58). The cases `classic-elwynn8` and `-behind` use the attenuation 0, 0.7, 0.03 of the owner's Elwynn lamps
+  (surface pass 0.49 and 0.39 ms; a lamp within 46 yd, in front or behind, makes the rectangle the whole view).
 - `vfog_harness --scene upsample-paths <folder>` renders the same cases with `DebugView=4` and prints
   `quality,case,point_lights,matching_taps,between_taps,marched_again`, the percent of the viewport whose fog the
   composite takes from low-resolution texels at the pixel's depth, from between texels on one plane, or by marching
@@ -2000,8 +2036,9 @@ for example
 up to 3 contacts, 0 steps dropped`, or `ripples idle`/`off`). `water: the client's splash and wake sprites are hidden` or
 `shown again` reports the hold.
 
-Every 60 s a `frame copies over N frames, per frame:` line gives the full-screen colour copies per frame at each site
-(water begin, surface lights, god-ray source, fog composite, late god rays, grading, image), then the depth refreshes
+Every 60 s a `frame copies over N frames, per frame:` line gives the colour copies per frame at each site
+(water begin, surface lights, god-ray source, fog composite, late god rays, grading, image; full-screen but for the
+surface lights, which copy their rectangle), then the depth refreshes
 per frame at water begin, water end and fog. Each refresh is followed in brackets by how many of them came with no depth
 write by the client since the previous refresh (a draw with depth writes on or a depth clear counts, whatever the depth
 test; the DLL's own passes do not) and how many issued a multisampled depth copy. A multisampled device issues no copy
