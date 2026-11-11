@@ -618,6 +618,11 @@ extern "C" unsigned __cdecl vf_test_surface_light_draws()
     return SurfaceLightDraws(LatestFogDevice());
 }
 
+extern "C" void __cdecl vf_test_take_fog_pass_times(FogPassTimes* times)
+{
+    *times = TakeFogPassTimes(LatestFogDevice());
+}
+
 extern "C" int __cdecl vf_test_forever_look_guards(engine::CodeRange* ranges, int capacity)
 {
     return engine::ForeverLookGuardRanges(ranges, capacity);

@@ -52,6 +52,7 @@ public:
 
 #ifdef VF_TESTING
     static void InjectPassFault(bool faulting);
+    FogPassTimes TakePassTimes();
 #endif
     bool Render(IDirect3DDevice9* dev, const SceneDepth& depth, const FrameInputs& in, const Config& cfg,
                 FogPass pass = FogPass::WholeFrame);

@@ -20,6 +20,21 @@ constexpr float kFullStorm = 1.0f;
 constexpr int kShippedLogLevel = 1;
 constexpr bool kShafts = true;
 constexpr bool kNoShafts = false;
+constexpr float kAheadOfTheCamera = 1.0f;
+constexpr float kBehindTheCamera = -1.0f;
+constexpr bool kSurfacesLit = true;
+constexpr bool kSurfacesUnlit = false;
+constexpr int kPassMeasurementAttempts = 2;
+constexpr int kNoMaps = 0;
+constexpr int kCascades = kWorldShadowMapCount;
+constexpr float kThicketNearestRow = 4.0f;
+constexpr float kThicketFarthestRow = 160.0f;
+constexpr float kThicketHalfWidth = 70.0f;
+constexpr float kBladeRowSpacing = 1.5f;
+constexpr float kBladeSpacing = 1.2f;
+constexpr float kBladeWidth = 0.15f;
+constexpr float kBladeHeight = 1.0f;
+constexpr DWORD kBladeColor = 0xFF3F7A2E;
 
 enum class FogSource
 {
@@ -33,6 +48,7 @@ enum class PointLights
     None,
     Flood,
     Lamps,
+    LampsBehind,
 };
 
 struct BenchmarkCase
@@ -59,6 +75,48 @@ constexpr BenchmarkCase kCases[] = {
     {"classic-none-shafts0", FogSource::Classic, PointLights::None, kErrorLogLevel, kNoShafts, 0.85f},
     {"derived-none-temporal0", FogSource::Derived, PointLights::None, kErrorLogLevel, kShafts, 0.0f},
     {"derived-flood8-temporal0", FogSource::Derived, PointLights::Flood, kErrorLogLevel, kShafts, 0.0f},
+};
+
+enum class Ground
+{
+    Street,
+    Thicket,
+};
+
+struct PassCase
+{
+    const char* name;
+    FogSource fog;
+    PointLights lights;
+    bool surfaceLights;
+    int clientShadowMaps;
+    Ground ground;
+};
+
+constexpr PassCase kPassCases[] = {
+    {"derived-none", FogSource::Derived, PointLights::None, kSurfacesLit, kNoMaps, Ground::Street},
+    {"derived-flood8", FogSource::Derived, PointLights::Flood, kSurfacesLit, kNoMaps, Ground::Street},
+    {"derived-flood8-surfaces0", FogSource::Derived, PointLights::Flood, kSurfacesUnlit, kNoMaps, Ground::Street},
+    {"derived-flood8-maps4", FogSource::Derived, PointLights::Flood, kSurfacesLit, kCascades, Ground::Street},
+    {"derived-lamps8", FogSource::Derived, PointLights::Lamps, kSurfacesLit, kNoMaps, Ground::Street},
+    {"derived-lamps8-behind", FogSource::Derived, PointLights::LampsBehind, kSurfacesLit, kNoMaps, Ground::Street},
+    {"classic-none", FogSource::Classic, PointLights::None, kSurfacesLit, kNoMaps, Ground::Street},
+    {"classic-none-maps4", FogSource::Classic, PointLights::None, kSurfacesLit, kCascades, Ground::Street},
+    {"classic-lamps8", FogSource::Classic, PointLights::Lamps, kSurfacesLit, kNoMaps, Ground::Street},
+    {"classic-lamps8-maps4", FogSource::Classic, PointLights::Lamps, kSurfacesLit, kCascades, Ground::Street},
+    {"classic-lamps8-behind", FogSource::Classic, PointLights::LampsBehind, kSurfacesLit, kNoMaps, Ground::Street},
+    {"classic-lamps8-behind-maps4", FogSource::Classic, PointLights::LampsBehind, kSurfacesLit,
+     kCascades, Ground::Street},
+    {"derived-none-thicket", FogSource::Derived, PointLights::None, kSurfacesLit, kNoMaps,
+     Ground::Thicket},
+    {"derived-flood8-thicket", FogSource::Derived, PointLights::Flood, kSurfacesLit, kNoMaps,
+     Ground::Thicket},
+    {"classic-none-thicket", FogSource::Classic, PointLights::None, kSurfacesLit, kNoMaps,
+     Ground::Thicket},
+    {"classic-lamps8-thicket", FogSource::Classic, PointLights::Lamps, kSurfacesLit, kNoMaps,
+     Ground::Thicket},
+    {"classic-lamps8-behind-thicket", FogSource::Classic, PointLights::LampsBehind, kSurfacesLit,
+     kNoMaps, Ground::Thicket},
 };
 
 struct StreetLamp
@@ -182,9 +240,30 @@ Street StreetOn(Vec3 ground)
     return {ground, Add(kEyeAboveStreet, ground), Add(kTargetAboveStreet, ground)};
 }
 
-std::vector<SceneVertex> SceneAlong(const Street& street)
+void AddThicket(std::vector<SceneVertex>& scene)
+{
+    int row = 0;
+    for (float x = kThicketNearestRow; x < kThicketFarthestRow; x += kBladeRowSpacing, ++row)
+    {
+        const float stagger = (row % 2) * kBladeSpacing * 0.5f;
+        for (float y = kEyeAboveStreet.y - kThicketHalfWidth + stagger; y < kEyeAboveStreet.y + kThicketHalfWidth;
+             y += kBladeSpacing)
+            AddQuad(scene, {x, y, 0}, {x, y + kBladeWidth, 0}, {x, y + kBladeWidth, kBladeHeight},
+                    {x, y, kBladeHeight}, kBladeColor);
+    }
+}
+
+std::vector<SceneVertex> SceneOn(Ground ground)
 {
     std::vector<SceneVertex> scene = BuildScene();
+    if (ground == Ground::Thicket)
+        AddThicket(scene);
+    return scene;
+}
+
+std::vector<SceneVertex> SceneAlong(const Street& street, Ground ground = Ground::Street)
+{
+    std::vector<SceneVertex> scene = SceneOn(ground);
     const Vec3 shift = Sub(street.ground, kGameLikeWorldOffset);
     for (SceneVertex& vertex : scene)
     {
@@ -250,13 +329,14 @@ float QuadraticAttenuationReaching(float reach)
     return (kLampPeakColor / kLocalPointLightContributionCutoff - 1.0f) / (reach * reach);
 }
 
-bool AddStreetLamps(FrameInputs& inputs, const Street& street)
+bool AddStreetLamps(FrameInputs& inputs, const Street& street, float alongTheView)
 {
     const Vec3 forward = Norm(Sub(street.at, street.eye));
     const Vec3 right = Norm(Cross(forward, kWorldUp));
     for (const StreetLamp& lamp : kStreetLamps)
     {
-        const Vec3 alongStreet = Add(street.eye, Add(Scaled(forward, lamp.ahead), Scaled(right, lamp.side)));
+        const Vec3 alongStreet =
+            Add(street.eye, Add(Scaled(forward, alongTheView * lamp.ahead), Scaled(right, lamp.side)));
         const Vec3 position = {alongStreet.x, alongStreet.y, street.ground.z + kLampHeight};
         if (!AddPointLight(inputs, position, kLampColor, QuadraticAttenuationReaching(lamp.reach)))
             return false;
@@ -269,7 +349,9 @@ bool AddPointLights(FrameInputs& inputs, PointLights lights, const Street& stree
     if (lights == PointLights::Flood)
         return AddFloodLights(inputs, street);
     if (lights == PointLights::Lamps)
-        return AddStreetLamps(inputs, street);
+        return AddStreetLamps(inputs, street, kAheadOfTheCamera);
+    if (lights == PointLights::LampsBehind)
+        return AddStreetLamps(inputs, street, kBehindTheCamera);
     return true;
 }
 
@@ -350,6 +432,103 @@ void PrintTiming(int quality, const char* name, uint32_t pointLights, std::vecto
     const double p95 = samples[(kMeasuredFrames * 95 + 99) / 100 - 1];
     std::printf("%d,%s,%u,%.3f,%.3f\n", quality, name, pointLights, median, p95);
     std::fflush(stdout);
+}
+
+bool RenderUntimed(Harness& h, const FrameInputs& inputs, Vec3 eye, int frames)
+{
+    for (int frame = 0; frame < frames; ++frame)
+    {
+        h.BeginFrame();
+        h.DrawScene(eye, inputs.cameraRelativeView, inputs.glProjection, inputs.viewport);
+        const char* reason = "";
+        const bool rendered = vf_test_render(&inputs, &reason) != 0;
+        h.dev->EndScene();
+        if (!rendered)
+        {
+            std::printf("pass measurement failed: %s\n", reason);
+            return false;
+        }
+        if (FAILED(h.dev->Present(nullptr, nullptr, nullptr, nullptr)))
+            return false;
+    }
+    return true;
+}
+
+bool MeasurePasses(Harness& h, const Config& config, const FrameInputs& inputs, Vec3 eye, FogPassTimes& times)
+{
+    vf_test_set_config(&config);
+    for (int attempt = 0; attempt < kPassMeasurementAttempts; ++attempt)
+    {
+        if (!RenderUntimed(h, inputs, eye, kWarmupFrames))
+            return false;
+        vf_test_take_fog_pass_times(&times);
+        if (!RenderUntimed(h, inputs, eye, kMeasuredFrames))
+            return false;
+        vf_test_take_fog_pass_times(&times);
+        if (times.fog.frames >= kMeasuredFrames / 2)
+            return true;
+    }
+    std::printf("pass measurement failed: the fog timer gave %u samples over %d frames\n", times.fog.frames,
+                kMeasuredFrames);
+    return false;
+}
+
+void PrintPassTimes(int quality, const char* name, uint32_t pointLights, const FogPassTimes& times)
+{
+    std::printf("%d,%s,%u", quality, name, pointLights);
+    for (const GpuTime* time : {&times.fog, &times.march, &times.temporal, &times.surfaceLights, &times.composite})
+    {
+        if (time->frames > 0)
+            std::printf(",%.3f", time->medianMs);
+        else
+            std::printf(",-");
+    }
+    std::printf(",%u\n", times.fog.frames);
+    std::fflush(stdout);
+}
+
+bool MeasurePassCases(Harness& h, const Street& derivedStreet, const Street& harbourStreet, bool classic,
+                      const float* projection, const D3DVIEWPORT9& viewport, IDirect3DTexture9* clientShadowMap)
+{
+    std::printf("fog passes at LogLevel %d, the timers the game logs; surface lights include their scene copy; "
+                "maps4 cases have four open client shadow cascades of %u px; thicket cases stand blades %.2f yd wide "
+                "and %.0f yd tall every %.1f yd across the street\n",
+                kShippedLogLevel, surface_light_checks::kShadowMapSize, kBladeWidth, kBladeHeight, kBladeSpacing);
+    std::printf("quality,case,point_lights,fog_ms,march_ms,temporal_ms,surface_lights_ms,composite_ms,samples\n");
+    for (int quality = 1; quality <= 3; ++quality)
+    {
+        for (const PassCase& passCase : kPassCases)
+        {
+            const bool classicCase = passCase.fog != FogSource::Derived;
+            if (classicCase && !classic)
+                continue;
+            const Street& street = classicCase ? harbourStreet : derivedStreet;
+            Config config;
+            config.quality = quality;
+            config.logLevel = kShippedLogLevel;
+            config.overlay = false;
+            config.dataMode = classicCase ? 1 : 0;
+            if (!passCase.surfaceLights)
+            {
+                config.surfaceLights = 0.0f;
+                config.spellSurfaceLights = 0.0f;
+            }
+            FrameInputs inputs = StreetInputs(street, passCase.fog, projection, viewport);
+            if (!AddPointLights(inputs, passCase.lights, street))
+                return false;
+            h.scene = SceneAlong(street, passCase.ground);
+            const WorldShadowInputs clientShadows = surface_light_checks::ClientShadows(
+                clientShadowMap, passCase.clientShadowMaps, surface_light_checks::kNoShadowingMap);
+            vf_test_override_world_shadows(&clientShadows);
+            FogPassTimes times;
+            const bool measured = MeasurePasses(h, config, inputs, street.eye, times);
+            vf_test_override_world_shadows(nullptr);
+            if (!measured)
+                return false;
+            PrintPassTimes(quality, passCase.name, inputs.localLights.pointLightCount, times);
+        }
+    }
+    return true;
 }
 
 bool MeasureGrading(Harness& h, Timer& timer, const Street& street, const float* projection,
@@ -454,9 +633,13 @@ bool MeasureCases(Harness& h)
         return false;
     DescribeLights("flood8", described);
     described = StreetInputs(derivedStreet, FogSource::Derived, projection, viewport);
-    if (!AddStreetLamps(described, derivedStreet))
+    if (!AddStreetLamps(described, derivedStreet, kAheadOfTheCamera))
         return false;
     DescribeLights("lamps8", described);
+    described = StreetInputs(derivedStreet, FogSource::Derived, projection, viewport);
+    if (!AddStreetLamps(described, derivedStreet, kBehindTheCamera))
+        return false;
+    DescribeLights("lamps8-behind", described);
     int classicLayers = 0;
     int noisyLayers = 0;
     const bool classic = ClassicFogResolves(StreetInputs(harbourStreet, FogSource::Classic, projection, viewport),
@@ -500,7 +683,13 @@ bool MeasureCases(Harness& h)
             PrintTiming(quality, benchmark.name, inputs.localLights.pointLightCount, samples);
         }
     }
-    return MeasureGrading(h, timer, derivedStreet, projection, viewport);
+    IDirect3DTexture9* const clientShadowMap = surface_light_checks::CreateClientShadowMap(h.dev);
+    const bool passesMeasured =
+        clientShadowMap &&
+        MeasurePassCases(h, derivedStreet, harbourStreet, classic, projection, viewport, clientShadowMap);
+    if (clientShadowMap)
+        clientShadowMap->Release();
+    return passesMeasured && MeasureGrading(h, timer, derivedStreet, projection, viewport);
 }
 }
 

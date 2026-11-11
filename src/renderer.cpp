@@ -1411,6 +1411,17 @@ void Renderer::InjectPassFault(bool faulting)
 {
     g_injectedPassFault = faulting;
 }
+
+FogPassTimes Renderer::TakePassTimes()
+{
+    FogPassTimes times;
+    times.fog = m_gpuTimer.TakeInterval();
+    times.march = m_marchTimer.TakeInterval();
+    times.temporal = m_temporalTimer.TakeInterval();
+    times.surfaceLights = m_surfaceLightTimer.TakeInterval();
+    times.composite = m_compositeTimer.TakeInterval();
+    return times;
+}
 #endif
 
 template <typename Passes>

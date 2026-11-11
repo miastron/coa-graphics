@@ -164,6 +164,9 @@ public:
     const void* DensityNoise() const { return m_renderer.DensityNoise(); }
     const void* AuthoredNoise() const { return m_renderer.AuthoredNoise(); }
     unsigned SurfaceLightDraws() const { return m_renderer.SurfaceLightDraws(); }
+#ifdef VF_TESTING
+    FogPassTimes TakeFogPassTimes() { return m_renderer.TakePassTimes(); }
+#endif
     IDirect3DPixelShader9* DrawnFogMarch() const { return m_renderer.DrawnMarch(); }
     IDirect3DPixelShader9* DrawnFogComposite() const { return m_renderer.DrawnComposite(); }
     IDirect3DPixelShader9* DrawnFogSplitComposite() const { return m_renderer.DrawnSplitComposite(); }
@@ -1458,6 +1461,11 @@ void RefuseFogDepthCreation(bool intzRefused, bool fallbackRefused)
 bool RefreshSceneDepth(FogDevice* device)
 {
     return device && device->RefreshSceneDepth();
+}
+
+FogPassTimes TakeFogPassTimes(FogDevice* device)
+{
+    return device ? device->TakeFogPassTimes() : FogPassTimes{};
 }
 #endif
 

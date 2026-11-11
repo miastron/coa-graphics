@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "engine.h"
+#include "gpu_timing.h"
 #include "grading_renderer.h"
 #include "image_renderer.h"
 #include "msaa_depth.h"
@@ -26,6 +27,7 @@ FogDevice* LatestFogDevice();
 #ifdef VF_TESTING
 void RefuseFogDepthCreation(bool intzRefused, bool fallbackRefused);
 bool RefreshSceneDepth(FogDevice* device);
+FogPassTimes TakeFogPassTimes(FogDevice* device);
 #endif
 MultisamplingStatus CurrentMultisamplingStatus();
 bool ReadSceneDepth(FogDevice* device, const DepthTexel* texels, int count, float* values);

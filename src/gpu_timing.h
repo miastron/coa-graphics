@@ -13,6 +13,15 @@ struct GpuTime
     unsigned skipped = 0;
 };
 
+struct FogPassTimes
+{
+    GpuTime fog;
+    GpuTime march;
+    GpuTime temporal;
+    GpuTime surfaceLights;
+    GpuTime composite;
+};
+
 using QueryCreator = std::function<HRESULT(IDirect3DDevice9*, D3DQUERYTYPE, IDirect3DQuery9**)>;
 
 HRESULT CreateDeviceQuery(IDirect3DDevice9* dev, D3DQUERYTYPE type, IDirect3DQuery9** query);

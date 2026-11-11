@@ -1897,7 +1897,16 @@ Scenes for looking at the output:
   GPU time. This is a controlled renderer cost, not a game frame-rate test. The harness has no world shadow maps, so the
   shafts are timed with the screen-space trace alone. On an AMD Radeon 780M at 1080p it added 0.6 ms at `Quality=1`,
   0.8–1.1 ms at 2 and 1.6–1.9 ms at 3, without point lights. It also times the harbour in a full storm and the colour
-  grading pass. `--samples 4` creates a 4x device.
+  grading pass. `--samples 4` creates a 4x device. A second table,
+  `quality,case,point_lights,fog_ms,march_ms,temporal_ms,surface_lights_ms,composite_ms,samples`, prints the medians of
+  the pass timers the game logs at `LogLevel=1`, the surface lights with their scene copy. Its cases add the street
+  lamps behind the camera, where no light reaches a pixel (`behind`), `SurfaceLights=0` and `SpellSurfaceLights=0`
+  (`surfaces0`), four synthetic client shadow cascades that leave every pixel lit (`maps4`) and blades of grass
+  across the street (`thicket`: 0.15 yd wide, 1 yd tall, every 1.2 yd), whose depth edges the composite marches at
+  full resolution. On the 780M under DXVK at `Quality=2`: the surface pass 0.58 ms with the lamps behind and 0.75 ms
+  under the flood lights; the lit march 0.47 ms dearer than the unlit one where no light reaches; the composite with
+  the lamps 1.7 ms on the street and 3.1 ms in the thicket, with the flood lights 2.1 ms and 5.9 ms. In game at
+  1920×1200 the owner's log showed a composite of 6.4–6.75 ms in grass.
 - `vfog_harness --scene water-performance --water-data data/waterdata.bin` times the water pass on the basin scene (1280×688
   world viewport) with the shipped settings and with one setting changed at a time, and prints `case,median_ms` of the
   water pass's own GPU time over 90 frames.

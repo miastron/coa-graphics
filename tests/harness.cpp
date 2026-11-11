@@ -179,6 +179,7 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_fail_image_pass(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_status(ImageQualityStatus*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_world_done();
 extern "C" __declspec(dllimport) unsigned __cdecl vf_test_surface_light_draws();
+extern "C" __declspec(dllimport) void __cdecl vf_test_take_fog_pass_times(FogPassTimes*);
 extern "C" __declspec(dllimport) int __cdecl vf_test_forever_look_guards(engine::CodeRange*, int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_forever_look_status(ForeverLookStatus*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_use_world_hook_client(const FrameInputs*, int);
