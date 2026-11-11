@@ -164,6 +164,7 @@ public:
     const void* DensityNoise() const { return m_renderer.DensityNoise(); }
     const void* AuthoredNoise() const { return m_renderer.AuthoredNoise(); }
     unsigned SurfaceLightDraws() const { return m_renderer.SurfaceLightDraws(); }
+    unsigned CompositePasses() const { return m_renderer.CompositePasses(); }
 #ifdef VF_TESTING
     FogPassTimes TakeFogPassTimes() { return m_renderer.TakePassTimes(); }
 #endif
@@ -1566,6 +1567,11 @@ void ManagedNoiseTextures(FogDevice* device, const void** density, const void** 
 unsigned SurfaceLightDraws(FogDevice* device)
 {
     return device ? device->SurfaceLightDraws() : 0;
+}
+
+unsigned CompositePasses(FogDevice* device)
+{
+    return device ? device->CompositePasses() : 0;
 }
 
 void DrawnFogShaders(FogDevice* device, IDirect3DPixelShader9** march, IDirect3DPixelShader9** composite,

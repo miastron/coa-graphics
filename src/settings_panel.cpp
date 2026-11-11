@@ -30,7 +30,8 @@ const ImVec4 kErrorColour = {1.0f, 0.4f, 0.4f, 1.0f};
 
 const char* const kQualityNames[] = {"Low: quarter resolution, 16 steps", "Medium: half resolution, 24 steps",
                                      "High: half resolution, 32 steps"};
-const char* const kDebugViewNames[] = {"Off", "Fog radiance", "Transmittance", "Linear depth"};
+const char* const kDebugViewNames[] = {"Off", "Fog radiance", "Transmittance", "Linear depth",
+                                       "Upsample path"};
 const char* const kLogLevelNames[] = {"Errors", "Info", "Debug"};
 const char* const kWaterQualityNames[] = {"Low: 128 waves, sky reflections only",
                                           "Medium: 256 waves, scene reflections",

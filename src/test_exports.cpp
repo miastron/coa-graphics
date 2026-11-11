@@ -618,6 +618,16 @@ extern "C" unsigned __cdecl vf_test_surface_light_draws()
     return SurfaceLightDraws(LatestFogDevice());
 }
 
+extern "C" void __cdecl vf_test_composite_in_one_pass(int onePass)
+{
+    Renderer::DrawCompositeInOnePass(onePass != 0);
+}
+
+extern "C" unsigned __cdecl vf_test_composite_passes()
+{
+    return CompositePasses(LatestFogDevice());
+}
+
 extern "C" void __cdecl vf_test_take_fog_pass_times(FogPassTimes* times)
 {
     *times = TakeFogPassTimes(LatestFogDevice());

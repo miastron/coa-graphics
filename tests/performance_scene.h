@@ -35,6 +35,10 @@ constexpr float kBladeSpacing = 1.2f;
 constexpr float kBladeWidth = 0.15f;
 constexpr float kBladeHeight = 1.0f;
 constexpr DWORD kBladeColor = 0xFF3F7A2E;
+constexpr int kUpsamplePathView = 4;
+constexpr int kImageQuality = 2;
+constexpr unsigned char kPathChannelLit = 128;
+constexpr D3DVIEWPORT9 kStreetViewport = {0, 0, 1920, 1080, 0, kClientWorldMaxZ};
 
 enum class FogSource
 {
@@ -487,6 +491,133 @@ void PrintPassTimes(int quality, const char* name, uint32_t pointLights, const F
     std::fflush(stdout);
 }
 
+Config ConfigFor(const PassCase& passCase, int quality)
+{
+    Config config;
+    config.quality = quality;
+    config.logLevel = kShippedLogLevel;
+    config.overlay = false;
+    config.dataMode = passCase.fog != FogSource::Derived ? 1 : 0;
+    if (!passCase.surfaceLights)
+    {
+        config.surfaceLights = 0.0f;
+        config.spellSurfaceLights = 0.0f;
+    }
+    return config;
+}
+
+void StreetProjection(float* projection)
+{
+    EngineGlDepthProjection(1.0f / std::tan(kFovY * 0.5f), 1920.0f / 1080.0f, kNear, kFar, projection);
+}
+
+struct UpsamplePaths
+{
+    size_t matchingTaps = 0;
+    size_t betweenTaps = 0;
+    size_t marchedAgain = 0;
+    size_t pixels = 0;
+};
+
+UpsamplePaths CountUpsamplePaths(const Image& view)
+{
+    UpsamplePaths paths;
+    for (UINT y = 0; y < view.h; ++y)
+    {
+        for (UINT x = 0; x < view.w; ++x)
+        {
+            const unsigned char* bgr = view.At(x, y);
+            paths.matchingTaps += bgr[0] >= kPathChannelLit ? 1 : 0;
+            paths.betweenTaps += bgr[1] >= kPathChannelLit ? 1 : 0;
+            paths.marchedAgain += bgr[2] >= kPathChannelLit ? 1 : 0;
+        }
+    }
+    paths.pixels = static_cast<size_t>(view.w) * view.h;
+    return paths;
+}
+
+bool RenderAndCapture(Harness& h, const Config& config, const FrameInputs& inputs, Vec3 eye, int settleFrames,
+                      Image& image)
+{
+    vf_test_set_config(&config);
+    if (!RenderUntimed(h, inputs, eye, settleFrames))
+        return false;
+    h.BeginFrame();
+    h.DrawScene(eye, inputs.cameraRelativeView, inputs.glProjection, inputs.viewport);
+    const char* reason = "";
+    const bool rendered = vf_test_render(&inputs, &reason) != 0;
+    if (rendered)
+        image = Capture(h.dev);
+    h.dev->EndScene();
+    if (!rendered)
+        std::printf("capture failed: %s\n", reason);
+    return rendered && SUCCEEDED(h.dev->Present(nullptr, nullptr, nullptr, nullptr));
+}
+
+bool ShowUpsamplePathsWithImages(Harness& h, const std::wstring& outDir)
+{
+    CreateDirectoryW(outDir.c_str(), nullptr);
+    float projection[16];
+    StreetProjection(projection);
+    const Street derivedStreet = StreetOn(kGameLikeWorldOffset);
+    const Street harbourStreet = StreetOn(Sub(kHarbourEye, kEyeAboveStreet));
+    int layers = 0;
+    int noisyLayers = 0;
+    const bool classic = ClassicFogResolves(
+        StreetInputs(harbourStreet, FogSource::Classic, projection, kStreetViewport), layers, noisyLayers);
+    std::printf("where the composite takes each pixel's fog from at 1920x1080 (DebugView=%d), percent of the "
+                "viewport; images of the quality %d thicket cases in %ls\n",
+                kUpsamplePathView, kImageQuality, outDir.c_str());
+    std::printf("quality,case,point_lights,matching_taps,between_taps,marched_again\n");
+    for (int quality = 1; quality <= 3; ++quality)
+    {
+        for (const PassCase& passCase : kPassCases)
+        {
+            const bool classicCase = passCase.fog != FogSource::Derived;
+            if ((classicCase && !classic) || passCase.clientShadowMaps != kNoMaps || !passCase.surfaceLights)
+                continue;
+            const Street& street = classicCase ? harbourStreet : derivedStreet;
+            FrameInputs inputs = StreetInputs(street, passCase.fog, projection, kStreetViewport);
+            if (!AddPointLights(inputs, passCase.lights, street))
+                return false;
+            h.scene = SceneAlong(street, passCase.ground);
+            Config config = ConfigFor(passCase, quality);
+            Image composited;
+            Image pathView;
+            if (!RenderAndCapture(h, config, inputs, street.eye, kWarmupFrames, composited))
+                return false;
+            config.debugView = kUpsamplePathView;
+            if (!RenderAndCapture(h, config, inputs, street.eye, 1, pathView))
+                return false;
+            const UpsamplePaths paths = CountUpsamplePaths(pathView);
+            const double percent = 100.0 / static_cast<double>(paths.pixels);
+            std::printf("%d,%s,%u,%.2f,%.2f,%.2f\n", quality, passCase.name, inputs.localLights.pointLightCount,
+                        paths.matchingTaps * percent, paths.betweenTaps * percent, paths.marchedAgain * percent);
+            std::fflush(stdout);
+            if (quality == kImageQuality && passCase.ground == Ground::Thicket)
+            {
+                const std::string narrow = passCase.name;
+                const std::wstring stem = outDir + L"\\" + std::wstring(narrow.begin(), narrow.end());
+                if (!SavePng(stem + L".png", composited.w, composited.h, composited.bgra) ||
+                    !SavePng(stem + L"-paths.png", pathView.w, pathView.h, pathView.bgra))
+                {
+                    std::printf("could not save %ls.png\n", stem.c_str());
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool ShowUpsamplePaths(Harness& h, const std::wstring& outDir)
+{
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool shown = ShowUpsamplePathsWithImages(h, outDir);
+    CoUninitialize();
+    return shown;
+}
+
 bool MeasurePassCases(Harness& h, const Street& derivedStreet, const Street& harbourStreet, bool classic,
                       const float* projection, const D3DVIEWPORT9& viewport, IDirect3DTexture9* clientShadowMap)
 {
@@ -503,16 +634,7 @@ bool MeasurePassCases(Harness& h, const Street& derivedStreet, const Street& har
             if (classicCase && !classic)
                 continue;
             const Street& street = classicCase ? harbourStreet : derivedStreet;
-            Config config;
-            config.quality = quality;
-            config.logLevel = kShippedLogLevel;
-            config.overlay = false;
-            config.dataMode = classicCase ? 1 : 0;
-            if (!passCase.surfaceLights)
-            {
-                config.surfaceLights = 0.0f;
-                config.spellSurfaceLights = 0.0f;
-            }
+            const Config config = ConfigFor(passCase, quality);
             FrameInputs inputs = StreetInputs(street, passCase.fog, projection, viewport);
             if (!AddPointLights(inputs, passCase.lights, street))
                 return false;
@@ -623,8 +745,8 @@ bool MeasureCases(Harness& h)
                 caps.MaxPixelShader30InstructionSlots, caps.MaxPShaderInstructionsExecuted,
                 kWarmupFrames, kMeasuredFrames);
     float projection[16];
-    EngineGlDepthProjection(1.0f / std::tan(kFovY * 0.5f), 1920.0f / 1080.0f, kNear, kFar, projection);
-    const D3DVIEWPORT9 viewport = {0, 0, 1920, 1080, 0, kClientWorldMaxZ};
+    StreetProjection(projection);
+    const D3DVIEWPORT9 viewport = kStreetViewport;
     const Street derivedStreet = StreetOn(kGameLikeWorldOffset);
     const Street harbourStreet = StreetOn(Sub(kHarbourEye, kEyeAboveStreet));
 
@@ -693,7 +815,7 @@ bool MeasureCases(Harness& h)
 }
 }
 
-int RunPerformance(D3DMULTISAMPLE_TYPE samples)
+int RunPerformance(D3DMULTISAMPLE_TYPE samples, const std::function<bool(Harness&)>& measure)
 {
     WNDCLASSW windowClass = {};
     windowClass.lpfnWndProc = DefWindowProcW;
@@ -725,7 +847,7 @@ int RunPerformance(D3DMULTISAMPLE_TYPE samples)
     const DWORD flags = D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_PUREDEVICE | D3DCREATE_FPU_PRESERVE;
     bool completed = false;
     if (h.d3d && SUCCEEDED(h.d3d->CreateDevice(0, D3DDEVTYPE_HAL, h.window, flags, &h.pp, &h.dev)) && h.dev)
-        completed = performance_scene::MeasureCases(h);
+        completed = measure(h);
     if (h.dev)
         h.dev->Release();
     if (h.d3d)

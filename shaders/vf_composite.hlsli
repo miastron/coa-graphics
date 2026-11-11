@@ -18,6 +18,11 @@ static const float4 kSunMarkerColour = float4(1, 0, 0, 1);
 static const float kDebugRadiance = 1;
 static const float kDebugTransmittance = 2;
 static const float kDebugLinearDepth = 3;
+static const float kDebugUpsamplePath = 4;
+static const float kPathMatchingTaps = 0;
+static const float kPathBetweenTaps = 1;
+static const float kPathMarchedAgain = 2;
+static const float kPathLeftToUnmatchedPass = 3;
 static const float kSameSurfaceAbsoluteDepth = 0.5;
 static const float kSameSurfaceRelativeDepth = 0.02;
 static const float kTapPlaneRelativeDepth = 0.005;
@@ -51,6 +56,11 @@ bool DebugViewEnabled()
 bool DebugViewAtMost(float view)
 {
     return DebugView() < view + 0.5;
+}
+
+bool LeavesUnmatchedPixelsToTheirOwnPass()
+{
+    return cGodRayColour.w > 0.5;
 }
 
 float BlendMode()
@@ -316,8 +326,9 @@ float4 FilteredFogBetweenTaps(BilinearTaps taps)
     return fog;
 }
 
-float4 FogWithoutMatchingTap(float2 pixel, float depth, float viewZ)
+float4 FogWithoutMatchingTap(float2 pixel, float depth, float viewZ, out float path)
 {
+    path = kPathBetweenTaps;
     bool lightOnRay = LightMeetsRayOutsideNoise(pixel, viewZ);
     [branch] if (!lightOnRay || kCorrectsGlowBetweenTaps)
     {
@@ -338,11 +349,13 @@ float4 FogWithoutMatchingTap(float2 pixel, float depth, float viewZ)
                 return taps.currentMarch;
         }
     }
+    path = kPathMarchedAgain;
     return IntegrateFogAtDepth(pixel, depth, 0.5);
 }
 
-float4 DepthAwareUpsample(float2 pixel, float depth, float viewZ)
+float4 DepthAwareUpsample(float2 pixel, float depth, float viewZ, out float path)
 {
+    path = kPathMatchingTaps;
     float2 lowResCoord = FullPixelToLowResTexel(pixel);
     float2 baseTexel = floor(lowResCoord);
     float2 bilinearFraction = lowResCoord - baseTexel;
@@ -366,7 +379,12 @@ float4 DepthAwareUpsample(float2 pixel, float depth, float viewZ)
     }
     [branch] if (weightSum > 1e-6)
         return weightedFog / weightSum;
-    return FogWithoutMatchingTap(pixel, depth, viewZ);
+    [branch] if (LeavesUnmatchedPixelsToTheirOwnPass())
+    {
+        path = kPathLeftToUnmatchedPass;
+        return 0;
+    }
+    return FogWithoutMatchingTap(pixel, depth, viewZ, path);
 }
 
 float3 DisplaySpaceGodRays(float2 viewportUv, float2 pixel, float depth)
@@ -431,7 +449,9 @@ float4 PremultipliedForFixedFunctionBlend(float2 pixel, float4 fog, float3 godRa
 float4 CompositeAtDepth(float2 pixel, float depth)
 {
     float viewZ = LinearDepth(depth);
-    float4 fog = DepthAwareUpsample(pixel, depth, viewZ);
+    float upsamplePath;
+    float4 fog = DepthAwareUpsample(pixel, depth, viewZ, upsamplePath);
+    clip(upsamplePath == kPathLeftToUnmatchedPass ? -1 : 1);
     fog.rgb *= Exposure();
 
     float2 viewportUv = (pixel - ViewportOrigin()) / ViewportSize();
@@ -446,6 +466,8 @@ float4 CompositeAtDepth(float2 pixel, float depth)
             return float4(1 - fog.aaa, 1);
         if (DebugViewAtMost(kDebugLinearDepth))
             return float4(saturate(viewZ / MaxFogDistance()).xxx, 1);
+        if (DebugViewAtMost(kDebugUpsamplePath))
+            return float4(upsamplePath == float3(kPathMarchedAgain, kPathBetweenTaps, kPathMatchingTaps), 1);
     }
     [branch] if (SunMarkerEnabled() && distance(pixel, SunPixel()) < kSunMarkerRadius)
         return kSunMarkerColour;

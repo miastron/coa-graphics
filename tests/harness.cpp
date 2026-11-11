@@ -179,6 +179,8 @@ extern "C" __declspec(dllimport) void __cdecl vf_test_fail_image_pass(int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_status(ImageQualityStatus*);
 extern "C" __declspec(dllimport) void __cdecl vf_test_image_world_done();
 extern "C" __declspec(dllimport) unsigned __cdecl vf_test_surface_light_draws();
+extern "C" __declspec(dllimport) void __cdecl vf_test_composite_in_one_pass(int);
+extern "C" __declspec(dllimport) unsigned __cdecl vf_test_composite_passes();
 extern "C" __declspec(dllimport) void __cdecl vf_test_take_fog_pass_times(FogPassTimes*);
 extern "C" __declspec(dllimport) int __cdecl vf_test_forever_look_guards(engine::CodeRange*, int);
 extern "C" __declspec(dllimport) void __cdecl vf_test_forever_look_status(ForeverLookStatus*);
@@ -2971,6 +2973,65 @@ void CheckFirstColumnIsFogged(const Image& transmittance, const D3DVIEWPORT9& wo
           "the full-screen fog passes cover the viewport's first column (their triangle's left edge lies outside it)");
 }
 
+void CheckUpsamplePathView(const Image& paths, const D3DVIEWPORT9& world, UINT pixelsPerLowResTexel)
+{
+    size_t matchingTaps = 0;
+    size_t betweenTaps = 0;
+    size_t marchedAgain = 0;
+    size_t ownTapsOnAnotherPath = 0;
+    for (UINT y = world.Y; y < world.Y + world.Height; ++y)
+    {
+        for (UINT x = world.X; x < world.X + world.Width; ++x)
+        {
+            const unsigned char* bgr = paths.At(x, y);
+            const bool matching = bgr[0] == 255 && bgr[1] == 0 && bgr[2] == 0;
+            matchingTaps += matching ? 1 : 0;
+            betweenTaps += bgr[0] == 0 && bgr[1] == 255 && bgr[2] == 0 ? 1 : 0;
+            marchedAgain += bgr[0] == 0 && bgr[1] == 0 && bgr[2] == 255 ? 1 : 0;
+            const bool ownTap = (x - world.X) % pixelsPerLowResTexel == pixelsPerLowResTexel / 2 &&
+                                (y - world.Y) % pixelsPerLowResTexel == pixelsPerLowResTexel / 2;
+            ownTapsOnAnotherPath += ownTap && !matching ? 1 : 0;
+        }
+    }
+    const size_t pixels = static_cast<size_t>(world.Width) * world.Height;
+    std::printf("     upsample path view: %zu matching taps, %zu between taps, %zu marched again of %zu pixels; %zu "
+                "pixels a low-resolution texel samples took another path\n",
+                matchingTaps, betweenTaps, marchedAgain, pixels, ownTapsOnAnotherPath);
+    Check(matchingTaps + betweenTaps + marchedAgain == pixels,
+          "DebugView=4 paints every world pixel as one upsample path: blue matching taps, green between taps or red "
+          "marched again");
+    Check(ownTapsOnAnotherPath == 0, "a pixel a low-resolution texel samples takes that texel's fog");
+    Check(marchedAgain > 0 && marchedAgain < pixels / 4,
+          "the scene's silhouettes march again and most of its pixels do not");
+}
+
+struct CompositeDrawn
+{
+    Image image;
+    unsigned passes = 0;
+};
+
+void CheckUnmatchedPixelsDrawnApart(const CompositeDrawn& apart, const CompositeDrawn& together,
+                                    const Image& upsamplePaths, const D3DVIEWPORT9& world)
+{
+    size_t differing = 0;
+    size_t marchedAgain = 0;
+    for (UINT y = world.Y; y < world.Y + world.Height; ++y)
+    {
+        for (UINT x = world.X; x < world.X + world.Width; ++x)
+        {
+            differing += std::memcmp(apart.image.At(x, y), together.image.At(x, y), 3) != 0 ? 1 : 0;
+            marchedAgain += upsamplePaths.At(x, y)[2] == 255 ? 1 : 0;
+        }
+    }
+    std::printf("     composite passes: %u by default, %u when held to one; %zu pixels differ, %zu march again\n",
+                apart.passes, together.passes, differing, marchedAgain);
+    Check(apart.passes == 2 && together.passes == 1,
+          "on a 1x device the composite draws the pixels without matching low-resolution fog in a second pass");
+    Check(differing == 0 && marchedAgain > 0,
+          "the composite that marches its unmatched pixels in a pass of their own draws the one-pass image");
+}
+
 void CheckDisabledTemporalIsStable(Harness& h, const Config& cfg, Vec3 eye, Vec3 at,
                                    const float* proj, const D3DVIEWPORT9& world)
 {
@@ -3410,6 +3471,16 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     Image transmittance = renderDebug(2, 5000.0f);
     SavePng(outDir + L"\\debug-transmittance.png", transmittance.w, transmittance.h, transmittance.bgra);
     RUN_GROUP(CheckFirstColumnIsFogged(transmittance, world));
+    Image upsamplePaths = renderDebug(4, 5000.0f);
+    SavePng(outDir + L"\\debug-upsample-paths.png", upsamplePaths.w, upsamplePaths.h, upsamplePaths.bgra);
+    RUN_GROUP(CheckUpsamplePathView(upsamplePaths, world, cfg.quality == 1 ? 4u : 2u));
+    {
+        const CompositeDrawn apart = {renderDebug(0, 5000.0f), vf_test_composite_passes()};
+        vf_test_composite_in_one_pass(1);
+        const CompositeDrawn together = {renderDebug(0, 5000.0f), vf_test_composite_passes()};
+        vf_test_composite_in_one_pass(0);
+        RUN_GROUP(CheckUnmatchedPixelsDrawnApart(apart, together, upsamplePaths, world));
+    }
 
     {
         Config c = cfg;
@@ -4272,7 +4343,9 @@ int wmain(int argc, wchar_t** argv)
     if (scene == L"harbour")
         return RunHarbour(out, data, harbour);
     if (scene == L"performance")
-        return RunPerformance(samples);
+        return RunPerformance(samples, performance_scene::MeasureCases);
+    if (scene == L"upsample-paths")
+        return RunPerformance(samples, [&](Harness& h) { return performance_scene::ShowUpsamplePaths(h, out); });
     if (scene == L"ripples")
         return ripple_scene::RunRippleScene(out, waterData);
     if (scene == L"water-performance")
@@ -4284,7 +4357,7 @@ int wmain(int argc, wchar_t** argv)
     if (!scene.empty())
     {
         std::printf("unknown scene %ls (known: copy-cost, cpu, harbour, performance, ripples, "
-                    "water-performance)\n",
+                    "upsample-paths, water-performance)\n",
                     scene.c_str());
         return 2;
     }

@@ -42,7 +42,7 @@ struct BoolSetting
 const IntSetting kIntSettings[] = {
     {"Quality", &Config::quality, 1, 3},     {"StockFog", &Config::stockFog, 0, 1},
     {"DataMode", &Config::dataMode, 0, 1},   {"ColorSpace", &Config::colorSpace, 0, 1},
-    {"DebugView", &Config::debugView, 0, 3}, {"LogLevel", &Config::logLevel, 0, 2},
+    {"DebugView", &Config::debugView, 0, 4}, {"LogLevel", &Config::logLevel, 0, 2},
     {"ClassicPhase", &Config::classicPhase, 0, 1},
     {"OutlandClassicFog", &Config::outlandClassicFog, 0, 1},
     {"NorthrendClassicFog", &Config::northrendClassicFog, 0, 1},

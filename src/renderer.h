@@ -53,6 +53,7 @@ public:
 #ifdef VF_TESTING
     static void InjectPassFault(bool faulting);
     FogPassTimes TakePassTimes();
+    static void DrawCompositeInOnePass(bool onePass);
 #endif
     bool Render(IDirect3DDevice9* dev, const SceneDepth& depth, const FrameInputs& in, const Config& cfg,
                 FogPass pass = FogPass::WholeFrame);
@@ -70,6 +71,7 @@ public:
     IDirect3DPixelShader9* DrawnSplitComposite() const { return m_drawnSplitComposite; }
     float DrawnGlowCompensation() const { return m_drawnGlowCompensation; }
     unsigned SurfaceLightDraws() const { return m_surfaceLightDraws; }
+    unsigned CompositePasses() const { return m_compositePasses; }
 
 private:
     struct PendingDepthProbe
@@ -135,6 +137,9 @@ private:
     void DrawSamplesMarked(IDirect3DDevice9* dev, DWORD marker, IDirect3DPixelShader9* shader, const float* side);
     void DrawCompositeBySampleDepth(IDirect3DDevice9* dev, IDirect3DSurface9* sampleDepth, const D3DVIEWPORT9& vp,
                                     const CompositeChoice& choice, bool overwrites);
+    bool EnsureUnmatchedPixelStencil(IDirect3DDevice9* dev, UINT w, UINT h);
+    void DrawCompositeWithUnmatchedPixelsApart(IDirect3DDevice9* dev, const D3DVIEWPORT9& vp,
+                                               const float* godRayColour);
     bool EnsureStateBlock(IDirect3DDevice9* dev);
     bool EnsureTargets(IDirect3DDevice9* dev, UINT lowW, UINT lowH, UINT rayW, UINT rayH);
     bool EnsureSceneCopy(IDirect3DDevice9* dev, IDirect3DSurface9* target, UINT w, UINT h);
@@ -234,6 +239,11 @@ private:
     UINT m_sceneCopyW = 0;
     UINT m_sceneCopyH = 0;
     bool m_sceneCopyFailed = false;
+    IDirect3DSurface9* m_unmatchedPixelStencil = nullptr;
+    UINT m_unmatchedPixelStencilW = 0;
+    UINT m_unmatchedPixelStencilH = 0;
+    bool m_unmatchedPixelStencilFailed = false;
+    unsigned m_compositePasses = 0;
     bool m_raySourceCopyFailureLogged = false;
     bool m_probeFailed = false;
 

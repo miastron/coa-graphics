@@ -147,7 +147,11 @@ returns the same 3×3 average of the current samples.
 
 **Upsampling.** The full-resolution composite upsamples the march through depth-checked taps. Ground seen at a grazing
 angle is interpolated from the current march where the taps lie on the pixel's plane and the march is linear across
-them. Thin silhouettes that every tap misses are marched at full resolution. Where a local light's sphere meets the ray
+them. Thin silhouettes that every tap misses are marched at full resolution, on a 1x device in a pass of their own:
+the composite's first pass discards the pixels without a matching tap and marks the others in the stencil of a
+`D24S8` surface the fog creates for this, and the same shader then draws the unmarked pixels (the flag is `c97.w`).
+The image is the one-pass image; the march of a few scattered pixels no longer holds up the pixels shaded beside
+them. Multisampled devices keep the one pass. Where a local light's sphere meets the ray
 of a pixel on the taps' plane, the shadowed lit composites outside authored noise (`LightShafts=1`) no longer march it
 again: they interpolate the taps with each tap's own light glow taken out and add the pixel's own glow back. The glow
 along a ray is a quadrature of the march's light scattering over the light's chord, clipped to the ray, in four pieces
@@ -1906,11 +1910,25 @@ Scenes for looking at the output:
   full resolution. On the 780M under DXVK at `Quality=2`, in the Windows power mode Balanced (Performance gave the
   street rows within 10% of it): the surface pass 0.6 ms with the lamps behind and 0.75–0.8 ms under the flood
   lights; the lit march 0.4–0.5 ms dearer than the unlit one where no light reaches; the composite with the lamps
-  1.7 ms on the street and 3.1–3.3 ms in the thicket, with the flood lights 2.1 ms and 5.9–6.4 ms. In game at
+  1.5 ms on the street and 2.1 ms in the thicket, with the flood lights 1.7–1.8 ms and 3.0–3.2 ms (1.7 and 3.1–3.3 ms,
+  2.1 and 5.9–6.4 ms before the unmatched pixels had a pass of their own). In game at
   1920×1200, standing in one place at night, the owner's log showed a composite of 9.1 ms with the grass at its
   defaults and 5.6 ms with `GrassDensity=1` and the client's ground clutter down, the march unchanged at 4.8 ms; with
   nothing changed the march and the composite then moved by 30% between minutes, and the surface pass stayed at
   1.3–1.4 ms with the client's shadows on or off.
+- `vfog_harness --scene upsample-paths <folder>` renders the same cases with `DebugView=4` and prints
+  `quality,case,point_lights,matching_taps,between_taps,marched_again`, the percent of the viewport whose fog the
+  composite takes from low-resolution texels at the pixel's depth, from between texels on one plane, or by marching
+  again; it saves the composited and the path image of each `Quality=2` thicket case. On the 780M under DXVK at
+  `Quality=2` the thicket marches 0.5–1.5% of the pixels again and the street 0.05–1.0%: blades and gaps one pixel
+  wide, scattered under the horizon. The cost follows the scatter, not the count. With the fallback's march replaced
+  by the nearest texel (a probe, not kept) the composite fell from 2.4–5.9 ms to 1.1–2.1 ms in the thicket and from
+  1.5–2.1 ms to 1.1–1.6 ms on the street, so a marching pixel holds the pixels shaded with it for the whole march.
+  Drawn in their own stencil-marked pass, the unmatched pixels leave the composite at 1.8–3.2 ms in the thicket and
+  1.5–1.8 ms on the street. In the owner's game at 1920×1200 the view showed 1.3% of the screen marching again in
+  Elwynn grass and about 3.7% in Duskwood's tree canopies, in a quarter of the 8×8 pixel blocks. There the log's
+  composite went from 5.3–5.5 ms to 2.6–2.9 ms with the second pass (sessions minutes apart, the second one moving
+  around the same field), and the owner saw no difference in grass or canopies.
 - `vfog_harness --scene water-performance --water-data data/waterdata.bin` times the water pass on the basin scene (1280×688
   world viewport) with the shipped settings and with one setting changed at a time, and prints `case,median_ms` of the
   water pass's own GPU time over 90 frames.
@@ -2055,7 +2073,7 @@ comments describe every key. In the game, `Ctrl+F7` opens the same settings in a
 | `Underwater` | 0 | Keep the effect under water |
 | `LiquidDepth` | 1 | Water surfaces write depth so fog uses their distance (always on while modern water is drawn) |
 | `Multisampling` | 1 | Keep the game's Multisampling when its depth can be copied; 0 = multisampling off (see below) |
-| `DebugView` | 0 | 1 radiance, 2 transmittance, 3 linear depth |
+| `DebugView` | 0 | 1 radiance, 2 transmittance, 3 linear depth, 4 upsample path (blue matching taps, green between taps, red marched again) |
 | `SunMarker` | 0 | Red dot where the light direction projects |
 | `LogLevel` | 1 | 0 errors, 1 info (frame summary with the fog's GPU time, depth probe; see Log), 2 debug |
 | `Water` | 1 | Modern water; 0 = the client's own water |

@@ -123,6 +123,11 @@ constexpr DWORD kAllStencilBits = 0xFF;
 constexpr DWORD kUnmarkedSamples = 0;
 constexpr DWORD kNearSamples = 1;
 constexpr DWORD kFarSamples = ~kUnmarkedSamples & kAllStencilBits;
+constexpr DWORD kPixelsWithoutMatchingFog = 0;
+constexpr DWORD kPixelsDrawnFromMatchingFog = 1;
+constexpr UINT kGodRayColourRegister = 97;
+constexpr float kLeavesUnmatchedPixels = 1.0f;
+constexpr float kDrawsUnmatchedPixels = 0.0f;
 constexpr DWORD kStages = 15;
 constexpr UINT kLayerNoiseRegister = 36;
 constexpr DWORD kAuthoredNoiseStage = 10;
@@ -539,6 +544,9 @@ void Renderer::ReleaseDefaultPool()
     SafeRelease(m_raysOpenWithoutTheCharacter[1]);
     SafeRelease(m_sceneCopy);
     SafeRelease(m_litScene);
+    SafeRelease(m_unmatchedPixelStencil);
+    m_unmatchedPixelStencilW = m_unmatchedPixelStencilH = 0;
+    m_unmatchedPixelStencilFailed = false;
     m_targetRetry.Reset();
     m_authoredNoiseRetry.Reset();
     m_densityNoiseRetry.Reset();
@@ -929,6 +937,57 @@ void Renderer::DrawCompositeBySampleDepth(IDirect3DDevice9* dev, IDirect3DSurfac
     dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
     dev->SetDepthStencilSurface(nullptr);
     dev->SetViewport(&vp);
+}
+
+bool Renderer::EnsureUnmatchedPixelStencil(IDirect3DDevice9* dev, UINT w, UINT h)
+{
+    if (m_unmatchedPixelStencil && m_unmatchedPixelStencilW == w && m_unmatchedPixelStencilH == h)
+        return true;
+    SafeRelease(m_unmatchedPixelStencil);
+    m_unmatchedPixelStencilW = m_unmatchedPixelStencilH = 0;
+    if (m_unmatchedPixelStencilFailed)
+        return false;
+    if (FAILED(dev->CreateDepthStencilSurface(w, h, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, FALSE,
+                                              &m_unmatchedPixelStencil, nullptr)))
+    {
+        m_unmatchedPixelStencilFailed = true;
+        VF_LOG_ERROR("the stencil that sets apart composite pixels without matching fog could not be created "
+                     "(%ux%u); the composite marches them in its one pass",
+                     w, h);
+        return false;
+    }
+    m_unmatchedPixelStencilW = w;
+    m_unmatchedPixelStencilH = h;
+    return true;
+}
+
+void Renderer::DrawCompositeWithUnmatchedPixelsApart(IDirect3DDevice9* dev, const D3DVIEWPORT9& vp,
+                                                     const float* godRayColour)
+{
+    const Float4 leavingUnmatchedPixels = {godRayColour[0], godRayColour[1], godRayColour[2], kLeavesUnmatchedPixels};
+    const Float4 drawingUnmatchedPixels = {godRayColour[0], godRayColour[1], godRayColour[2], kDrawsUnmatchedPixels};
+    const D3DRECT world = {static_cast<LONG>(vp.X), static_cast<LONG>(vp.Y), static_cast<LONG>(vp.X + vp.Width),
+                           static_cast<LONG>(vp.Y + vp.Height)};
+    dev->SetDepthStencilSurface(m_unmatchedPixelStencil);
+    dev->Clear(1, &world, D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, kPixelsWithoutMatchingFog);
+    dev->SetRenderState(D3DRS_STENCILENABLE, TRUE);
+    dev->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_ALWAYS);
+    dev->SetRenderState(D3DRS_STENCILREF, kPixelsDrawnFromMatchingFog);
+    dev->SetRenderState(D3DRS_STENCILMASK, kAllStencilBits);
+    dev->SetRenderState(D3DRS_STENCILWRITEMASK, kAllStencilBits);
+    dev->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_REPLACE);
+    dev->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
+    dev->SetRenderState(D3DRS_STENCILFAIL, D3DSTENCILOP_KEEP);
+    dev->SetPixelShaderConstantF(kGodRayColourRegister, &leavingUnmatchedPixels.x, 1);
+    DrawFullscreenTriangle(dev);
+    dev->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_EQUAL);
+    dev->SetRenderState(D3DRS_STENCILREF, kPixelsWithoutMatchingFog);
+    dev->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_KEEP);
+    dev->SetRenderState(D3DRS_STENCILWRITEMASK, 0);
+    dev->SetPixelShaderConstantF(kGodRayColourRegister, &drawingUnmatchedPixels.x, 1);
+    DrawFullscreenTriangle(dev);
+    dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    dev->SetDepthStencilSurface(nullptr);
 }
 
 bool Renderer::EnsureStateBlock(IDirect3DDevice9* dev)
@@ -1398,6 +1457,7 @@ bool Renderer::ReadyToRender(IDirect3DDevice9* dev, const SceneDepth& depth, con
 namespace
 {
 volatile bool g_injectedPassFault = false;
+volatile bool g_compositeInOnePass = false;
 
 void FaultWhenInjected()
 {
@@ -1410,6 +1470,11 @@ void FaultWhenInjected()
 void Renderer::InjectPassFault(bool faulting)
 {
     g_injectedPassFault = faulting;
+}
+
+void Renderer::DrawCompositeInOnePass(bool onePass)
+{
+    g_compositeInOnePass = onePass;
 }
 
 FogPassTimes Renderer::TakePassTimes()
@@ -2027,7 +2092,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     const Float4 composite[3] = {
         {fog.authored ? cfg.classicExposure : cfg.exposure, raysDrawnNow && sceneBlend ? rayStrength : 0.0f,
          static_cast<float>(cfg.debugView), blendMode},
-        {fog.rayColor[0], fog.rayColor[1], fog.rayColor[2], 0.0f},
+        {fog.rayColor[0], fog.rayColor[1], fog.rayColor[2], kDrawsUnmatchedPixels},
         {sunPx[0], sunPx[1], cfg.sunMarker && sunInFront ? 1.0f : 0.0f, m_drawnGlowCompensation},
     };
     dev->SetPixelShaderConstantF(96, &composite[0].x, 3);
@@ -2040,8 +2105,13 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     BindTexture(dev, 4, m_marchTarget, false);
     if (timesPasses)
         m_compositeTimer.Begin(dev);
+    const bool unmatchedPixelsApart = !depth.Multisampled() && !Seam<bool>(g_compositeInOnePass, false) &&
+                                      EnsureUnmatchedPixelStencil(dev, depthDesc.Width, depthDesc.Height);
+    m_compositePasses = splitSamples ? 3 : (unmatchedPixelsApart ? 2 : 1);
     if (splitSamples)
         DrawCompositeBySampleDepth(dev, depth.bound, vp, compositeChoice, sceneBlend);
+    else if (unmatchedPixelsApart)
+        DrawCompositeWithUnmatchedPixelsApart(dev, vp, &composite[1].x);
     else
         DrawFullscreenTriangle(dev);
     m_compositeTimer.End();
