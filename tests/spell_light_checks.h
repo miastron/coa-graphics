@@ -969,6 +969,24 @@ void CheckSpellLightsIgnoreTheLampSettings()
               defaults.surfaceLights == 1.0f,
           "SpellSurfaceLights sets how strongly spell lights light surfaces and SurfaceLights how strongly lamps "
           "do; spells start at 0.5 and lamps at 1");
+
+    float lightOnSurfaces[2] = {};
+    const float spellIntensities[2] = {0.5f, 2.0f};
+    for (int i = 0; i < 2; ++i)
+    {
+        Config scaled = spellSurfaces;
+        scaled.spellLightIntensity = spellIntensities[i];
+        LocalPointLight scaledSpell;
+        lights.Light(0, scaled.spellLightIntensity, scaledSpell);
+        const LocalPointLight uploaded = UploadedLight(scaledSpell, scaled);
+        const float* colour = uploaded.uploadedColor;
+        lightOnSurfaces[i] = std::max({colour[0], colour[1], colour[2]}) * LocalLightSurfaceStrength(scaled, uploaded);
+    }
+    std::printf("     spell colour times surface strength at SpellLightIntensity 0.5 and 2: %.5f, %.5f\n",
+                lightOnSurfaces[0], lightOnSurfaces[1]);
+    Check(lightOnSurfaces[0] > 0.0f && Near(lightOnSurfaces[0], lightOnSurfaces[1]),
+          "SpellSurfaceLights alone sets how strongly spell lights light surfaces: SpellLightIntensity changes "
+          "their glow in the fog and leaves their light on surfaces as it was");
 }
 
 void CheckSpellLights()

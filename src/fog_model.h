@@ -99,6 +99,25 @@ PointLightUpload LocalLightUpload(const Config& cfg, int mapId);
 float LocalLightFogGain(const FogParams& fog, const LocalPointLight& light);
 float LocalLightSurfaceStrength(const Config& cfg, const LocalPointLight& light);
 
+constexpr float kFogGlowReferenceDensity = 0.003f;
+constexpr float kFogGlowDensityExponent = 1.0f;
+constexpr float kFogGlowReferenceIlluminant = 0.045f;
+constexpr float kFogGlowIlluminantExponent = 1.0f;
+constexpr float kFogGlowGainLowest = 0.1f;
+constexpr float kFogGlowGainHighest = 128.0f;
+constexpr float kSurfaceLightReferenceIlluminant = 0.107f;
+constexpr float kSurfaceLightGainExponent = 1.0f;
+constexpr float kSurfaceLightGainLowest = 0.15f;
+constexpr float kSurfaceLightGainHighest = 5.0f;
+constexpr float kSurfaceDisplayGamma = 2.2f;
+constexpr float kGlowMeasureYards = 40.0f;
+constexpr float kLargestMeasuredOpacity = 0.9999f;
+
+float SkyIlluminant(uint32_t ambient, uint32_t direct);
+float FogGlowGain(float extinction, float illuminant);
+float SurfaceLightGain(float illuminant);
+float MeanExtinctionOverYards(float opacity, float yards);
+
 constexpr float kLevelRayLogDistances[] = {50.0f, 150.0f, 400.0f};
 
 struct LevelRayFog

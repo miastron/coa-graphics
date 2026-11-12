@@ -701,6 +701,7 @@ bool SpellLightCollector::Light(uint32_t index, float intensity, LocalPointLight
     light.attenuation[1] = 0.0f;
     light.attenuation[2] = (1.0f / kLocalPointLightContributionCutoff - 1.0f) / (reach * reach);
     light.nativeId = glow.model;
+    light.sourceIntensity = intensity;
     light.source = LocalLightSource::Spell;
     out = light;
     return true;

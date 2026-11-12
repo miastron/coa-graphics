@@ -58,6 +58,8 @@ struct LocalPointLight
     float color[3] = {};
     float attenuation[3] = {};
     float uploadedColor[3] = {};
+    float sourceIntensity = 1.0f;
+    float surfaceShare = 1.0f;
     float cutoff = 0.0f;
     double rankPriority = 0.0;
     uint32_t enabled = 1;
@@ -99,6 +101,7 @@ constexpr uintptr_t kWorldM2Scene = 0x00CD754C;
 
 PointLightUpload SourceUpload(const PointLightUpload& upload, LocalLightSource source);
 void UploadedPointLightColor(const float captured[3], const PointLightUpload& upload, float uploaded[3]);
+float UnscaledShareOfUploadedColor(const LocalPointLight& light, const PointLightUpload& upload);
 float DistanceWhereAttenuationReaches(const float attenuation[3], double denominator);
 float PointLightCutoff(const float color[3], const float attenuation[3], float reach = 1.0f);
 double LocalLightPriority(const LocalPointLight& light, const float cameraPosition[3]);

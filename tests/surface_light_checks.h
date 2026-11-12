@@ -96,6 +96,7 @@ Config SurfaceConfig(const Config& saved, float strength, float godRays = 0.0f)
     config.godRays = godRays;
     config.maxDistance = 1000;
     config.dataMode = 0;
+    config.density = 0.0f;
     config.surfaceLights = strength;
     return config;
 }
@@ -121,17 +122,24 @@ FrameInputs SceneInputs(Scene& scene, const Config& config, float lightScale = 1
     return input;
 }
 
+float SurfaceGainOf(const FrameInputs& input)
+{
+    return SurfaceLightGain(SkyIlluminant(input.ambientColor, input.directColor));
+}
+
 LitFrame RenderLit(Harness& h, Scene& scene, const Config& saved, float strength, bool withLight,
                    uint32_t ambientColor = 0, uint32_t directColor = 0, float lightScale = 1.0f,
                    float godRays = 0.0f, LocalLightSource source = LocalLightSource::World)
 {
-    const Config config = SurfaceConfig(saved, strength, godRays);
-    vf_test_set_config(&config);
-    FrameInputs input = SceneInputs(scene, config, lightScale, source);
+    FrameInputs input = SceneInputs(scene, SurfaceConfig(saved, strength, godRays), lightScale, source);
     if (ambientColor)
         input.ambientColor = ambientColor;
     if (directColor)
         input.directColor = directColor;
+    const float gain = SurfaceGainOf(input);
+    Config config = SurfaceConfig(saved, strength / gain, godRays);
+    config.spellSurfaceLights = saved.spellSurfaceLights / gain;
+    vf_test_set_config(&config);
     if (!withLight)
         input.localLights.pointLightCount = 0;
     LitFrame frame;

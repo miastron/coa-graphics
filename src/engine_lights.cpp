@@ -431,6 +431,7 @@ bool BoundCandidate(const LocalPointLight& light, const PointLightUpload& upload
     candidate = light;
     const PointLightUpload sourceUpload = engine::SourceUpload(upload, light.source);
     engine::UploadedPointLightColor(candidate.color, sourceUpload, candidate.uploadedColor);
+    candidate.surfaceShare = engine::UnscaledShareOfUploadedColor(candidate, sourceUpload);
     candidate.cutoff = engine::PointLightCutoff(candidate.uploadedColor, candidate.attenuation, sourceUpload.reach);
     return candidate.cutoff > 0.0f;
 }
@@ -482,6 +483,19 @@ void UploadedPointLightColor(const float captured[3], const PointLightUpload& up
     for (int channel = 0; channel < 3; ++channel)
         uploaded[channel] = (upload.linear ? LinearChannel(captured[channel], peak)
                                            : std::max(captured[channel], 0.0f)) * upload.intensity;
+}
+
+float UnscaledShareOfUploadedColor(const LocalPointLight& light, const PointLightUpload& upload)
+{
+    if (!(light.sourceIntensity > 0.0f))
+        return 1.0f;
+    float unscaledCaptured[3];
+    for (int channel = 0; channel < 3; ++channel)
+        unscaledCaptured[channel] = light.color[channel] / light.sourceIntensity;
+    float unscaled[3];
+    UploadedPointLightColor(unscaledCaptured, upload, unscaled);
+    const float uploadedPeak = PeakColor(light.uploadedColor);
+    return uploadedPeak > 0.0f ? PeakColor(unscaled) / uploadedPeak : 1.0f;
 }
 
 float DistanceWhereAttenuationReaches(const float attenuation[3], double denominator)

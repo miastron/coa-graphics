@@ -1706,56 +1706,161 @@ void CheckMoonScattersOnItsOwn(const FogData& data)
           "its own: SunScatter 0 darkens the sun's halo and leaves the moon's");
 }
 
-struct RegionLights
-{
-    int map;
-    float intensity;
-};
-
 void CheckLocalLightsGlowByRegion()
 {
     const Vec3 eye = {-3005.0f, 4469.0f, -18.0f};
     const Vec3 toLight = {0.607f, 0.607f, 0.513f};
     const float evening = 0.7279f;
-    bool followsRegion = true;
-    bool spellsKeepTheirGain = true;
-    for (float density : {0.15f, 0.5f, 1.0f, 2.0f})
+    const int maps[] = {kEasternKingdoms, kOutland, kNorthrend};
+    bool lampsGlowAsSpellsDo = true;
+    bool regionLampValueLeavesTheGain = true;
+    bool thickerRegionDimsTheGain = true;
+    for (const int map : maps)
     {
-        Config cfg;
-        cfg.azerothDensity = density;
-        cfg.outlandDensity = density;
-        cfg.northrendDensity = density;
-        cfg.azerothLocalLights = 1.5f;
-        cfg.outlandLocalLights = 2.5f;
-        cfg.northrendLocalLights = 4.0f;
-        const RegionLights regions[] = {{kEasternKingdoms, 1.5f}, {kOutland, 2.5f}, {kNorthrend, 4.0f}};
-        for (const RegionLights& region : regions)
+        const FrameInputs frame = ContinentFrame(map, eye, evening, toLight, false);
+        float previousGain = 0.0f;
+        for (const float density : {0.15f, 0.5f, 1.0f, 2.0f})
         {
-            const FrameInputs frame = ContinentFrame(region.map, eye, evening, toLight, false);
-            const FogParams fog = BuildFogParams(frame, ConfigForMap(cfg, region.map), nullptr);
-            followsRegion = followsRegion && Near(fog.localLightGain * density, region.intensity);
+            Config cfg;
+            cfg.azerothDensity = density;
+            cfg.outlandDensity = density;
+            cfg.northrendDensity = density;
+            const FogParams fog = BuildFogParams(frame, ConfigForMap(cfg, map), nullptr);
+            lampsGlowAsSpellsDo = lampsGlowAsSpellsDo && Near(fog.localLightGain, fog.spellLightGain);
+            thickerRegionDimsTheGain =
+                thickerRegionDimsTheGain && (previousGain == 0.0f || fog.spellLightGain <= previousGain);
+            previousGain = fog.spellLightGain;
+            Config boosted = cfg;
+            boosted.azerothLocalLights = 4.0f;
+            boosted.outlandLocalLights = 4.0f;
+            boosted.northrendLocalLights = 4.0f;
+            const FogParams boostedFog = BuildFogParams(frame, ConfigForMap(boosted, map), nullptr);
+            regionLampValueLeavesTheGain =
+                regionLampValueLeavesTheGain && Near(boostedFog.localLightGain, fog.localLightGain);
             LocalPointLight lamp;
             LocalPointLight spell;
             spell.source = LocalLightSource::Spell;
-            spellsKeepTheirGain = spellsKeepTheirGain && Near(LocalLightFogGain(fog, lamp), fog.localLightGain) &&
-                                  Near(LocalLightFogGain(fog, spell) * density, 1.0f);
+            lampsGlowAsSpellsDo = lampsGlowAsSpellsDo && Near(LocalLightFogGain(fog, lamp), fog.localLightGain) &&
+                                  Near(LocalLightFogGain(fog, spell), fog.spellLightGain);
         }
     }
     const Config defaults;
-    const FogParams outland = BuildFogParams(ContinentFrame(kOutland, eye, evening, toLight, false),
-                                             ConfigForMap(defaults, kOutland), nullptr);
-    const FogParams azeroth = BuildFogParams(ContinentFrame(kEasternKingdoms, eye, evening, toLight, false),
-                                             ConfigForMap(defaults, kEasternKingdoms), nullptr);
-    std::printf("     local light gain by default: Outland %.3f, Azeroth %.3f\n", outland.localLightGain,
-                azeroth.localLightGain);
-    Check(followsRegion && Near(azeroth.localLightGain, 1.0f) && defaults.outlandLocalLights == 8.0f &&
-              defaults.northrendLocalLights == 8.0f && Near(outland.localLightGain, 8.0f / 0.15f),
-          "the local lights scatter with their region's intensity over the region's density, so the density "
-          "sliders leave the lamps' glow alone; Outland and Northrend start at 8, as upstream's testers needed about "
-          "eight times the old world's intensity there, and Azeroth stays as before by default");
-    Check(spellsKeepTheirGain,
-          "spell lights scatter over the region's density alone, whatever its lamp intensity, while the lamps "
-          "keep the region's gain");
+    Check(defaults.outlandLocalLights == 8.0f && defaults.northrendLocalLights == 8.0f &&
+              defaults.azerothLocalLights == 1.0f,
+          "the region lamp values still start at 1 for Azeroth and 8 for Outland and Northrend: they set how far "
+          "each lamp's glow reaches");
+    Check(lampsGlowAsSpellsDo && regionLampValueLeavesTheGain,
+          "lamps and spell lights glow with the same fog-normalised gain in every region, and the region's lamp "
+          "value no longer multiplies it");
+    Check(thickerRegionDimsTheGain,
+          "a thicker region lowers the glow gain in every region instead of leaving it fixed");
+}
+
+FogParams ThinFogEverywhere(float density)
+{
+    FogParams fog = {};
+    fog.maxDistance = 1000.0f;
+    fog.layers[0].density = density;
+    fog.layers[0].endDistance = 1.0e9f;
+    fog.layers[0].exponent = 1.0f;
+    fog.layers[0].upperHeight = 1.0e9f;
+    fog.layers[0].lowerHeight = -1.0e9f;
+    return fog;
+}
+
+float FogGlowGainAt(float density)
+{
+    return FogGlowGain(density, kFogGlowReferenceIlluminant);
+}
+
+float FogGlowGainUnder(float illuminant)
+{
+    return FogGlowGain(kFogGlowReferenceDensity, illuminant);
+}
+
+float SurfaceGainAt(float illuminant)
+{
+    return SurfaceLightGain(illuminant);
+}
+
+bool GainsMoveTheRightWay()
+{
+    const float steps[] = {0.0003f, 0.001f, 0.002f, 0.003f, 0.0045f, 0.01f, 0.03f, 0.1f, 1.0f};
+    for (size_t i = 1; i < std::size(steps); ++i)
+        if (FogGlowGainAt(steps[i]) > FogGlowGainAt(steps[i - 1]) ||
+            FogGlowGainUnder(steps[i]) < FogGlowGainUnder(steps[i - 1]) ||
+            SurfaceGainAt(steps[i]) < SurfaceGainAt(steps[i - 1]))
+            return false;
+    return true;
+}
+
+bool GainsStayBetweenTheirLimits()
+{
+    bool inside = true;
+    for (float input = 0.0f; input < 2.0f; input += 0.0007f)
+    {
+        const float fogGain = FogGlowGainAt(input);
+        const float surfaceGain = SurfaceGainAt(input);
+        inside = inside && fogGain >= kFogGlowGainLowest && fogGain <= kFogGlowGainHighest &&
+                 surfaceGain >= kSurfaceLightGainLowest && surfaceGain <= kSurfaceLightGainHighest;
+    }
+    return inside && FogGlowGainAt(1000.0f) == kFogGlowGainLowest && FogGlowGainAt(1.0e-9f) == kFogGlowGainHighest &&
+           FogGlowGainAt(0.0f) == kFogGlowGainHighest && SurfaceGainAt(0.0f) == kSurfaceLightGainLowest &&
+           SurfaceGainAt(100.0f) == kSurfaceLightGainHighest;
+}
+
+bool GainsHaveNoJump()
+{
+    constexpr float kNeighbour = 1.001f;
+    for (float input = 0.0005f; input < 0.5f; input *= kNeighbour)
+        if (std::fabs(FogGlowGainAt(input) - FogGlowGainAt(input * kNeighbour)) > 0.002f * FogGlowGainAt(input) ||
+            std::fabs(SurfaceGainAt(input) - SurfaceGainAt(input * kNeighbour)) > 0.002f * SurfaceGainAt(input))
+            return false;
+    return true;
+}
+
+bool MeasuredExtinctionRecoversTheDensity()
+{
+    for (const float density : {0.001f, 0.003f, 0.012f})
+    {
+        const float opacity = LevelRayFogAt(ThinFogEverywhere(density), kGlowMeasureYards).opacity;
+        if (!Near(MeanExtinctionOverYards(opacity, kGlowMeasureYards) / density, 1.0f))
+            return false;
+    }
+    return MeanExtinctionOverYards(0.0f, kGlowMeasureYards) == 0.0f &&
+           std::isfinite(MeanExtinctionOverYards(1.0f, kGlowMeasureYards));
+}
+
+void CheckRelativeLightGains()
+{
+    Check(Near(FogGlowGainAt(kFogGlowReferenceDensity), 1.0f) &&
+              Near(SurfaceGainAt(kSurfaceLightReferenceIlluminant), 1.0f) &&
+              Near(FogGlowGainUnder(kFogGlowReferenceIlluminant), 1.0f),
+          "the fog glow gain is 1 at the reference optical density and the surface light gain is 1 at the "
+          "reference illuminant");
+    Check(GainsMoveTheRightWay(),
+          "denser fog dims the lights' glow, and a brighter sky raises both the glow and the light on surfaces");
+    Check(GainsStayBetweenTheirLimits(),
+          "both gains stay between their lowest and highest, no fog gives the highest glow and no sky light the lowest "
+          "surface light");
+    Check(GainsHaveNoJump(), "neighbouring densities and illuminants give neighbouring gains, with no jump");
+    Check(MeasuredExtinctionRecoversTheDensity(),
+          "the mean extinction over the first 40 yards recovers the fog's density and stays finite when the fog is "
+          "opaque");
+
+    const Vec3 eye = {-3005.0f, 4469.0f, -18.0f};
+    const Vec3 toLight = {0.607f, 0.607f, 0.513f};
+    Config thin;
+    Config thick;
+    thick.density = 4.0f * thin.density;
+    const FrameInputs frame = ContinentFrame(kEasternKingdoms, eye, 0.7279f, toLight, false);
+    const FogParams thinFog = BuildFogParams(frame, thin, nullptr);
+    const FogParams thickFog = BuildFogParams(frame, thick, nullptr);
+    std::printf("     spell glow gain at Density %.2f: %.3f, at %.2f: %.3f\n", thin.density, thinFog.spellLightGain,
+                thick.density, thickFog.spellLightGain);
+    Check(thickFog.spellLightGain < thinFog.spellLightGain && thickFog.spellLightGain >= kFogGlowGainLowest &&
+              thinFog.spellLightGain <= kFogGlowGainHighest,
+          "a thicker fog in front of the camera lowers the gain BuildFogParams gives the lights' glow");
 }
 
 void CheckOutlandSkyColourTintsTheConvertedFog(const FogData& data)
@@ -3143,6 +3248,7 @@ int Run(const std::wstring& outDir, const std::string& dataPath, const std::wstr
     RUN_GROUP(CheckHellfireKeepsOnlyAThinGroundFogUnderAClearSky(classic));
     RUN_GROUP(CheckMoonScattersOnItsOwn(classic));
     RUN_GROUP(CheckLocalLightsGlowByRegion());
+    RUN_GROUP(CheckRelativeLightGains());
     RUN_GROUP(CheckNegligibleLightsLeaveTheLightLogAlone());
     RUN_GROUP(CheckStormBlendsLayersByClassicIndex(classic));
     RUN_GROUP(CheckScreenEffectLightSlot(classic));

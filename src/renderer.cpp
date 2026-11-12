@@ -98,7 +98,6 @@ constexpr UINT kSurfaceLightRegister = 100;
 constexpr UINT kSurfaceLightRegisters = 5;
 constexpr DWORD kSceneBeforeLightsStage = 1;
 constexpr DWORD kLocalLightStage = 8;
-constexpr float kSurfaceDisplayGamma = 2.2f;
 constexpr UINT kSampleSideRegister = 99;
 constexpr int kQualityLevels = kFogQualityLevels;
 constexpr int kMarchLit = 1;
@@ -1650,20 +1649,6 @@ namespace
 constexpr float kInvisibleLightShare = 0.03f;
 constexpr float kLargestShareLitInPlace = 0.75f;
 constexpr float kFullLightShare = 0.1f;
-constexpr float kSunShareOfIlluminant = 0.5f;
-constexpr float kDarkestIlluminant = 0.02f;
-constexpr float kLumaRed = 0.2126f;
-constexpr float kLumaGreen = 0.7152f;
-constexpr float kLumaBlue = 0.0722f;
-
-float LinearLuma(uint32_t packed)
-{
-    float rgb[3];
-    UnpackColor(packed, rgb);
-    return kLumaRed * std::pow(rgb[0], kSurfaceDisplayGamma) + kLumaGreen * std::pow(rgb[1], kSurfaceDisplayGamma) +
-           kLumaBlue * std::pow(rgb[2], kSurfaceDisplayGamma);
-}
-
 float StrongestSurfaceLight(const Float4* lightData, uint32_t count)
 {
     float strongest = 0.0f;
@@ -1680,9 +1665,7 @@ float SurfaceLightVisibility(const Float4* lightData, uint32_t count, uint32_t a
         const Float4& colour = lightData[i * 3 + 1];
         brightest = std::max(brightest, std::max(colour.x, std::max(colour.y, colour.z)));
     }
-    const float illuminant =
-        std::max(LinearLuma(ambient) + kSunShareOfIlluminant * LinearLuma(direct), kDarkestIlluminant);
-    const float share = brightest / illuminant;
+    const float share = brightest / SkyIlluminant(ambient, direct);
     const float t = std::clamp((share - kInvisibleLightShare) / (kFullLightShare - kInvisibleLightShare), 0.0f, 1.0f);
     return t * t * (3.0f - 2.0f * t);
 }
@@ -2071,6 +2054,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
     BindTerrainShadows(dev, terrainShadows);
     uint32_t pointLightCount = cfg.localLights ? std::min(in.localLights.pointLightCount, kMaxLocalPointLights) : 0;
     Float4 localConstants[32] = {};
+    const float surfaceGain = SurfaceLightGain(SkyIlluminant(in.ambientColor, in.directColor));
     for (uint32_t i = 0; i < pointLightCount; ++i)
     {
         const LocalPointLight& light = in.localLights.pointLights[i];
@@ -2080,7 +2064,7 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
         TransformDirection(relative, in.cameraRelativeView, position);
         localConstants[i * 3] = {position[0], position[1], position[2], light.cutoff};
         localConstants[i * 3 + 1] = {light.uploadedColor[0], light.uploadedColor[1], light.uploadedColor[2],
-                                     LocalLightSurfaceStrength(cfg, light)};
+                                     LocalLightSurfaceStrength(cfg, light) * surfaceGain};
         localConstants[i * 3 + 2] = {light.attenuation[0], light.attenuation[1], light.attenuation[2],
                                      LocalLightFogGain(fog, light)};
     }

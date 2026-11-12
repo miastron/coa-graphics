@@ -89,14 +89,24 @@ after it say how each works and what is checked.
 - **Spell lights**: the additive particles and mesh batches (shields, auras) of each drawn spell model become one light in
   their colour times their texture's mean colour, sharing the eight slots (`SpellLights`, `SpellLightIntensity`). Only
   `SpellLightIntensity` scales them: `LocalLightIntensity` and the region values are the lamps' alone, so a spell keeps
-  its brightness, reach and glow when the lamps are turned down, and scatters with the region's density compensation
-  only. A flying spell's light sits at its emitters, one frame's travel ahead, rather than at the centre of the trail
+  its brightness, reach and glow when the lamps are turned down, and glows with the fog gain below alone. A flying spell's light sits at its emitters, one frame's travel ahead, rather than at the centre of the trail
   behind it, and the trail neither widens nor brightens it; a small glow shines at half the power of a large one.
 - **Lights on surfaces** (`SurfaceLights` for lamps, `SpellSurfaceLights` for spells): the eight lights also light the
   opaque world around them, before the fog composite, from the depth buffer and without shadows of their own. Ground
   the client's shadow maps shade (`WorldShadows`) takes the light of its unshaded albedo, so a light fills the shadow.
   A light joins the client's own lighting by a soft sum: two lights add less than twice one, and a surface the client
   lit already takes less, never past a fully lit surface.
+- **Relative light strengths** (Phase 3 step 2): the four light strengths are scaled each frame so 1.0 looks about
+  alike everywhere. The glow of lamps and spells is multiplied by `clamp((0.003 / e) * (I / 0.045), 0.1, 128)`, where
+  `e` is the fog's mean extinction over the first 40 yd (from `LevelRayFogAt`) and `I` the sky illuminant, the linear
+  luma of the ambient plus half the direct light; the light on surfaces by `clamp(I / 0.107, 0.15, 5)`.
+  `SpellSurfaceLights` no longer rides on `SpellLightIntensity`: the light carries the share of its colour the intensity
+  did not add. The exponents and limits are named constants in `fog_model.h`, tuned on the transfer sheet
+  (`--scene transfer`, DXVK, not the game): the lamp on the ground spread across the 64 contexts fell from 291 to
+  53 times in contrast, the lamp in the air from 2124 to 150 times (Hellfire stays at none: no fog within 40 yd), the
+  spell on the ground from 636 to 26 times. The region lamp values (`AzerothLocalLights`, `OutlandLocalLights`,
+  `NorthrendLocalLights`) now set the glow's reach only; the gain no longer multiplies by them, nor divides by the
+  region's `Density` key.
 - **Interior transitions**: the camera's native WMO blend reduces outdoor layers and sunlight, keeping the interior's
   own fog colour and range.
 - **Authored noise** (optional, off by default): drifting fog banks where the Classic layers carry the modern
