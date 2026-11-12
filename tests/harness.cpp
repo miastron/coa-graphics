@@ -54,13 +54,16 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <cwctype>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -4280,6 +4283,7 @@ namespace
 #include "performance_scene.h"
 #include "copy_cost_scene.h"
 #include "water_performance_scene.h"
+#include "transfer_sheet.h"
 }
 
 int wmain(int argc, wchar_t** argv)
@@ -4288,6 +4292,7 @@ int wmain(int argc, wchar_t** argv)
     std::string data = "fogdata.bin";
     std::string waterData = "waterdata.bin";
     std::wstring ini = L"CoAGraphics.ini";
+    std::string contexts = "transfer_contexts.csv";
     std::wstring scene;
     D3DMULTISAMPLE_TYPE samples = D3DMULTISAMPLE_NONE;
     HarbourOptions harbour;
@@ -4322,6 +4327,12 @@ int wmain(int argc, wchar_t** argv)
         }
         if (std::wcscmp(argv[i], L"--ini") == 0)
             ini = argv[i + 1];
+        if (std::wcscmp(argv[i], L"--contexts") == 0)
+        {
+            char path[MAX_PATH] = {};
+            WideCharToMultiByte(CP_ACP, 0, argv[i + 1], -1, path, MAX_PATH, nullptr, nullptr);
+            contexts = path;
+        }
         if (std::wcscmp(argv[i], L"--water-data") == 0)
         {
             char path[MAX_PATH] = {};
@@ -4365,10 +4376,14 @@ int wmain(int argc, wchar_t** argv)
         return copy_cost_scene::RunCopyCost();
     if (scene == L"cpu")
         return Run(out, data, ini, waterData, true);
+    if (scene == L"transfer")
+        return transfer_sheet::RunTransferSheet(out, data, contexts, ini, true);
+    if (scene == L"transfer-fog")
+        return transfer_sheet::RunTransferSheet(out, data, contexts, ini, false);
     if (!scene.empty())
     {
         std::printf("unknown scene %ls (known: copy-cost, cpu, harbour, performance, ripples, "
-                    "upsample-paths, water-performance)\n",
+                    "transfer, transfer-fog, upsample-paths, water-performance)\n",
                     scene.c_str());
         return 2;
     }

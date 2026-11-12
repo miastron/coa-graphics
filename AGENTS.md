@@ -77,7 +77,11 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
 - `tests/harness.cpp` — the offline D3D9 harness; `--scene harbour` renders a logged in-game frame, `--scene ripples`
   units wading through the basin. `tests/shaders/` holds a copy of the client's M2 fog shader for the transparent fog
   checks.
-- `tools/` — the Classic fog, client light and Forever water data converters and the comment check.
+  `--scene transfer` writes the transfer sheet (`tests/transfer_sheet.h`): one scene under the places, hours and
+  weathers of `tests/transfer_contexts.csv`, what the fog and the lights show in each, and what each setting moves.
+- `tools/` — the Classic fog, client light and Forever water data converters, `extract_client_tables.py` (the client's
+  `DBFilesClient` tables out of its MPQ archives, in the client's own archive order), `make_transfer_contexts.py` (the
+  sheet's contexts from those tables) and the comment check.
 
 ## Maintaining guidance
 

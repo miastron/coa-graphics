@@ -654,6 +654,55 @@ tables (a `DBFilesClient` folder or zip):
 python tools/convert_client_lights.py data/fogdata.bin <DBFilesClient folder or zip> data/fogdata.bin
 ```
 
+The tables sit inside the client's MPQ archives. `python tools/extract_client_tables.py <client folder> <output folder>`
+writes them to a folder, each from the archive the client reads it from, and names the other archives that hold a
+copy (`--tables` takes other `DBFilesClient` names). The order is read from wowdecomp, not from a run of the client:
+`PatchFiles` (`0x405AB0`) lists `Data\patch-?.MPQ` and `Data\<locale>\patch-<locale>-?.MPQ`, sorts the paths in falling
+order without regard to case (`0x401200`), then appends `Data\patch.MPQ` and `Data\<locale>\patch-<locale>.MPQ`;
+`OpenArchives` (`0x405DD0`) opens that list from its end with priorities rising from 64 and skips a file that does not
+open. So `patch-Z` outranks `patch-A`, every `Data\patch-?` outranks the locale's numbered patches, and those outrank
+`patch.MPQ`, then `patch-<locale>.MPQ`. The base archives take 63 downwards in the order of `s_archives` (`0xAB6168`);
+that the higher number wins is inferred from the patches standing above them. The reader takes archives of format 0
+and 1, encrypted files, and zlib and bzip2 sectors; it refuses PKWARE-imploded and incremental patch files by name.
+Run on 2026-11-11 on the owner's client, first with the stock 3.3.5a archives and four of Project Reforged's
+(`patch-D`, `-E`, `-N`, `-P`): light 5000, 86 yd from the camera of a logged Elwynn frame and inside its 612 yd inner
+falloff, gave direct `FF8E3B` and ambient `68829A` at that frame's time of day and `40556A` and `132737` at midnight,
+where the log has `FE8E3A`, `68829A`, `40546A` and `122636`. With all of Reforged's archives in `Data` (30 archives
+read, none unreadable): `Light` (827 records), `LightFloatBand` (5190), `LightParams` (865) and `LightSkybox` (164)
+from `patch-E`, `LightIntBand` (15568) from `patch-N`, `Map` (135) from `patch-enUS-3`, `AreaTable` (2359) from
+`patch-S`. Light 5000 then uses params 2014 and gives direct `A6825F` and ambient `7A93AB` by day and `182E42` and
+`243A47` at midnight, so the complete set lights Elwynn differently from the partial one the log was written under;
+the log of the next game session with the complete set is the check. `Data\patch-Y.mpq` is a saved web page, which
+the client skips.
+
+`python tools/make_transfer_contexts.py <DBFilesClient folder> tests/transfer_contexts.csv` writes the sky light of
+eight places at four hours in clear weather and in a storm from those tables: direct, ambient, fog and sun colour, the
+fog distances, and the direction to the sun or moon. It blends as wowdecomp reads the client, not as a run of it:
+`DayNight::SetColors` starts from the map's light at the origin (`LightLoad` keeps the last such record of the map,
+light 1 where a map has none), each light's clear params mixed with its storm params (the third of the record's
+eight) by the storm blend; `DoAreaLights` then mixes in every placed light whose outer falloff reaches the camera,
+the farthest first, with weight 1 inside the inner falloff falling to 0 at the outer (`BlendAreaLight`, `0x7EE5D0`).
+Bands 0, 1, 7 and 9 of `LightIntBand` (record `18 * params - 17 + band`) are the direct, ambient, fog and sun colours,
+band 0 of `LightFloatBand` the fog distance in 1/36 yd and band 1 the share of it where the fog starts
+(`LoadLightingBands`, `0x7EBFF0`); the band time is the day fraction times 2880, less a half, rounded. The sun's angle
+from the zenith runs from 1.7453 at 0.2292 of the day through 0.0873 at noon to 1.7453 at 0.8958, the moon's from
+0.6109 at midnight to 1.7453 at 0.1667 and from 0.9167 back, both at azimuth 0.7854 (`SetPlanets`, `0x7EECC0`); the
+moon lights outside the day window 0.2014 to 0.9236 (the floats at `0xA41CA4` and `0xA41CA0`, read from the image).
+Northrend takes a zone's light another way: eleven outlines are written into the client (`s_zones`, `0xADEF58`, with
+lights 914, 825, 959, 862, 1847, 1703, 1796, 1777, 1792, 1589 and 1740; `FindAndAddZoneLight`, `0x77EED0`), and a
+camera more than 50 yd inside one takes that light whole before the placed lights. Tested against the decomp's
+outline strings, Valiance Keep lies 1883 yd inside the outline of light 914 and K3 243 yd inside that of light 1777,
+so the two Northrend places name those lights; the outlines themselves are not in the tool. Not modelled: the merge
+rule for placed lights closer than the client's merge distance, light overrides, liquids and interiors. Against the
+owner's log of 2026-11-11 (Elwynn, the complete Reforged set) the tool gives direct `A06A3F`, ambient `848EA2`, fog
+`63829A`, sun `FEE0A7`, a fog start of 22.6 yd of 1557 and a zone distance of 2361.1 yd at 0.7091 of the day, and
+`182E42`, `243A47`, `070F24`, `A8A8A8` and a start of 0 at midnight, where the log has `A06A3E`, `848EA2`, `62829A`,
+`FEE0A6`, 22.6 and 2361.1, and `182E42`, `243A46`, `060E24`, `A8A8A8` and 0; the direction to the sun is (0.578 0.578
+0.577) against the logged (0.575 0.575 0.582), to the moon (0.406 0.406 0.819) against (0.394 0.394 0.830).
+`fogdata.bin` does not know the eleven outlines: its Northrend lights are the client's records as spheres, so away
+from the placed lights the fog of every Northrend zone is the map-wide light's, while the client lights each zone by
+its own.
+
 Every client light on a map without Classic lights becomes a light of its own (id + 1000000), placed as the client
 places it: world X = 17066.666 − z/36, Y = 17066.666 − x/36, Z = y/36, falloff /36, a light at the origin without
 falloff stays map-wide. 257 Classic lights have a twin with the same id and position in the client table (light 77 at
@@ -1995,6 +2044,24 @@ Scenes for looking at the output:
   Elwynn grass and about 3.7% in Duskwood's tree canopies, in a quarter of the 8×8 pixel blocks. There the log's
   composite went from 5.3–5.5 ms to 2.6–2.9 ms with the second pass (sessions minutes apart, the second one moving
   around the same field), and the owner saw no difference in grass or canopies.
+- `vfog_harness --scene transfer <folder> --data data/fogdata.bin --contexts tests/transfer_contexts.csv --ini
+  CoAGraphics.ini` writes the transfer sheet: how the same settings look under 64 skies (eight places, four hours,
+  clear and storm; see Classic fog data for where the contexts come from). `--scene transfer-fog` runs only its first
+  half, which needs no device: the fog's opacity along a level ray at 150 yd, 1000 yd and to the fog range, its own
+  light at 400 yd, and, for each of 16 fog settings doubled or flipped, how far those four move in each context. The
+  second half renders one scene per context at 800×450 (ground, a character, a lamp with the attenuation of the owner's
+  Elwynn lamps, a purple spell light with a reach of 8 yd, trees, dark boards 150 and 400 yd away), shaded as the
+  surface pass assumes the client shades (albedo times the ambient plus the direct light, in linear light). It reads
+  what the fog adds on the boards and at the horizon, and what each light adds in the air above it and on the ground
+  1, 3 and 6 yd from it, in steps of 255 and as a contrast, and repeats that for 25 settings. Output: a picture per
+  context, four CSV files and `transfer-sheet.html`. Settings that move the same effect by the same factor, or by a
+  fixed power of it, are listed as overlapping. Not on the sheet: `TransparentFog`, `GlowCompensation`, `ForeverGlow`
+  and `ColorGrading` (the harness has no glow pass and no models drawn after the world), `NoiseWindSpeed`, the
+  interior settings, and `LightShafts` (nothing in the scene stands before the sun). On the 780M under DXVK
+  (2026-11-12, the shipped INI): the fog's optical depth at 150 yd differs 194 times between contexts and its own
+  light 2210 times; the lamp adds 1 to 36 steps to the ground 3 yd away (contrast 0.02 to 6.4) and shows in the air by
+  2 steps or more in 39 contexts; the spell light adds 1.5 steps at most anywhere. A harness render: none of it
+  establishes the look in game.
 - `vfog_harness --scene water-performance --water-data data/waterdata.bin` times the water pass on the basin scene (1280×688
   world viewport) with the shipped settings and with one setting changed at a time, and prints `case,median_ms` of the
   water pass's own GPU time over 90 frames.
