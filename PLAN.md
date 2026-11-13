@@ -144,9 +144,9 @@ Step 2 takes its before from these files. Found on the way: Northrend's zone lig
 2. **Relative strengths: done, installed, seen working in game (`5a745bb`, `a350256`, 2026-11-12).** 1.0 means "the
    same look in every fog at night, cancelled by daylight": the DLL scales each of the four light strengths every frame
    (lamps and spells in the fog, lamps and spells on surfaces). Glow gain of a lamp =
-   `clamp((0.003 / e) * (0.045 / I)^0.5, 0.1, 128)`, of a spell the same with `^0.25`; `e` is the fog's mean extinction over the 40 yd around that light's
-   distance from the camera (`LocalLightGlowGain`, from `LevelRayFogAt`'s optical depth), `I` = linear luma of ambient +
-   half direct; surface gain = `clamp(0.42 * (0.045 / I)^0.5, 0.05, 2)`. `SpellSurfaceLights` no longer rides on
+   `clamp((0.003 / e) * (0.045 / I)^0.5, 0.1, 128)`, of a spell the same with `^0.25`; `e` is the fog's mean extinction
+   over the 40 yd around that light's distance from the camera (`LocalLightGlowGain`, from `LevelRayFogAt`'s optical
+   depth), `I` = linear luma of ambient + half direct; surface gain = `clamp(0.42 * (0.045 / I)^0.5, 0.05, 2)`. `SpellSurfaceLights` no longer rides on
    `SpellLightIntensity`; the region lamp values set reach only (`fog_model.h`, README).
    Two corrections after the first install, both the owner's finding: (1) the first build raised the gain with
    brightness to hold a lamp's contrast constant, which made lamps 6 times as strong on the ground at Elwynn noon and 30
