@@ -83,6 +83,12 @@ are compiled with `fxc`. `README.md` holds the design and the reverse-engineerin
   `DBFilesClient` tables out of its MPQ archives, in the client's own archive order), `make_transfer_contexts.py` (the
   sheet's contexts from those tables) and the comment check.
 
+## Build environment gotchas (Windows)
+
+- Before building, verify `cmake --version` succeeds. A missing cmake can exit 0 silently.
+- In Git Bash, set `MSYS_NO_PATHCONV=1` for tools that take /flags (e.g. dumpbin), or use PowerShell instead.
+- Expect CRLF noise in diffs. Use `git diff --ignore-cr-at-eol` before concluding a file changed.
+
 ## Maintaining guidance
 
 Keep only stable conventions here. Update this file when requested or when a durable correction is needed.
