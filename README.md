@@ -97,14 +97,22 @@ after it say how each works and what is checked.
   A light joins the client's own lighting by a soft sum: two lights add less than twice one, and a surface the client
   lit already takes less, never past a fully lit surface.
 - **Relative light strengths** (Phase 3 step 2): the four light strengths are scaled each frame so 1.0 looks about
-  alike everywhere. The glow of lamps and spells is multiplied by `clamp((0.003 / e) * (I / 0.045), 0.1, 128)`, where
-  `e` is the fog's mean extinction over the first 40 yd (from `LevelRayFogAt`) and `I` the sky illuminant, the linear
-  luma of the ambient plus half the direct light; the light on surfaces by `clamp(I / 0.107, 0.15, 5)`.
+  alike in every fog at night and is cancelled by daylight (the owner's call: lamps must not outshine the sun). The glow
+  of a lamp is multiplied by `clamp((0.003 / e) * (0.045 / I)^0.5, 0.1, 128)` and that of a spell by the same with
+  `^0.25`, where `e` is the fog's mean extinction over the 40 yd around that light's distance from the camera (from
+  `LevelRayFogAt`, so the fog the glow sits in, not the fog at the camera) and `I` the sky illuminant, the linear luma
+  of the ambient plus half the direct light; the light on surfaces by `clamp(0.42 * (0.045 / I)^0.5, 0.05, 2)`. The
+  first build raised the gain with `I` to hold the lamp's contrast constant, which made lamps 6 times as strong at
+  Elwynn noon on the ground and 30 times in the air; the owner reversed it. Measuring `e` only at the camera also let
+  the glow swing across the Orgrimmar gate, where the client's fog start sweeps from 29 to 556 yd while the lamps
+  stay put.
   `SpellSurfaceLights` no longer rides on `SpellLightIntensity`: the light carries the share of its colour the intensity
   did not add. The exponents and limits are named constants in `fog_model.h`, tuned on the transfer sheet
-  (`--scene transfer`, DXVK, not the game): the lamp on the ground spread across the 64 contexts fell from 291 to
-  53 times in contrast, the lamp in the air from 2124 to 150 times (Hellfire stays at none: no fog within 40 yd), the
-  spell on the ground from 636 to 26 times. The region lamp values (`AzerothLocalLights`, `OutlandLocalLights`,
+  (`--scene transfer`, DXVK, not the game): at Elwynn noon the lamp on the ground reads a contrast of 0.011 (0.073 before
+  step 2, 0.447 in the first build) and in the air 0.004 (0.099 in the first build); at Elwynn midnight 0.9 and 1.7.
+  Outland's night sky is bright (illuminant 0.15 at Hellfire midnight), so its lamps on the ground read 0.064 at
+  midnight against 0.355 before step 2; Hellfire stays at no glow in the air: no fog within 40 yd. The region lamp
+  values (`AzerothLocalLights`, `OutlandLocalLights`,
   `NorthrendLocalLights`) now set the glow's reach only; the gain no longer multiplies by them, nor divides by the
   region's `Density` key.
 - **Interior transitions**: the camera's native WMO blend reduces outdoor layers and sunlight, keeping the interior's

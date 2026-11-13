@@ -87,6 +87,7 @@ constexpr int kMaxLampColourLevelError = 3;
 constexpr float kFitLampCutoff = 30.0f;
 constexpr float kFitLampPhase = 0.3f;
 constexpr float kFitLocalLightGain = 2.0f;
+constexpr float kLampLitSkyIlluminant = 0.01f * kFogGlowReferenceIlluminant;
 
 struct LampPlacement
 {
@@ -453,13 +454,20 @@ FrameInputs LampsAroundTheCameraInputs()
     return v.in;
 }
 
+FogParams LampLitFog()
+{
+    FogParams fog = HomogeneousFog(kLampLitDensity, 0.0f);
+    fog.skyIlluminant = kLampLitSkyIlluminant;
+    return fog;
+}
+
 void CheckFitCarriesTheLocalLightGain()
 {
     const FrameInputs lit = LampsAroundTheCameraInputs();
-    FogParams fog = HomogeneousFog(kLampLitDensity, 0.0f);
+    FogParams fog = LampLitFog();
     const StockFogFitLight light = {1.0f, 0.0f, lit.localLights.pointLightCount, kFitLampPhase};
     const StockFogFit plain = FitStockFog(fog, lit, light);
-    fog.localLightGain = kFitLocalLightGain;
+    fog.skyIlluminant = kLampLitSkyIlluminant / (kFitLocalLightGain * kFitLocalLightGain);
     const StockFogFit gained = FitStockFog(fog, lit, light);
     const int shifts[3] = {16, 8, 0};
     bool brighter = false;
@@ -1261,7 +1269,7 @@ void CheckFittedColourCarriesThePointLights(Harness& h)
 {
     const Config cfg = LampLitConfig();
     const View v = LampLitView(cfg);
-    const FogParams fog = HomogeneousFog(kLampLitDensity, 0.0f);
+    const FogParams fog = LampLitFog();
     vf_test_force_fog_params(&fog);
     const LampLitFit fit = MeasureLampLitFit(h, v, cfg);
     vf_test_force_fog_params(nullptr);

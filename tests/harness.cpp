@@ -1715,6 +1715,10 @@ void CheckLocalLightsGlowByRegion()
     bool lampsGlowAsSpellsDo = true;
     bool regionLampValueLeavesTheGain = true;
     bool thickerRegionDimsTheGain = true;
+    constexpr float kLampYards = 30.0f;
+    LocalPointLight lamp;
+    LocalPointLight spell;
+    spell.source = LocalLightSource::Spell;
     for (const int map : maps)
     {
         const FrameInputs frame = ContinentFrame(map, eye, evening, toLight, false);
@@ -1726,22 +1730,21 @@ void CheckLocalLightsGlowByRegion()
             cfg.outlandDensity = density;
             cfg.northrendDensity = density;
             const FogParams fog = BuildFogParams(frame, ConfigForMap(cfg, map), nullptr);
-            lampsGlowAsSpellsDo = lampsGlowAsSpellsDo && Near(fog.localLightGain, fog.spellLightGain);
-            thickerRegionDimsTheGain =
-                thickerRegionDimsTheGain && (previousGain == 0.0f || fog.spellLightGain <= previousGain);
-            previousGain = fog.spellLightGain;
+            const float illuminant = SkyIlluminant(frame.ambientColor, frame.directColor);
+            const float lampGain = LocalLightGlowGain(fog, lamp, kLampYards);
+            const float spellGain = LocalLightGlowGain(fog, spell, kLampYards);
+            lampsGlowAsSpellsDo = lampsGlowAsSpellsDo && (illuminant >= kFogGlowReferenceIlluminant
+                                                              ? lampGain <= spellGain + 1e-4f
+                                                              : lampGain >= spellGain - 1e-4f);
+            thickerRegionDimsTheGain = thickerRegionDimsTheGain && (previousGain == 0.0f || spellGain <= previousGain);
+            previousGain = spellGain;
             Config boosted = cfg;
             boosted.azerothLocalLights = 4.0f;
             boosted.outlandLocalLights = 4.0f;
             boosted.northrendLocalLights = 4.0f;
             const FogParams boostedFog = BuildFogParams(frame, ConfigForMap(boosted, map), nullptr);
-            regionLampValueLeavesTheGain =
-                regionLampValueLeavesTheGain && Near(boostedFog.localLightGain, fog.localLightGain);
-            LocalPointLight lamp;
-            LocalPointLight spell;
-            spell.source = LocalLightSource::Spell;
-            lampsGlowAsSpellsDo = lampsGlowAsSpellsDo && Near(LocalLightFogGain(fog, lamp), fog.localLightGain) &&
-                                  Near(LocalLightFogGain(fog, spell), fog.spellLightGain);
+            regionLampValueLeavesTheGain = regionLampValueLeavesTheGain &&
+                                           Near(LocalLightGlowGain(boostedFog, lamp, kLampYards), lampGain);
         }
     }
     const Config defaults;
@@ -1750,8 +1753,8 @@ void CheckLocalLightsGlowByRegion()
           "the region lamp values still start at 1 for Azeroth and 8 for Outland and Northrend: they set how far "
           "each lamp's glow reaches");
     Check(lampsGlowAsSpellsDo && regionLampValueLeavesTheGain,
-          "lamps and spell lights glow with the same fog-normalised gain in every region, and the region's lamp "
-          "value no longer multiplies it");
+          "lamps and spell lights share the fog-normalised gain in every region and differ only by how far the sky "
+          "dims them, and the region's lamp value does not multiply it");
     Check(thickerRegionDimsTheGain,
           "a thicker region lowers the glow gain in every region instead of leaving it fixed");
 }
@@ -1770,12 +1773,17 @@ FogParams ThinFogEverywhere(float density)
 
 float FogGlowGainAt(float density)
 {
-    return FogGlowGain(density, kFogGlowReferenceIlluminant);
+    return FogGlowGain(density, kFogGlowReferenceIlluminant, kFogGlowLampIlluminantExponent);
 }
 
-float FogGlowGainUnder(float illuminant)
+float LampGlowGainUnder(float illuminant)
 {
-    return FogGlowGain(kFogGlowReferenceDensity, illuminant);
+    return FogGlowGain(kFogGlowReferenceDensity, illuminant, kFogGlowLampIlluminantExponent);
+}
+
+float SpellGlowGainUnder(float illuminant)
+{
+    return FogGlowGain(kFogGlowReferenceDensity, illuminant, kFogGlowSpellIlluminantExponent);
 }
 
 float SurfaceGainAt(float illuminant)
@@ -1788,10 +1796,60 @@ bool GainsMoveTheRightWay()
     const float steps[] = {0.0003f, 0.001f, 0.002f, 0.003f, 0.0045f, 0.01f, 0.03f, 0.1f, 1.0f};
     for (size_t i = 1; i < std::size(steps); ++i)
         if (FogGlowGainAt(steps[i]) > FogGlowGainAt(steps[i - 1]) ||
-            FogGlowGainUnder(steps[i]) < FogGlowGainUnder(steps[i - 1]) ||
-            SurfaceGainAt(steps[i]) < SurfaceGainAt(steps[i - 1]))
+            LampGlowGainUnder(steps[i]) > LampGlowGainUnder(steps[i - 1]) ||
+            SpellGlowGainUnder(steps[i]) > SpellGlowGainUnder(steps[i - 1]) ||
+            SurfaceGainAt(steps[i]) > SurfaceGainAt(steps[i - 1]))
             return false;
     return true;
+}
+
+bool DaylightDimsLampsMoreThanSpells()
+{
+    const float noon = 0.41f;
+    const float midnight = 0.045f;
+    return LampGlowGainUnder(noon) < SpellGlowGainUnder(noon) && SpellGlowGainUnder(noon) < 1.0f &&
+           LampGlowGainUnder(noon) < 0.5f && LampGlowGainUnder(0.02f) > SpellGlowGainUnder(0.02f) &&
+           SpellGlowGainUnder(midnight) > 0.99f && SurfaceGainAt(noon) < 0.5f * SurfaceGainAt(midnight);
+}
+
+bool GlowAtTheLampIgnoresTheInteriorBlend()
+{
+    struct Doorway
+    {
+        float blend;
+        float fogStart;
+    };
+    const Doorway doorway[] = {{1.0f, 29.2f}, {0.968f, 46.1f}, {0.94f, 60.7f}, {0.826f, 108.8f}, {0.0f, 555.6f}};
+    const Vec3 eye = {-3005.0f, 4469.0f, -18.0f};
+    const Vec3 toLight = {0.607f, 0.607f, 0.513f};
+    const Config cfg;
+    LocalPointLight lamp;
+    int measured = 0;
+    for (const Doorway& step : doorway)
+    {
+        FrameInputs frame = ContinentFrame(kEasternKingdoms, eye, 0.0f, toLight, true);
+        frame.fogStart = step.fogStart;
+        frame.localLights.cameraInterior = true;
+        frame.localLights.interiorBlend = step.blend;
+        const FogParams fog = BuildFogParams(frame, cfg, nullptr);
+        for (const float distance : {8.0f, 60.0f, 150.0f})
+        {
+            const float gain = LocalLightGlowGain(fog, lamp, distance);
+            if (gain <= kFogGlowGainLowest || gain >= kFogGlowGainHighest)
+                continue;
+            const float nearEdge = std::max(distance - 0.5f * kGlowMeasureYards, 0.0f);
+            const float depth = LevelRayFogAt(fog, nearEdge + kGlowMeasureYards).opticalDepth -
+                                LevelRayFogAt(fog, nearEdge).opticalDepth;
+            const float glow = gain * depth / kGlowMeasureYards;
+            const float expected = kFogGlowReferenceDensity *
+                                   std::pow(fog.skyIlluminant / kFogGlowReferenceIlluminant,
+                                            kFogGlowLampIlluminantExponent);
+            ++measured;
+            if (std::fabs(glow / expected - 1.0f) > 0.02f)
+                return false;
+        }
+    }
+    return measured >= 10;
 }
 
 bool GainsStayBetweenTheirLimits()
@@ -1805,8 +1863,8 @@ bool GainsStayBetweenTheirLimits()
                  surfaceGain >= kSurfaceLightGainLowest && surfaceGain <= kSurfaceLightGainHighest;
     }
     return inside && FogGlowGainAt(1000.0f) == kFogGlowGainLowest && FogGlowGainAt(1.0e-9f) == kFogGlowGainHighest &&
-           FogGlowGainAt(0.0f) == kFogGlowGainHighest && SurfaceGainAt(0.0f) == kSurfaceLightGainLowest &&
-           SurfaceGainAt(100.0f) == kSurfaceLightGainHighest;
+           FogGlowGainAt(0.0f) == kFogGlowGainHighest && SurfaceGainAt(0.0f) == kSurfaceLightGainHighest &&
+           SurfaceGainAt(100.0f) == kSurfaceLightGainLowest;
 }
 
 bool GainsHaveNoJump()
@@ -1819,34 +1877,54 @@ bool GainsHaveNoJump()
     return true;
 }
 
-bool MeasuredExtinctionRecoversTheDensity()
+bool GlowGainRecoversTheDensityAtAnyDistance()
 {
+    LocalPointLight lamp;
     for (const float density : {0.001f, 0.003f, 0.012f})
     {
-        const float opacity = LevelRayFogAt(ThinFogEverywhere(density), kGlowMeasureYards).opacity;
-        if (!Near(MeanExtinctionOverYards(opacity, kGlowMeasureYards) / density, 1.0f))
-            return false;
+        FogParams fog = ThinFogEverywhere(density);
+        fog.skyIlluminant = kFogGlowReferenceIlluminant;
+        for (const float distance : {0.0f, 8.0f, 150.0f})
+            if (!Near(LocalLightGlowGain(fog, lamp, distance) / FogGlowGainAt(density), 1.0f))
+                return false;
     }
-    return MeanExtinctionOverYards(0.0f, kGlowMeasureYards) == 0.0f &&
-           std::isfinite(MeanExtinctionOverYards(1.0f, kGlowMeasureYards));
+    return true;
+}
+
+bool OpaqueFogAroundADistantLampGivesTheLowestGain()
+{
+    LocalPointLight lamp;
+    FogParams fog = ThinFogEverywhere(0.1f);
+    fog.skyIlluminant = kFogGlowReferenceIlluminant;
+    return LocalLightGlowGain(fog, lamp, 150.0f) == kFogGlowGainLowest &&
+           LocalLightGlowGain(fog, lamp, 100.0f) == kFogGlowGainLowest &&
+           LocalLightGlowGain(FogParams{}, lamp, 100.0f) == kFogGlowGainHighest;
 }
 
 void CheckRelativeLightGains()
 {
     Check(Near(FogGlowGainAt(kFogGlowReferenceDensity), 1.0f) &&
-              Near(SurfaceGainAt(kSurfaceLightReferenceIlluminant), 1.0f) &&
-              Near(FogGlowGainUnder(kFogGlowReferenceIlluminant), 1.0f),
-          "the fog glow gain is 1 at the reference optical density and the surface light gain is 1 at the "
-          "reference illuminant");
+              Near(SurfaceGainAt(kSurfaceLightReferenceIlluminant), kSurfaceLightGainAtReference) &&
+              Near(LampGlowGainUnder(kFogGlowReferenceIlluminant), 1.0f) &&
+              Near(SpellGlowGainUnder(kFogGlowReferenceIlluminant), 1.0f),
+          "the fog glow gain is 1 at the reference optical density and illuminant, and the surface light gain is "
+          "its reference value at the reference illuminant");
     Check(GainsMoveTheRightWay(),
-          "denser fog dims the lights' glow, and a brighter sky raises both the glow and the light on surfaces");
+          "denser fog dims the lights' glow, and a brighter sky lowers the glow and the light on surfaces");
+    Check(DaylightDimsLampsMoreThanSpells(),
+          "a bright sky dims the glow of a lamp more than the glow of a spell and a dim sky brightens it more, so "
+          "daylight cancels lamps and leaves spells showing");
+    Check(GlowAtTheLampIgnoresTheInteriorBlend(),
+          "a lamp's glow in the fog around it keeps its strength while the camera crosses a doorway and the client's "
+          "fog start sweeps from 29 to 556 yd, at lamps 8, 60 and 150 yd away");
     Check(GainsStayBetweenTheirLimits(),
           "both gains stay between their lowest and highest, no fog gives the highest glow and no sky light the lowest "
           "surface light");
     Check(GainsHaveNoJump(), "neighbouring densities and illuminants give neighbouring gains, with no jump");
-    Check(MeasuredExtinctionRecoversTheDensity(),
-          "the mean extinction over the first 40 yards recovers the fog's density and stays finite when the fog is "
-          "opaque");
+    Check(GlowGainRecoversTheDensityAtAnyDistance(),
+          "the glow gain of a lamp at any distance, even at the camera, is the gain of the fog's density there");
+    Check(OpaqueFogAroundADistantLampGivesTheLowestGain(),
+          "a lamp deep in opaque fog gets the lowest glow gain, and one in no fog the highest");
 
     const Vec3 eye = {-3005.0f, 4469.0f, -18.0f};
     const Vec3 toLight = {0.607f, 0.607f, 0.513f};
@@ -1856,11 +1934,14 @@ void CheckRelativeLightGains()
     const FrameInputs frame = ContinentFrame(kEasternKingdoms, eye, 0.7279f, toLight, false);
     const FogParams thinFog = BuildFogParams(frame, thin, nullptr);
     const FogParams thickFog = BuildFogParams(frame, thick, nullptr);
-    std::printf("     spell glow gain at Density %.2f: %.3f, at %.2f: %.3f\n", thin.density, thinFog.spellLightGain,
-                thick.density, thickFog.spellLightGain);
-    Check(thickFog.spellLightGain < thinFog.spellLightGain && thickFog.spellLightGain >= kFogGlowGainLowest &&
-              thinFog.spellLightGain <= kFogGlowGainHighest,
-          "a thicker fog in front of the camera lowers the gain BuildFogParams gives the lights' glow");
+    LocalPointLight spell;
+    spell.source = LocalLightSource::Spell;
+    const float thinGain = LocalLightGlowGain(thinFog, spell, 30.0f);
+    const float thickGain = LocalLightGlowGain(thickFog, spell, 30.0f);
+    std::printf("     spell glow gain 30 yd away at Density %.2f: %.3f, at %.2f: %.3f\n", thin.density, thinGain,
+                thick.density, thickGain);
+    Check(thickGain < thinGain && thickGain >= kFogGlowGainLowest && thinGain <= kFogGlowGainHighest,
+          "a thicker fog around a light lowers the glow gain of a light built from BuildFogParams");
 }
 
 void CheckOutlandSkyColourTintsTheConvertedFog(const FogData& data)

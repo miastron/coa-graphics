@@ -509,11 +509,7 @@ FogParams BuildFogParams(const FrameInputs& in, const Config& cfg, const Authore
         DistanceLayer(in, cfg, p, elevationFadedScatter, fogColor, distanceFog);
     }
     ApplyInteriorFog(interiorWeight, cfg, p);
-    const float glowGain = FogGlowGain(
-        MeanExtinctionOverYards(LevelRayFogAt(p, kGlowMeasureYards).opacity, kGlowMeasureYards),
-        SkyIlluminant(in.ambientColor, in.directColor));
-    p.localLightGain = glowGain;
-    p.spellLightGain = glowGain;
+    p.skyIlluminant = SkyIlluminant(in.ambientColor, in.directColor);
     return p;
 }
 
@@ -561,9 +557,14 @@ PointLightUpload LocalLightUpload(const Config& cfg, int mapId)
             RegionLocalLights(cfg, RegionOfMap(mapId))};
 }
 
-float LocalLightFogGain(const FogParams& fog, const LocalPointLight& light)
+float LocalLightGlowGain(const FogParams& fog, const LocalPointLight& light, float distance)
 {
-    return light.source == LocalLightSource::Spell ? fog.spellLightGain : fog.localLightGain;
+    const float nearEdge = std::max(distance - 0.5f * kGlowMeasureYards, 0.0f);
+    const float farEdge = nearEdge + kGlowMeasureYards;
+    const float depth = LevelRayFogAt(fog, farEdge).opticalDepth - LevelRayFogAt(fog, nearEdge).opticalDepth;
+    const float exponent = light.source == LocalLightSource::Spell ? kFogGlowSpellIlluminantExponent
+                                                                   : kFogGlowLampIlluminantExponent;
+    return FogGlowGain(depth / kGlowMeasureYards, fog.skyIlluminant, exponent);
 }
 
 float LocalLightSurfaceStrength(const Config& cfg, const LocalPointLight& light)
@@ -584,26 +585,19 @@ float SkyIlluminant(uint32_t ambient, uint32_t direct)
     return std::max(linearLuma(ambient) + kSunShareOfIlluminant * linearLuma(direct), kDarkestIlluminant);
 }
 
-float FogGlowGain(float extinction, float illuminant)
+float FogGlowGain(float extinction, float illuminant, float illuminantExponent)
 {
     if (!(extinction > 0.0f))
         return kFogGlowGainHighest;
     const float thinness = std::pow(kFogGlowReferenceDensity / extinction, kFogGlowDensityExponent);
-    const float brightness = std::pow(illuminant / kFogGlowReferenceIlluminant, kFogGlowIlluminantExponent);
+    const float brightness = std::pow(illuminant / kFogGlowReferenceIlluminant, illuminantExponent);
     return std::clamp(thinness * brightness, kFogGlowGainLowest, kFogGlowGainHighest);
 }
 
 float SurfaceLightGain(float illuminant)
 {
-    const float brightness = std::pow(illuminant / kSurfaceLightReferenceIlluminant, kSurfaceLightGainExponent);
-    return std::clamp(brightness, kSurfaceLightGainLowest, kSurfaceLightGainHighest);
-}
-
-float MeanExtinctionOverYards(float opacity, float yards)
-{
-    if (!(opacity > 0.0f))
-        return 0.0f;
-    return -std::log(1.0f - std::min(opacity, kLargestMeasuredOpacity)) / yards;
+    const float dimming = std::pow(illuminant / kSurfaceLightReferenceIlluminant, kSurfaceLightGainExponent);
+    return std::clamp(kSurfaceLightGainAtReference * dimming, kSurfaceLightGainLowest, kSurfaceLightGainHighest);
 }
 
 namespace
@@ -631,7 +625,7 @@ LevelRayFog LevelRayFogAt(const FogParams& p, float distance)
         emissionDepth += Luminance(l.emissive) * layerDepth;
     }
     const float opacity = 1.0f - std::exp(-opticalDepth);
-    return {opacity, opticalDepth > 0.0f ? emissionDepth / opticalDepth * opacity : 0.0f};
+    return {opacity, opticalDepth > 0.0f ? emissionDepth / opticalDepth * opacity : 0.0f, opticalDepth};
 }
 
 bool AnyLayerNoise(const FogParams& fog)

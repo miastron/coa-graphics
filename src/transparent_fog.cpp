@@ -221,9 +221,10 @@ FitPointLights UploadedPointLights(const FogParams& fog, const FrameInputs& in, 
     points.phase = light.pointLightPhase;
     for (uint32_t i = 0; i < points.count; ++i)
     {
-        points.gains[i] = LocalLightFogGain(fog, points.lights[i]);
         for (int axis = 0; axis < 3; ++axis)
             points.relative[i][axis] = points.lights[i].position[axis] - in.camPos[axis];
+        const float distance = std::sqrt(Dot3(points.relative[i], points.relative[i]));
+        points.gains[i] = LocalLightGlowGain(fog, points.lights[i], distance);
     }
     return points;
 }

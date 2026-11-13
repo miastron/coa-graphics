@@ -2065,8 +2065,10 @@ bool Renderer::RenderPasses(IDirect3DDevice9* dev, const SceneDepth& depth, IDir
         localConstants[i * 3] = {position[0], position[1], position[2], light.cutoff};
         localConstants[i * 3 + 1] = {light.uploadedColor[0], light.uploadedColor[1], light.uploadedColor[2],
                                      LocalLightSurfaceStrength(cfg, light) * surfaceGain};
+        const float distance = std::sqrt(relative[0] * relative[0] + relative[1] * relative[1] +
+                                         relative[2] * relative[2]);
         localConstants[i * 3 + 2] = {light.attenuation[0], light.attenuation[1], light.attenuation[2],
-                                     LocalLightFogGain(fog, light)};
+                                     LocalLightGlowGain(fog, light, distance)};
     }
     if (pointLightCount > 0)
     {
